@@ -1,10 +1,10 @@
 use crate::ProcessingOption;
+use exif::{In, Tag};
 use image::{
     codecs::jpeg::JpegEncoder, imageops, load_from_memory, DynamicImage, GenericImageView,
     ImageBuffer, ImageFormat, Rgba,
 };
 use std::io::Cursor;
-use exif::{In, Tag};
 
 const RESIZE: &str = "resize";
 const WIDTH: &str = "width";

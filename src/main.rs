@@ -6,15 +6,25 @@ use axum::{
     routing::get,
     Router,
 };
-use axum_extra::TypedHeader;
 use axum_extra::headers::{authorization::Bearer, Authorization};
+use axum_extra::TypedHeader;
 use base64::{engine::general_purpose, Engine as _};
 use hmac::{Hmac, Mac};
+use image::io::Reader as ImageReader;
 use percent_encoding::percent_decode_str;
 use sha2::Sha256;
 use std::env;
+use std::io::Cursor;
 
 mod processing;
+
+const ENV_IMGFORGE_KEY: &str = "IMGFORGE_KEY";
+const ENV_IMGFORGE_SALT: &str = "IMGFORGE_SALT";
+const ENV_IMGFORGE_AUTH_TOKEN: &str = "IMGFORGE_AUTH_TOKEN";
+const ENV_ALLOW_UNSIGNED: &str = "ALLOW_UNSIGNED";
+const ENV_MAX_SRC_FILE_SIZE: &str = "IMGFORGE_MAX_SRC_FILE_SIZE";
+const ENV_ALLOWED_MIME_TYPES: &str = "IMGFORGE_ALLOWED_MIME_TYPES";
+const ENV_MAX_SRC_RESOLUTION: &str = "IMGFORGE_MAX_SRC_RESOLUTION";
 
 #[derive(Debug)]
 enum SourceUrlInfo {
@@ -70,21 +80,32 @@ async fn image_forge_handler(
 ) -> impl IntoResponse {
     println!("Full path captured: {}", path);
 
-    if let Some(token) = env::var("IMGFORGE_AUTH_TOKEN").ok() {
+    if let Some(token) = env::var(ENV_IMGFORGE_AUTH_TOKEN).ok() {
         if !token.is_empty() {
             if let Some(TypedHeader(auth)) = auth_header {
                 if auth.token() != token {
-                    return (StatusCode::FORBIDDEN, "Invalid authorization token".to_string()).into_response();
+                    return (
+                        StatusCode::FORBIDDEN,
+                        "Invalid authorization token".to_string(),
+                    )
+                        .into_response();
                 }
             } else {
-                return (StatusCode::FORBIDDEN, "Missing authorization token".to_string()).into_response();
+                return (
+                    StatusCode::FORBIDDEN,
+                    "Missing authorization token".to_string(),
+                )
+                    .into_response();
             }
         }
     }
 
-    let key_str = env::var("IMGFORGE_KEY").unwrap_or_default();
-    let salt_str = env::var("IMGFORGE_SALT").unwrap_or_default();
-    let allow_unsigned = env::var("ALLOW_UNSIGNED").unwrap_or_default().to_lowercase() == "true";
+    let key_str = env::var(ENV_IMGFORGE_KEY).unwrap_or_default();
+    let salt_str = env::var(ENV_IMGFORGE_SALT).unwrap_or_default();
+    let allow_unsigned = env::var(ENV_ALLOW_UNSIGNED)
+        .unwrap_or_default()
+        .to_lowercase()
+        == "true";
 
     let key = match hex::decode(key_str) {
         Ok(k) => k,
@@ -164,6 +185,49 @@ async fn image_forge_handler(
                 .into_response()
         }
     };
+
+    if let Ok(max_size) = env::var(ENV_MAX_SRC_FILE_SIZE) {
+        if let Ok(max_size) = max_size.parse::<usize>() {
+            if image_bytes.len() > max_size {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    "Source image file size is too large".to_string(),
+                )
+                    .into_response();
+            }
+        }
+    }
+
+    if let Ok(allowed_types) = env::var(ENV_ALLOWED_MIME_TYPES) {
+        if let Some(content_type) = headers.get(header::CONTENT_TYPE) {
+            let allowed_types: Vec<&str> = allowed_types.split(',').collect();
+            if !allowed_types.contains(&content_type.to_str().unwrap_or("")) {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    "Source image MIME type is not allowed".to_string(),
+                )
+                    .into_response();
+            }
+        }
+    }
+
+    if let Ok(max_res) = env::var(ENV_MAX_SRC_RESOLUTION) {
+        if let Ok(max_res) = max_res.parse::<f32>() {
+            let reader = ImageReader::new(Cursor::new(&image_bytes)).with_guessed_format();
+            if let Ok(reader) = reader {
+                if let Ok((w, h)) = reader.into_dimensions() {
+                    let res_mp = (w * h) as f32 / 1_000_000.0;
+                    if res_mp > max_res {
+                        return (
+                            StatusCode::BAD_REQUEST,
+                            "Source image resolution is too large".to_string(),
+                        )
+                            .into_response();
+                    }
+                }
+            }
+        }
+    }
 
     let processed_image_bytes =
         match processing::process_image(image_bytes.into(), url_parts.processing_options).await {
