@@ -1,7 +1,6 @@
-
 use axum::{
     body::Bytes,
-    extract::Path,
+    extract::{Path, State},
     http::{header, StatusCode},
     response::{IntoResponse, Response},
     routing::get,
@@ -17,6 +16,8 @@ use percent_encoding::percent_decode_str;
 use sha2::Sha256;
 use std::env;
 use std::io::Cursor;
+use std::sync::Arc;
+use tokio::sync::Semaphore;
 
 mod processing;
 
@@ -30,6 +31,11 @@ const ENV_MAX_SRC_RESOLUTION: &str = "IMGFORGE_MAX_SRC_RESOLUTION";
 const ENV_MAX_ANIMATION_FRAMES: &str = "IMGFORGE_MAX_ANIMATION_FRAMES";
 const ENV_MAX_ANIMATION_FRAME_RESOLUTION: &str = "IMGFORGE_MAX_ANIMATION_FRAME_RESOLUTION";
 const ENV_ALLOW_SECURITY_OPTIONS: &str = "IMGFORGE_ALLOW_SECURITY_OPTIONS";
+const ENV_WORKERS: &str = "IMGFORGE_WORKERS";
+
+struct AppState {
+    semaphore: Semaphore,
+}
 
 #[derive(Debug)]
 enum SourceUrlInfo {
@@ -73,13 +79,23 @@ struct ImgforgeUrl {
 
 #[tokio::main]
 async fn main() {
-    let app = Router::new().route("/{*path}", get(image_forge_handler));
+    let workers = env::var(ENV_WORKERS).unwrap_or_else(|_| "0".to_string()).parse().unwrap_or(0);
+    let semaphore = if workers > 0 {
+        Semaphore::new(workers)
+    } else {
+        Semaphore::new(num_cpus::get())
+    };
+
+    let state = Arc::new(AppState { semaphore });
+
+    let app = Router::new().route("/{*path}", get(image_forge_handler)).with_state(state);
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
     println!("Listening on http://0.0.0.0:3000");
     axum::serve(listener, app).await.unwrap();
 }
 
 async fn image_forge_handler(
+    State(state): State<Arc<AppState>>,
     Path(path): Path<String>,
     auth_header: Option<TypedHeader<Authorization<Bearer>>>,
 ) -> impl IntoResponse {
@@ -250,6 +266,8 @@ async fn image_forge_handler(
             }
         }
     }
+
+    let permit = if parsed_options.raw { None } else { Some(state.semaphore.acquire().await.unwrap()) };
 
     let processed_image_bytes =
         match processing::process_image(image_bytes.into(), parsed_options).await {

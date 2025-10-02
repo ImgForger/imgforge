@@ -1,4 +1,3 @@
-
 use crate::ProcessingOption;
 use image::{codecs::jpeg::JpegEncoder, imageops, load_from_memory, DynamicImage, GenericImageView, ImageBuffer, ImageFormat, Rgba};
 use std::io::Cursor;
@@ -13,6 +12,7 @@ const EXTEND: &str = "extend";
 const PADDING: &str = "padding";
 const ORIENTATION: &str = "orientation";
 const AUTO_ROTATE: &str = "auto_rotate";
+const RAW: &str = "raw";
 const BLUR: &str = "blur";
 const CROP: &str = "crop";
 const FORMAT: &str = "format";
@@ -52,6 +52,7 @@ pub struct ParsedOptions {
     pub padding: Option<(u32, u32, u32, u32)>,
     pub orientation: Option<u16>,
     pub auto_rotate: bool,
+    pub raw: bool,
     pub max_src_resolution: Option<f32>,
     pub max_src_file_size: Option<usize>,
 }
@@ -73,6 +74,7 @@ impl Default for ParsedOptions {
             padding: None,
             orientation: None,
             auto_rotate: true,
+            raw: false,
             max_src_resolution: None,
             max_src_file_size: None,
         }
@@ -194,6 +196,9 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
                     return Err("auto_rotate option requires one argument".to_string());
                 }
                 parsed_options.auto_rotate = parse_boolean(&option.args[0]);
+            }
+            RAW => {
+                parsed_options.raw = true;
             }
             BLUR => {
                 if option.args.len() < 1 {
