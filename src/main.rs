@@ -2,7 +2,7 @@ use axum::{
     body::Bytes,
     extract::{Path, State},
     http::{header, StatusCode},
-    response::{IntoResponse, Response},
+    response::{IntoResponse, Response, Json},
     routing::get,
     Router,
 };
@@ -18,6 +18,7 @@ use std::env;
 use std::io::Cursor;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
+use serde_json::json;
 
 mod processing;
 
@@ -88,10 +89,149 @@ async fn main() {
 
     let state = Arc::new(AppState { semaphore });
 
-    let app = Router::new().route("/{*path}", get(image_forge_handler)).with_state(state);
+    let app = Router::new()
+        .route("/status", get(status_handler))
+        .route("/info/{*path}", get(info_handler))
+        .route("/{*path}", get(image_forge_handler))
+        .with_state(state);
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
     println!("Listening on http://0.0.0.0:3000");
     axum::serve(listener, app).await.unwrap();
+}
+
+async fn status_handler() -> impl IntoResponse {
+    (StatusCode::OK, Json(json!({"status": "ok"})))
+}
+
+async fn info_handler(
+    State(state): State<Arc<AppState>>,
+    Path(path): Path<String>,
+    auth_header: Option<TypedHeader<Authorization<Bearer>>>,
+) -> impl IntoResponse {
+    println!("Info path captured: {}", path);
+
+    if let Some(token) = env::var(ENV_IMGFORGE_AUTH_TOKEN).ok() {
+        if !token.is_empty() {
+            if let Some(TypedHeader(auth)) = auth_header {
+                if auth.token() != token {
+                    return (StatusCode::FORBIDDEN, "Invalid authorization token".to_string()).into_response();
+                }
+            } else {
+                return (StatusCode::FORBIDDEN, "Missing authorization token".to_string()).into_response();
+            }
+        }
+    }
+
+    let key_str = env::var(ENV_IMGFORGE_KEY).unwrap_or_default();
+    let salt_str = env::var(ENV_IMGFORGE_SALT).unwrap_or_default();
+    let allow_unsigned = env::var(ENV_ALLOW_UNSIGNED).unwrap_or_default().to_lowercase() == "true";
+
+    let key = match hex::decode(key_str) {
+        Ok(k) => k,
+        Err(_) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Invalid IMGFORGE_KEY".to_string(),
+            )
+                .into_response()
+        }
+    };
+    let salt = match hex::decode(salt_str) {
+        Ok(s) => s,
+        Err(_) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Invalid IMGFORGE_SALT".to_string(),
+            )
+                .into_response()
+        }
+    };
+
+    let url_parts = match parse_path(&path) {
+        Some(parts) => parts,
+        None => return (StatusCode::BAD_REQUEST, "Invalid URL format".to_string()).into_response(),
+    };
+
+    if url_parts.signature == "unsafe" {
+        if !allow_unsigned {
+            return (
+                StatusCode::FORBIDDEN,
+                "Unsigned URLs are not allowed".to_string(),
+            )
+                .into_response();
+        }
+    } else {
+        let path_to_sign = &path[path.find('/').unwrap() + 1..];
+        if !validate_signature(&key, &salt, &url_parts.signature, path_to_sign) {
+            return (StatusCode::FORBIDDEN, "Invalid signature".to_string()).into_response();
+        }
+    }
+
+    let decoded_url = match url_parts.source_url.decode() {
+        Ok(url) => url,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                format!("Error decoding URL: {}", e),
+            )
+                .into_response()
+        }
+    };
+
+    let response = match reqwest::get(&decoded_url).await {
+        Ok(res) => res,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                format!("Error fetching image: {}", e),
+            )
+                .into_response()
+        }
+    };
+
+    let image_bytes = match response.bytes().await {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                format!("Error reading image bytes: {}", e),
+            )
+                .into_response()
+        }
+    };
+
+    let reader = image::io::Reader::new(Cursor::new(&image_bytes)).with_guessed_format();
+    let (width, height, format_str) = if let Ok(reader) = reader {
+        if let Some(format) = reader.format() {
+            let format_str = match format {
+                image::ImageFormat::Jpeg => "jpeg",
+                image::ImageFormat::Png => "png",
+                image::ImageFormat::Gif => "gif",
+                image::ImageFormat::WebP => "webp",
+                image::ImageFormat::Avif => "avif",
+                image::ImageFormat::Tiff => "tiff",
+                image::ImageFormat::Bmp => "bmp",
+                _ => "unknown", // Handle other formats
+            }.to_string();
+            if let Ok((w, h)) = reader.into_dimensions() {
+                (w, h, format_str)
+            } else {
+                (0, 0, "unknown".to_string())
+            }
+        } else {
+            (0, 0, "unknown".to_string())
+        }
+    } else {
+        (0, 0, "unknown".to_string())
+    };
+
+    let json_response = json!({
+        "width": width,
+        "height": height,
+        "format": format_str,
+    });
+
+    (StatusCode::OK, Json(json_response)).into_response()
 }
 
 async fn image_forge_handler(

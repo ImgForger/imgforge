@@ -977,6 +977,8 @@ dependencies = [
  "num_cpus",
  "percent-encoding",
  "reqwest",
+ "serde",
+ "serde_json",
  "sha2",
  "tokio",
 ]
