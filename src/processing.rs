@@ -1,4 +1,3 @@
-
 use crate::ProcessingOption;
 use image::{codecs::jpeg::JpegEncoder, imageops, load_from_memory, DynamicImage, GenericImageView, ImageBuffer, ImageFormat, Rgba};
 use std::io::Cursor;
@@ -9,6 +8,7 @@ const HEIGHT: &str = "height";
 const GRAVITY: &str = "gravity";
 const ENLARGE: &str = "enlarge";
 const EXTEND: &str = "extend";
+const PADDING: &str = "padding";
 const BLUR: &str = "blur";
 const CROP: &str = "crop";
 const FORMAT: &str = "format";
@@ -43,6 +43,7 @@ struct ParsedOptions {
     gravity: Option<String>,
     enlarge: bool,
     extend: bool,
+    padding: Option<(u32, u32, u32, u32)>,
 }
 
 fn parse_hex_color(hex: &str) -> Result<Rgba<u8>, String> {
@@ -137,6 +138,18 @@ fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions, St
                 }
                 parsed_options.extend = parse_boolean(&option.args[0]);
             }
+            PADDING => {
+                if option.args.is_empty() {
+                    return Err("padding option requires at least one argument".to_string());
+                }
+                let values: Vec<u32> = option.args.iter().map(|s| s.parse().map_err(|_| "Invalid padding value".to_string())).collect::<Result<Vec<u32>, String>>()?;
+                parsed_options.padding = Some(match values.len() {
+                    1 => (values[0], values[0], values[0], values[0]),
+                    2 => (values[0], values[1], values[0], values[1]),
+                    4 => (values[0], values[1], values[2], values[3]),
+                    _ => return Err("padding must have 1, 2, or 4 arguments".to_string()),
+                });
+            }
             BLUR => {
                 if option.args.len() < 1 {
                     return Err("blur option requires one argument: sigma".to_string());
@@ -220,7 +233,7 @@ pub async fn process_image(
         img = img.crop_imm(crop.x, crop.y, crop.width, crop.height);
     }
 
-    if let Some(resize) = &parsed_options.resize {
+    if let Some(ref resize) = parsed_options.resize {
         let (w, h) = (resize.width, resize.height);
 
         if !parsed_options.enlarge && (w > img.width() || h > img.height()) {
@@ -281,6 +294,12 @@ pub async fn process_image(
                 img = DynamicImage::ImageRgba8(background);
             }
         }
+    }
+
+    if let Some((top, right, bottom, left)) = parsed_options.padding {
+        let mut background = ImageBuffer::from_pixel(img.width() + left + right, img.height() + top + bottom, parsed_options.background.unwrap_or_else(|| Rgba([0, 0, 0, 0])));
+        imageops::overlay(&mut background, &img, left as i64, top as i64);
+        img = DynamicImage::ImageRgba8(background);
     }
 
     if let Some(sigma) = parsed_options.blur {
