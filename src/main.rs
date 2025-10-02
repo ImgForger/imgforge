@@ -19,6 +19,8 @@ use std::io::Cursor;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
 use serde_json::json;
+use tracing::{info, error, debug};
+use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
 mod processing;
 
@@ -89,13 +91,21 @@ async fn main() {
 
     let state = Arc::new(AppState { semaphore });
 
+    // Initialize tracing
+    let subscriber = FmtSubscriber::builder()
+        .with_env_filter(EnvFilter::from_default_env())
+        .finish();
+    tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
+
+    info!("Starting imgforge server...");
+
     let app = Router::new()
         .route("/status", get(status_handler))
         .route("/info/{*path}", get(info_handler))
         .route("/{*path}", get(image_forge_handler))
         .with_state(state);
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
-    println!("Listening on http://0.0.0.0:3000");
+    info!("Listening on http://0.0.0.0:3000");
     axum::serve(listener, app).await.unwrap();
 }
 
@@ -108,12 +118,13 @@ async fn info_handler(
     Path(path): Path<String>,
     auth_header: Option<TypedHeader<Authorization<Bearer>>>,
 ) -> impl IntoResponse {
-    println!("Info path captured: {}", path);
+    info!("Info path captured: {}", path);
 
     let (_url_parts, _decoded_url, image_bytes, _content_type) = match common_image_setup(&path, auth_header).await {
         Ok(data) => data,
         Err(response) => return response,
     };
+    debug!("Processing info request for URL: {}", _decoded_url);
 
     let reader = image::io::Reader::new(Cursor::new(&image_bytes)).with_guessed_format();
     let (width, height, format_str) = if let Ok(reader) = reader {
@@ -154,33 +165,41 @@ async fn image_forge_handler(
     Path(path): Path<String>,
     auth_header: Option<TypedHeader<Authorization<Bearer>>>,
 ) -> impl IntoResponse {
-    println!("Full path captured: {}", path);
+    info!("Full path captured: {}", path);
 
     let (url_parts, _decoded_url, image_bytes, content_type) = match common_image_setup(&path, auth_header).await {
         Ok(data) => data,
         Err(response) => return response,
     };
+    debug!("Processing image forge request for URL: {}", _decoded_url);
 
     let allow_security_options = env::var(ENV_ALLOW_SECURITY_OPTIONS).unwrap_or_default().to_lowercase() == "true";
 
     let parsed_options = match processing::parse_all_options(url_parts.processing_options) {
         Ok(options) => options,
-        Err(e) => return (StatusCode::BAD_REQUEST, e).into_response(),
+        Err(e) => {
+            error!("Error parsing processing options: {}", e);
+            return (StatusCode::BAD_REQUEST, e).into_response();
+        }
     };
+    debug!("Parsed options: {:?}", parsed_options);
 
     let mut headers = header::HeaderMap::new();
     if let Some(ct) = content_type {
         headers.insert(header::CONTENT_TYPE, ct.parse().unwrap());
     }
+    debug!("Image MIME type: {:?}", headers.get(header::CONTENT_TYPE));
 
     let max_src_file_size = if allow_security_options {
         parsed_options.max_src_file_size.or_else(|| env::var(ENV_MAX_SRC_FILE_SIZE).ok().and_then(|s| s.parse().ok()))
     } else {
         env::var(ENV_MAX_SRC_FILE_SIZE).ok().and_then(|s| s.parse().ok())
     };
+    debug!("Image size: {} bytes", image_bytes.len());
 
     if let Some(max_size) = max_src_file_size {
         if image_bytes.len() > max_size {
+            error!("Source image file size is too large");
             return (StatusCode::BAD_REQUEST, "Source image file size is too large".to_string()).into_response();
         }
     }
@@ -190,6 +209,7 @@ async fn image_forge_handler(
             let content_type_str = content_type.to_str().unwrap_or("");
             let allowed_types: Vec<&str> = allowed_types.split(',').collect();
             if !allowed_types.contains(&content_type_str) {
+                error!("Source image MIME type is not allowed: {}", content_type_str);
                 return (StatusCode::BAD_REQUEST, "Source image MIME type is not allowed".to_string()).into_response();
             }
 
@@ -198,6 +218,7 @@ async fn image_forge_handler(
                     if let Ok(max_frames) = max_frames.parse::<usize>() {
                         let decoder = image::codecs::gif::GifDecoder::new(Cursor::new(&image_bytes)).unwrap();
                         if decoder.into_frames().count() > max_frames {
+                            error!("Too many frames in animated image");
                             return (StatusCode::BAD_REQUEST, "Too many frames in animated image".to_string()).into_response();
                         }
                     }
@@ -211,6 +232,7 @@ async fn image_forge_handler(
                             let (w, h) = frame.buffer().dimensions();
                             let res_mp = (w * h) as f32 / 1_000_000.0;
                             if res_mp > max_res {
+                                error!("Animated image frame resolution is too large");
                                 return (StatusCode::BAD_REQUEST, "Animated image frame resolution is too large".to_string()).into_response();
                             }
                         }
@@ -230,8 +252,10 @@ async fn image_forge_handler(
         let reader = ImageReader::new(Cursor::new(&image_bytes)).with_guessed_format();
         if let Ok(reader) = reader {
             if let Ok((w, h)) = reader.into_dimensions() {
+                debug!("Image resolution: {}x{}", w, h);
                 let res_mp = (w * h) as f32 / 1_000_000.0;
                 if res_mp > max_res {
+                    error!("Source image resolution is too large");
                     return (StatusCode::BAD_REQUEST, "Source image resolution is too large".to_string()).into_response();
                 }
             }
@@ -244,6 +268,7 @@ async fn image_forge_handler(
         match processing::process_image(image_bytes.into(), parsed_options).await {
             Ok(bytes) => bytes,
             Err(e) => {
+                error!("Error processing image: {}", e);
                 return (
                     StatusCode::BAD_REQUEST,
                     format!("Error processing image: {}", e),
@@ -278,9 +303,11 @@ async fn common_image_setup(
         if !token.is_empty() {
             if let Some(TypedHeader(auth)) = auth_header {
                 if auth.token() != token {
+                    error!("Invalid authorization token");
                     return Err((StatusCode::FORBIDDEN, "Invalid authorization token".to_string()).into_response());
                 }
             } else {
+                error!("Missing authorization token");
                 return Err((StatusCode::FORBIDDEN, "Missing authorization token".to_string()).into_response());
             }
         }
@@ -294,6 +321,7 @@ async fn common_image_setup(
     let key = match hex::decode(key_str) {
         Ok(k) => k,
         Err(_) => {
+            error!("Invalid IMGFORGE_KEY");
             return Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Invalid IMGFORGE_KEY".to_string(),
@@ -304,6 +332,7 @@ async fn common_image_setup(
     let salt = match hex::decode(salt_str) {
         Ok(s) => s,
         Err(_) => {
+            error!("Invalid IMGFORGE_SALT");
             return Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Invalid IMGFORGE_SALT".to_string(),
@@ -315,12 +344,16 @@ async fn common_image_setup(
     // URL Parsing
     let url_parts = match parse_path(path) {
         Some(parts) => parts,
-        None => return Err((StatusCode::BAD_REQUEST, "Invalid URL format".to_string()).into_response()),
+        None => {
+            error!("Invalid URL format: {}", path);
+            return Err((StatusCode::BAD_REQUEST, "Invalid URL format".to_string()).into_response());
+        }
     };
 
     // Signature Validation
     if url_parts.signature == "unsafe" {
         if !allow_unsigned {
+            error!("Unsigned URLs are not allowed");
             return Err((
                 StatusCode::FORBIDDEN,
                 "Unsigned URLs are not allowed".to_string(),
@@ -330,6 +363,7 @@ async fn common_image_setup(
     } else {
         let path_to_sign = &path[path.find('/').unwrap() + 1..];
         if !validate_signature(&key, &salt, &url_parts.signature, path_to_sign) {
+            error!("Invalid signature for path: {}", path);
             return Err((StatusCode::FORBIDDEN, "Invalid signature".to_string()).into_response());
         }
     }
@@ -338,6 +372,7 @@ async fn common_image_setup(
     let decoded_url = match url_parts.source_url.decode() {
         Ok(url) => url,
         Err(e) => {
+            error!("Error decoding URL: {}", e);
             return Err((
                 StatusCode::BAD_REQUEST,
                 format!("Error decoding URL: {}", e),
@@ -350,6 +385,7 @@ async fn common_image_setup(
     let response = match reqwest::get(&decoded_url).await {
         Ok(res) => res,
         Err(e) => {
+            error!("Error fetching image: {}", e);
             return Err((
                 StatusCode::BAD_REQUEST,
                 format!("Error fetching image: {}", e),
@@ -363,6 +399,7 @@ async fn common_image_setup(
     let image_bytes = match response.bytes().await {
         Ok(bytes) => bytes,
         Err(e) => {
+            error!("Error reading image bytes: {}", e);
             return Err((
                 StatusCode::BAD_REQUEST,
                 format!("Error reading image bytes: {}", e),
