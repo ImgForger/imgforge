@@ -1,64 +1,116 @@
+//! Image processing module for imgforge.
+//! This module contains functions and structs for parsing image processing options
+//! and applying various transformations to images.
+
 use crate::ProcessingOption;
 use image::{codecs::jpeg::JpegEncoder, imageops, load_from_memory, DynamicImage, GenericImageView, ImageBuffer, ImageFormat, Rgba};
 use std::io::Cursor;
 use exif::{In, Tag};
 use tracing::{debug, error, info};
 
+/// Option name for resizing.
 const RESIZE: &str = "resize";
+/// Option name for width.
 const WIDTH: &str = "width";
+/// Option name for height.
 const HEIGHT: &str = "height";
+/// Option name for gravity.
 const GRAVITY: &str = "gravity";
+/// Option name for enlarge.
 const ENLARGE: &str = "enlarge";
+/// Option name for extend.
 const EXTEND: &str = "extend";
+/// Option name for padding.
 const PADDING: &str = "padding";
+/// Option name for orientation.
 const ORIENTATION: &str = "orientation";
+/// Option name for auto_rotate.
 const AUTO_ROTATE: &str = "auto_rotate";
+/// Option name for raw.
 const RAW: &str = "raw";
+/// Option name for blur.
 const BLUR: &str = "blur";
+/// Option name for crop.
 const CROP: &str = "crop";
+/// Option name for format.
 const FORMAT: &str = "format";
+/// Option name for quality.
 const QUALITY: &str = "quality";
+/// Option name for background.
 const BACKGROUND: &str = "background";
+/// Option name for max_src_resolution.
 const MAX_SRC_RESOLUTION: &str = "max_src_resolution";
+/// Option name for max_src_file_size.
 const MAX_SRC_FILE_SIZE: &str = "max_src_file_size";
+/// Option name for cache_buster.
 const CACHE_BUSTER: &str = "cache_buster";
+/// Option name for dpr.
 const DPR: &str = "dpr";
 
+/// Represents the parameters for a resize operation.
 #[derive(Debug, Default)]
 pub struct Resize {
+    /// The type of resizing to perform (e.g., "fill", "fit", "force").
     pub resizing_type: String,
+    /// The target width for the resize operation.
     pub width: u32,
+    /// The target height for the resize operation.
     pub height: u32,
 }
 
+/// Represents the parameters for a crop operation.
 #[derive(Debug, Default)]
 pub struct Crop {
+    /// The x-coordinate of the top-left corner of the crop area.
     pub x: u32,
+    /// The y-coordinate of the top-left corner of the crop area.
     pub y: u32,
+    /// The width of the crop area.
     pub width: u32,
+    /// The height of the crop area.
     pub height: u32,
 }
 
+/// Holds all parsed image processing options.
 #[derive(Debug)]
 pub struct ParsedOptions {
+    /// Optional resize operation parameters.
     pub resize: Option<Resize>,
+    /// Optional blur sigma value.
     pub blur: Option<f32>,
+    /// Optional crop operation parameters.
     pub crop: Option<Crop>,
+    /// Optional output image format.
     pub format: Option<ImageFormat>,
+    /// Optional output image quality (1-100).
     pub quality: Option<u8>,
+    /// Optional background color for transparent areas or extending.
     pub background: Option<Rgba<u8>>,
+    /// Optional target width (used with `resize` if no explicit resize type).
     pub width: Option<u32>,
+    /// Optional target height (used with `resize` if no explicit resize type).
     pub height: Option<u32>,
+    /// Optional gravity for cropping or extending (e.g., "center", "north").
     pub gravity: Option<String>,
+    /// Whether to allow enlarging the image beyond its original dimensions.
     pub enlarge: bool,
+    /// Whether to extend the image with a background if target dimensions are larger.
     pub extend: bool,
+    /// Optional padding values (top, right, bottom, left).
     pub padding: Option<(u32, u32, u32, u32)>,
+    /// Optional image orientation (rotation angle).
     pub orientation: Option<u16>,
+    /// Whether to automatically rotate the image based on EXIF data.
     pub auto_rotate: bool,
+    /// Whether to bypass processing limits (e.g., worker limits).
     pub raw: bool,
+    /// Maximum allowed source image resolution in megapixels.
     pub max_src_resolution: Option<f32>,
+    /// Maximum allowed source image file size in bytes.
     pub max_src_file_size: Option<usize>,
+    /// Value to bypass cache (e.g., timestamp).
     pub cache_buster: Option<String>,
+    /// Device pixel ratio factor to scale up dimensions.
     pub dpr: Option<f32>,
 }
 
@@ -88,6 +140,15 @@ impl Default for ParsedOptions {
     }
 }
 
+/// Parses a hexadecimal color string into an `Rgba<u8>` color.
+///
+/// # Arguments
+///
+/// * `hex` - The hexadecimal color string (e.g., "ffffff" or "#ffffff").
+///
+/// # Returns
+///
+/// A `Result` containing the `Rgba<u8>` color on success, or an error message as a `String`.
 fn parse_hex_color(hex: &str) -> Result<Rgba<u8>, String> {
     let hex = hex.trim_start_matches('#');
     if hex.len() != 6 {
@@ -99,6 +160,18 @@ fn parse_hex_color(hex: &str) -> Result<Rgba<u8>, String> {
     Ok(Rgba([r, g, b, 255]))
 }
 
+/// Resizes an image to fill the target dimensions, cropping if necessary, based on gravity.
+///
+/// # Arguments
+///
+/// * `img` - The `DynamicImage` to resize.
+/// * `width` - The target width.
+/// * `height` - The target height.
+/// * `gravity` - The gravity string (e.g., "center", "north").
+///
+/// # Returns
+///
+/// The resized and cropped `DynamicImage`.
 fn resize_to_fill_with_gravity(
     img: &DynamicImage,
     width: u32,
@@ -129,10 +202,31 @@ fn resize_to_fill_with_gravity(
     resized_img.crop_imm(crop_x, crop_y, width, height)
 }
 
+/// Parses a string into a boolean value.
+///
+/// # Arguments
+///
+/// * `s` - The string to parse ("1", "true" for true, anything else for false).
+///
+/// # Returns
+///
+/// `true` if the string is "1" or "true" (case-sensitive), `false` otherwise.
 fn parse_boolean(s: &str) -> bool {
     matches!(s, "1" | "true")
 }
 
+/// Parses a vector of `ProcessingOption` into a `ParsedOptions` struct.
+///
+/// This function iterates through the raw processing options, validates their arguments,
+/// and converts them into a structured `ParsedOptions` object.
+///
+/// # Arguments
+///
+/// * `options` - A `Vec<ProcessingOption>` containing the raw options from the URL.
+///
+/// # Returns
+///
+/// A `Result` containing the `ParsedOptions` on success, or an error message as a `String`.
 pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions, String> {
     let mut parsed_options = ParsedOptions::default();
 
@@ -328,6 +422,20 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
     Ok(parsed_options)
 }
 
+/// Processes an image by applying the given `ParsedOptions`.
+///
+/// This function takes raw image bytes and a set of parsed options, applies
+/// transformations like resizing, cropping, blurring, and format conversion,
+/// then returns the processed image bytes.
+///
+/// # Arguments
+///
+/// * `image_bytes` - The raw bytes of the image to process.
+/// * `parsed_options` - A `ParsedOptions` struct containing the desired transformations.
+///
+/// # Returns
+///
+/// A `Result` containing the processed image bytes on success, or an error message as a `String`.
 pub async fn process_image(
     image_bytes: Vec<u8>,
     mut parsed_options: ParsedOptions,

@@ -1,3 +1,6 @@
+//! Main application module for the imgforge server.
+//! This module handles HTTP requests, URL parsing, signature validation, and delegates image processing.
+
 use axum::{
     body::Bytes,
     extract::{Path, State},
@@ -36,16 +39,21 @@ const ENV_MAX_ANIMATION_FRAME_RESOLUTION: &str = "IMGFORGE_MAX_ANIMATION_FRAME_R
 const ENV_ALLOW_SECURITY_OPTIONS: &str = "IMGFORGE_ALLOW_SECURITY_OPTIONS";
 const ENV_WORKERS: &str = "IMGFORGE_WORKERS";
 
+/// Application state shared across handlers.
 struct AppState {
+    /// Semaphore to limit the number of concurrent image processing tasks.
     semaphore: Semaphore,
 }
 
+/// Information about the source URL, including its type and extension.
 #[derive(Debug)]
 enum SourceUrlInfo {
+    /// A plain (percent-encoded) source URL.
     Plain {
         url: String,
         extension: Option<String>,
     },
+    /// A Base64-encoded source URL.
     Base64 {
         encoded_url: String,
         extension: Option<String>,
@@ -53,6 +61,8 @@ enum SourceUrlInfo {
 }
 
 impl SourceUrlInfo {
+    /// Decodes the source URL based on its type.
+    /// Returns the decoded URL as a String or an error message.
     fn decode(&self) -> Result<String, String> {
         match self {
             SourceUrlInfo::Plain { url, .. } => percent_decode_str(url)
@@ -67,19 +77,27 @@ impl SourceUrlInfo {
     }
 }
 
+/// Represents a single image processing option from the URL path.
 #[derive(Debug)]
 pub struct ProcessingOption {
+    /// The name of the processing option (e.g., "resize", "quality").
     pub name: String,
+    /// Arguments for the processing option.
     pub args: Vec<String>,
 }
 
+/// Represents the parsed components of an imgforge URL.
 #[derive(Debug)]
 struct ImgforgeUrl {
+    /// The signature used for URL validation.
     signature: String,
+    /// A list of processing options to apply to the image.
     processing_options: Vec<ProcessingOption>,
+    /// Information about the source image URL.
     source_url: SourceUrlInfo,
 }
 
+/// Main entry point for the imgforge server application.
 #[tokio::main]
 async fn main() {
     let workers = env::var(ENV_WORKERS).unwrap_or_else(|_| "0".to_string()).parse().unwrap_or(0);
@@ -93,7 +111,7 @@ async fn main() {
 
     // Initialize tracing
     let subscriber = FmtSubscriber::builder()
-        .with_env_filter(EnvFilter::from_default_env())
+        .with_env_filter(EnvFilter::from_env("IMGFORGE_LOG_LEVEL"))
         .finish();
     tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
 
@@ -109,10 +127,15 @@ async fn main() {
     axum::serve(listener, app).await.unwrap();
 }
 
+/// Handles the /status endpoint, returning a simple JSON status.
 async fn status_handler() -> impl IntoResponse {
     (StatusCode::OK, Json(json!({"status": "ok"})))
 }
 
+/// Handles the /info/{*path} endpoint, returning metadata about the source image.
+///
+/// This handler parses the URL, validates the signature, fetches the image,
+/// and extracts its width, height, and format, returning them as a JSON object.
 async fn info_handler(
     State(_state): State<Arc<AppState>>,
     Path(path): Path<String>,
@@ -160,6 +183,10 @@ async fn info_handler(
     (StatusCode::OK, Json(json_response)).into_response()
 }
 
+/// Handles the main image processing endpoint.
+///
+/// This handler parses the URL, validates the signature, fetches the image,
+/// applies various processing options (resize, crop, etc.), and returns the processed image.
 async fn image_forge_handler(
     State(state): State<Arc<AppState>>,
     Path(path): Path<String>,
@@ -280,6 +307,18 @@ async fn image_forge_handler(
     (StatusCode::OK, headers, processed_image_bytes).into_response()
 }
 
+/// Validates the URL signature using HMAC-SHA256.
+///
+/// # Arguments
+///
+/// * `key` - The secret key for HMAC.
+/// * `salt` - The salt for HMAC.
+/// * `signature` - The signature extracted from the URL.
+/// * `path` - The URL path segment to be signed.
+///
+/// # Returns
+///
+/// `true` if the signature is valid, `false` otherwise.
 fn validate_signature(key: &[u8], salt: &[u8], signature: &str, path: &str) -> bool {
     type HmacSha256 = Hmac<Sha256>;
 
@@ -294,6 +333,18 @@ fn validate_signature(key: &[u8], salt: &[u8], signature: &str, path: &str) -> b
     signature.get(..expected_signature.len()) == Some(expected_signature)
 }
 
+/// Performs common setup steps for image handling, including authorization, URL parsing,
+/// signature validation, source URL decoding, and image fetching.
+///
+/// # Arguments
+///
+/// * `path` - The full URL path from the request.
+/// * `auth_header` - Optional `Authorization` header for token validation.
+///
+/// # Returns
+///
+/// A `Result` containing a tuple of `(ImgforgeUrl, decoded_url, image_bytes, content_type)`
+/// on success, or an `axum::response::Response` on error.
 async fn common_image_setup(
     path: &str,
     auth_header: Option<TypedHeader<Authorization<Bearer>>>,
@@ -418,6 +469,15 @@ async fn common_image_setup(
     Ok((url_parts, decoded_url, image_bytes, content_type))
 }
 
+/// Parses the incoming URL path into its imgforge components.
+///
+/// # Arguments
+///
+/// * `path` - The URL path string.
+///
+/// # Returns
+///
+/// An `Option<ImgforgeUrl>` containing the parsed URL components if successful, `None` otherwise.
 fn parse_path(path: &str) -> Option<ImgforgeUrl> {
     let parts: Vec<&str> = path.split('/').collect();
     if parts.len() < 2 {
@@ -454,6 +514,15 @@ fn parse_path(path: &str) -> Option<ImgforgeUrl> {
     })
 }
 
+/// Parses the source URL path segment into `SourceUrlInfo`.
+///
+/// # Arguments
+///
+/// * `parts` - A slice of string slices representing the source URL path segments.
+///
+/// # Returns
+///
+/// An `Option<SourceUrlInfo>` containing the parsed source URL information if successful, `None` otherwise.
 fn parse_source_url_path(parts: &[&str]) -> Option<SourceUrlInfo> {
     if parts.is_empty() {
         return None;
