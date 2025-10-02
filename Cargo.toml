@@ -1,0 +1,14 @@
+[package]
+name = "imgforge"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axum = "0.8.6"
+base64 = "0.22.1"
+hmac = "0.12.1"
+image = "0.25.6"
+percent-encoding = "2.3.2"
+reqwest = { version = "0.12.23", features = ["json"] }
+sha2 = "0.10.9"
+tokio = { version = "1.47.1", features = ["full"] }
