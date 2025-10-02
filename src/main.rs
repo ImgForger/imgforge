@@ -5,7 +5,7 @@ use axum::{
     body::Bytes,
     extract::{Path, State},
     http::{header, StatusCode},
-    response::{IntoResponse, Response, Json},
+    response::{IntoResponse, Json, Response},
     routing::get,
     Router,
 };
@@ -16,13 +16,13 @@ use hmac::{Hmac, Mac};
 use image::io::Reader as ImageReader;
 use image::{AnimationDecoder, ImageDecoder as _};
 use percent_encoding::percent_decode_str;
+use serde_json::json;
 use sha2::Sha256;
 use std::env;
 use std::io::Cursor;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
-use serde_json::json;
-use tracing::{info, error, debug};
+use tracing::{debug, error, info};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
 mod processing;
@@ -49,10 +49,7 @@ struct AppState {
 #[derive(Debug)]
 enum SourceUrlInfo {
     /// A plain (percent-encoded) source URL.
-    Plain {
-        url: String,
-        extension: Option<String>,
-    },
+    Plain { url: String, extension: Option<String> },
     /// A Base64-encoded source URL.
     Base64 {
         encoded_url: String,
@@ -100,7 +97,10 @@ struct ImgforgeUrl {
 /// Main entry point for the imgforge server application.
 #[tokio::main]
 async fn main() {
-    let workers = env::var(ENV_WORKERS).unwrap_or_else(|_| "0".to_string()).parse().unwrap_or(0);
+    let workers = env::var(ENV_WORKERS)
+        .unwrap_or_else(|_| "0".to_string())
+        .parse()
+        .unwrap_or(0);
     let semaphore = if workers > 0 {
         Semaphore::new(workers)
     } else {
@@ -161,7 +161,8 @@ async fn info_handler(
                 image::ImageFormat::Tiff => "tiff",
                 image::ImageFormat::Bmp => "bmp",
                 _ => "unknown", // Handle other formats
-            }.to_string();
+            }
+            .to_string();
             if let Ok((w, h)) = reader.into_dimensions() {
                 (w, h, format_str)
             } else {
@@ -218,7 +219,9 @@ async fn image_forge_handler(
     debug!("Image MIME type: {:?}", headers.get(header::CONTENT_TYPE));
 
     let max_src_file_size = if allow_security_options {
-        parsed_options.max_src_file_size.or_else(|| env::var(ENV_MAX_SRC_FILE_SIZE).ok().and_then(|s| s.parse().ok()))
+        parsed_options
+            .max_src_file_size
+            .or_else(|| env::var(ENV_MAX_SRC_FILE_SIZE).ok().and_then(|s| s.parse().ok()))
     } else {
         env::var(ENV_MAX_SRC_FILE_SIZE).ok().and_then(|s| s.parse().ok())
     };
@@ -227,7 +230,11 @@ async fn image_forge_handler(
     if let Some(max_size) = max_src_file_size {
         if image_bytes.len() > max_size {
             error!("Source image file size is too large");
-            return (StatusCode::BAD_REQUEST, "Source image file size is too large".to_string()).into_response();
+            return (
+                StatusCode::BAD_REQUEST,
+                "Source image file size is too large".to_string(),
+            )
+                .into_response();
         }
     }
 
@@ -237,7 +244,11 @@ async fn image_forge_handler(
             let allowed_types: Vec<&str> = allowed_types.split(',').collect();
             if !allowed_types.contains(&content_type_str) {
                 error!("Source image MIME type is not allowed: {}", content_type_str);
-                return (StatusCode::BAD_REQUEST, "Source image MIME type is not allowed".to_string()).into_response();
+                return (
+                    StatusCode::BAD_REQUEST,
+                    "Source image MIME type is not allowed".to_string(),
+                )
+                    .into_response();
             }
 
             if content_type_str == "image/gif" {
@@ -246,7 +257,8 @@ async fn image_forge_handler(
                         let decoder = image::codecs::gif::GifDecoder::new(Cursor::new(&image_bytes)).unwrap();
                         if decoder.into_frames().count() > max_frames {
                             error!("Too many frames in animated image");
-                            return (StatusCode::BAD_REQUEST, "Too many frames in animated image".to_string()).into_response();
+                            return (StatusCode::BAD_REQUEST, "Too many frames in animated image".to_string())
+                                .into_response();
                         }
                     }
                 }
@@ -260,7 +272,11 @@ async fn image_forge_handler(
                             let res_mp = (w * h) as f32 / 1_000_000.0;
                             if res_mp > max_res {
                                 error!("Animated image frame resolution is too large");
-                                return (StatusCode::BAD_REQUEST, "Animated image frame resolution is too large".to_string()).into_response();
+                                return (
+                                    StatusCode::BAD_REQUEST,
+                                    "Animated image frame resolution is too large".to_string(),
+                                )
+                                    .into_response();
                             }
                         }
                     }
@@ -270,7 +286,9 @@ async fn image_forge_handler(
     }
 
     let max_src_resolution = if allow_security_options {
-        parsed_options.max_src_resolution.or_else(|| env::var(ENV_MAX_SRC_RESOLUTION).ok().and_then(|s| s.parse().ok()))
+        parsed_options
+            .max_src_resolution
+            .or_else(|| env::var(ENV_MAX_SRC_RESOLUTION).ok().and_then(|s| s.parse().ok()))
     } else {
         env::var(ENV_MAX_SRC_RESOLUTION).ok().and_then(|s| s.parse().ok())
     };
@@ -283,26 +301,29 @@ async fn image_forge_handler(
                 let res_mp = (w * h) as f32 / 1_000_000.0;
                 if res_mp > max_res {
                     error!("Source image resolution is too large");
-                    return (StatusCode::BAD_REQUEST, "Source image resolution is too large".to_string()).into_response();
+                    return (
+                        StatusCode::BAD_REQUEST,
+                        "Source image resolution is too large".to_string(),
+                    )
+                        .into_response();
                 }
             }
         }
     }
 
-    let permit = if parsed_options.raw { None } else { Some(state.semaphore.acquire().await.unwrap()) };
+    let permit = if parsed_options.raw {
+        None
+    } else {
+        Some(state.semaphore.acquire().await.unwrap())
+    };
 
-    let processed_image_bytes =
-        match processing::process_image(image_bytes.into(), parsed_options).await {
-            Ok(bytes) => bytes,
-            Err(e) => {
-                error!("Error processing image: {}", e);
-                return (
-                    StatusCode::BAD_REQUEST,
-                    format!("Error processing image: {}", e),
-                )
-                    .into_response();
-            }
-        };
+    let processed_image_bytes = match processing::process_image(image_bytes.into(), parsed_options).await {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            error!("Error processing image: {}", e);
+            return (StatusCode::BAD_REQUEST, format!("Error processing image: {}", e)).into_response();
+        }
+    };
 
     (StatusCode::OK, headers, processed_image_bytes).into_response()
 }
@@ -373,22 +394,14 @@ async fn common_image_setup(
         Ok(k) => k,
         Err(_) => {
             error!("Invalid IMGFORGE_KEY");
-            return Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Invalid IMGFORGE_KEY".to_string(),
-            )
-                .into_response())
+            return Err((StatusCode::INTERNAL_SERVER_ERROR, "Invalid IMGFORGE_KEY".to_string()).into_response());
         }
     };
     let salt = match hex::decode(salt_str) {
         Ok(s) => s,
         Err(_) => {
             error!("Invalid IMGFORGE_SALT");
-            return Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Invalid IMGFORGE_SALT".to_string(),
-            )
-                .into_response())
+            return Err((StatusCode::INTERNAL_SERVER_ERROR, "Invalid IMGFORGE_SALT".to_string()).into_response());
         }
     };
 
@@ -405,11 +418,7 @@ async fn common_image_setup(
     if url_parts.signature == "unsafe" {
         if !allow_unsigned {
             error!("Unsigned URLs are not allowed");
-            return Err((
-                StatusCode::FORBIDDEN,
-                "Unsigned URLs are not allowed".to_string(),
-            )
-                .into_response());
+            return Err((StatusCode::FORBIDDEN, "Unsigned URLs are not allowed".to_string()).into_response());
         }
     } else {
         let path_to_sign = &path[path.find('/').unwrap() + 1..];
@@ -424,11 +433,7 @@ async fn common_image_setup(
         Ok(url) => url,
         Err(e) => {
             error!("Error decoding URL: {}", e);
-            return Err((
-                StatusCode::BAD_REQUEST,
-                format!("Error decoding URL: {}", e),
-            )
-                .into_response())
+            return Err((StatusCode::BAD_REQUEST, format!("Error decoding URL: {}", e)).into_response());
         }
     };
 
@@ -437,11 +442,7 @@ async fn common_image_setup(
         Ok(res) => res,
         Err(e) => {
             error!("Error fetching image: {}", e);
-            return Err((
-                StatusCode::BAD_REQUEST,
-                format!("Error fetching image: {}", e),
-            )
-                .into_response())
+            return Err((StatusCode::BAD_REQUEST, format!("Error fetching image: {}", e)).into_response());
         }
     };
 
@@ -451,11 +452,7 @@ async fn common_image_setup(
         Ok(bytes) => bytes,
         Err(e) => {
             error!("Error reading image bytes: {}", e);
-            return Err((
-                StatusCode::BAD_REQUEST,
-                format!("Error reading image bytes: {}", e),
-            )
-                .into_response())
+            return Err((StatusCode::BAD_REQUEST, format!("Error reading image bytes: {}", e)).into_response());
         }
     };
 
@@ -544,9 +541,6 @@ fn parse_source_url_path(parts: &[&str]) -> Option<SourceUrlInfo> {
             Some((url, ext)) => (url.to_string(), Some(ext.to_string())),
             None => (path.to_string(), None),
         };
-        Some(SourceUrlInfo::Base64 {
-            encoded_url,
-            extension,
-        })
+        Some(SourceUrlInfo::Base64 { encoded_url, extension })
     }
 }
