@@ -1,3 +1,4 @@
+
 use crate::ProcessingOption;
 use image::{codecs::jpeg::JpegEncoder, imageops, load_from_memory, DynamicImage, GenericImageView, ImageBuffer, ImageFormat, Rgba};
 use std::io::Cursor;
@@ -28,8 +29,6 @@ struct ParsedOptions {
     width: Option<u32>,
     height: Option<u32>,
     gravity: Option<String>,
-    enlarge: bool,
-    extend: bool,
 }
 
 fn parse_hex_color(hex: &str) -> Result<Rgba<u8>, String> {
@@ -73,10 +72,6 @@ fn resize_to_fill_with_gravity(
     resized_img.crop_imm(crop_x, crop_y, width, height)
 }
 
-fn parse_boolean(s: &str) -> bool {
-    matches!(s, "1" | "true")
-}
-
 fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions, String> {
     let mut parsed_options = ParsedOptions::default();
 
@@ -111,18 +106,6 @@ fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions, St
                     return Err("gravity option requires one argument".to_string());
                 }
                 parsed_options.gravity = Some(option.args[0].clone());
-            }
-            "enlarge" => {
-                if option.args.len() < 1 {
-                    return Err("enlarge option requires one argument".to_string());
-                }
-                parsed_options.enlarge = parse_boolean(&option.args[0]);
-            }
-            "extend" => {
-                if option.args.len() < 1 {
-                    return Err("extend option requires one argument".to_string());
-                }
-                parsed_options.extend = parse_boolean(&option.args[0]);
             }
             "blur" => {
                 if option.args.len() < 1 {
@@ -207,9 +190,8 @@ pub async fn process_image(
         img = img.crop_imm(crop.x, crop.y, crop.width, crop.height);
     }
 
-    if let Some(ref resize) = parsed_options.resize {
+    if let Some(resize) = parsed_options.resize {
         let (w, h) = (resize.width, resize.height);
-
         img = match resize.resizing_type.as_str() {
             "fill" => {
                 if w == 0 || h == 0 {
@@ -222,7 +204,18 @@ pub async fn process_image(
                 if w == 0 && h == 0 {
                     img
                 } else {
-                    img.resize(w, h, imageops::FilterType::Lanczos3)
+                    let (img_w, img_h) = img.dimensions();
+                    let aspect_ratio = img_w as f32 / img_h as f32;
+
+                    let (target_w, target_h) = if h == 0 {
+                        (w, (w as f32 / aspect_ratio).round() as u32)
+                    } else if w == 0 {
+                        ((h as f32 * aspect_ratio).round() as u32, h)
+                    } else {
+                        (w, h)
+                    };
+
+                    img.resize(target_w, target_h, imageops::FilterType::Lanczos3)
                 }
             }
             "force" => {
@@ -233,26 +226,6 @@ pub async fn process_image(
             }
             _ => return Err(format!("Unknown resize type: {}", resize.resizing_type)),
         };
-    }
-
-    if parsed_options.extend {
-        if let Some(resize) = &parsed_options.resize {
-            let (w, h) = (resize.width, resize.height);
-            if img.width() < w || img.height() < h {
-                let mut background = ImageBuffer::from_pixel(w, h, parsed_options.background.unwrap_or_else(|| Rgba([0, 0, 0, 0])));
-                let gravity = parsed_options.gravity.as_deref().unwrap_or("center");
-                let (x, y) = match gravity {
-                    "center" => ((w - img.width()) / 2, (h - img.height()) / 2),
-                    "north" => ((w - img.width()) / 2, 0),
-                    "south" => ((w - img.width()) / 2, h - img.height()),
-                    "west" => (0, (h - img.height()) / 2),
-                    "east" => (w - img.width(), (h - img.height()) / 2),
-                    _ => ((w - img.width()) / 2, (h - img.height()) / 2),
-                };
-                imageops::overlay(&mut background, &img, x as i64, y as i64);
-                img = DynamicImage::ImageRgba8(background);
-            }
-        }
     }
 
     if let Some(sigma) = parsed_options.blur {
