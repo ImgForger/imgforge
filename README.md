@@ -44,8 +44,8 @@ http://your-server/{signature}/{processing_options}/{base64_encoded_source_url}.
 | `enlarge` | `el` | Allow enlarging the image. |
 | `extend` | `ex` | Extend the image to the target dimensions. |
 | `padding` | `p` | Add padding to the image. |
-| `orientation` | - | Force a specific orientation. |
-| `blur` | - | Apply a Gaussian blur. |
+| `rotation` | `or` | Force a specific rotation. |
+| `blur` | `bl` | Apply a Gaussian blur. |
 | `crop` | - | Crop the image. |
 | `format` | - | The output format. |
 | `dpr` | - | The device pixel ratio. |
