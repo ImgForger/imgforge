@@ -1,3 +1,4 @@
+
 use crate::ProcessingOption;
 use image::{codecs::jpeg::JpegEncoder, imageops, load_from_memory, DynamicImage, GenericImageView, ImageBuffer, ImageFormat, Rgba};
 use std::io::Cursor;
@@ -228,6 +229,7 @@ pub async fn process_image(
     let original_format = image::guess_format(&image_bytes).map_err(|e| e.to_string())?;
 
     let parsed_options = parse_all_options(options)?;
+    let mut background_applied = false;
 
     if let Some(crop) = parsed_options.crop {
         img = img.crop_imm(crop.x, crop.y, crop.width, crop.height);
@@ -292,6 +294,7 @@ pub async fn process_image(
                 };
                 imageops::overlay(&mut background, &img, x as i64, y as i64);
                 img = DynamicImage::ImageRgba8(background);
+                background_applied = true;
             }
         }
     }
@@ -300,6 +303,7 @@ pub async fn process_image(
         let mut background = ImageBuffer::from_pixel(img.width() + left + right, img.height() + top + bottom, parsed_options.background.unwrap_or_else(|| Rgba([0, 0, 0, 0])));
         imageops::overlay(&mut background, &img, left as i64, top as i64);
         img = DynamicImage::ImageRgba8(background);
+        background_applied = true;
     }
 
     if let Some(sigma) = parsed_options.blur {
@@ -309,7 +313,7 @@ pub async fn process_image(
     let output_format = parsed_options.format.unwrap_or(original_format);
 
     if let Some(bg_color) = parsed_options.background {
-        if output_format == ImageFormat::Jpeg {
+        if !background_applied && output_format == ImageFormat::Jpeg {
             let mut background = ImageBuffer::from_pixel(img.width(), img.height(), bg_color);
             imageops::overlay(&mut background, &img, 0i64, 0i64);
             img = DynamicImage::ImageRgba8(background);
