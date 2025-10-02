@@ -1,3 +1,4 @@
+
 use axum::{
     body::Bytes,
     extract::Path,
@@ -10,7 +11,6 @@ use axum_extra::headers::{authorization::Bearer, Authorization};
 use axum_extra::TypedHeader;
 use base64::{engine::general_purpose, Engine as _};
 use hmac::{Hmac, Mac};
-use image::codecs::gif::GifDecoder;
 use image::io::Reader as ImageReader;
 use image::{AnimationDecoder, ImageDecoder as _};
 use percent_encoding::percent_decode_str;
@@ -29,6 +29,7 @@ const ENV_ALLOWED_MIME_TYPES: &str = "IMGFORGE_ALLOWED_MIME_TYPES";
 const ENV_MAX_SRC_RESOLUTION: &str = "IMGFORGE_MAX_SRC_RESOLUTION";
 const ENV_MAX_ANIMATION_FRAMES: &str = "IMGFORGE_MAX_ANIMATION_FRAMES";
 const ENV_MAX_ANIMATION_FRAME_RESOLUTION: &str = "IMGFORGE_MAX_ANIMATION_FRAME_RESOLUTION";
+const ENV_ALLOW_SECURITY_OPTIONS: &str = "IMGFORGE_ALLOW_SECURITY_OPTIONS";
 
 #[derive(Debug)]
 enum SourceUrlInfo {
@@ -99,6 +100,7 @@ async fn image_forge_handler(
     let key_str = env::var(ENV_IMGFORGE_KEY).unwrap_or_default();
     let salt_str = env::var(ENV_IMGFORGE_SALT).unwrap_or_default();
     let allow_unsigned = env::var(ENV_ALLOW_UNSIGNED).unwrap_or_default().to_lowercase() == "true";
+    let allow_security_options = env::var(ENV_ALLOW_SECURITY_OPTIONS).unwrap_or_default().to_lowercase() == "true";
 
     let key = match hex::decode(key_str) {
         Ok(k) => k,
@@ -179,11 +181,20 @@ async fn image_forge_handler(
         }
     };
 
-    if let Ok(max_size) = env::var(ENV_MAX_SRC_FILE_SIZE) {
-        if let Ok(max_size) = max_size.parse::<usize>() {
-            if image_bytes.len() > max_size {
-                return (StatusCode::BAD_REQUEST, "Source image file size is too large".to_string()).into_response();
-            }
+    let parsed_options = match processing::parse_all_options(url_parts.processing_options) {
+        Ok(options) => options,
+        Err(e) => return (StatusCode::BAD_REQUEST, e).into_response(),
+    };
+
+    let max_src_file_size = if allow_security_options {
+        parsed_options.max_src_file_size.or_else(|| env::var(ENV_MAX_SRC_FILE_SIZE).ok().and_then(|s| s.parse().ok()))
+    } else {
+        env::var(ENV_MAX_SRC_FILE_SIZE).ok().and_then(|s| s.parse().ok())
+    };
+
+    if let Some(max_size) = max_src_file_size {
+        if image_bytes.len() > max_size {
+            return (StatusCode::BAD_REQUEST, "Source image file size is too large".to_string()).into_response();
         }
     }
 
@@ -198,7 +209,7 @@ async fn image_forge_handler(
             if content_type_str == "image/gif" {
                 if let Ok(max_frames) = env::var(ENV_MAX_ANIMATION_FRAMES) {
                     if let Ok(max_frames) = max_frames.parse::<usize>() {
-                        let decoder = GifDecoder::new(Cursor::new(&image_bytes)).unwrap();
+                        let decoder = image::codecs::gif::GifDecoder::new(Cursor::new(&image_bytes)).unwrap();
                         if decoder.into_frames().count() > max_frames {
                             return (StatusCode::BAD_REQUEST, "Too many frames in animated image".to_string()).into_response();
                         }
@@ -207,7 +218,7 @@ async fn image_forge_handler(
 
                 if let Ok(max_res) = env::var(ENV_MAX_ANIMATION_FRAME_RESOLUTION) {
                     if let Ok(max_res) = max_res.parse::<f32>() {
-                        let decoder = GifDecoder::new(Cursor::new(&image_bytes)).unwrap();
+                        let decoder = image::codecs::gif::GifDecoder::new(Cursor::new(&image_bytes)).unwrap();
                         for frame in decoder.into_frames() {
                             let frame = frame.unwrap();
                             let (w, h) = frame.buffer().dimensions();
@@ -222,22 +233,26 @@ async fn image_forge_handler(
         }
     }
 
-    if let Ok(max_res) = env::var(ENV_MAX_SRC_RESOLUTION) {
-        if let Ok(max_res) = max_res.parse::<f32>() {
-            let reader = ImageReader::new(Cursor::new(&image_bytes)).with_guessed_format();
-            if let Ok(reader) = reader {
-                if let Ok((w, h)) = reader.into_dimensions() {
-                    let res_mp = (w * h) as f32 / 1_000_000.0;
-                    if res_mp > max_res {
-                        return (StatusCode::BAD_REQUEST, "Source image resolution is too large".to_string()).into_response();
-                    }
+    let max_src_resolution = if allow_security_options {
+        parsed_options.max_src_resolution.or_else(|| env::var(ENV_MAX_SRC_RESOLUTION).ok().and_then(|s| s.parse().ok()))
+    } else {
+        env::var(ENV_MAX_SRC_RESOLUTION).ok().and_then(|s| s.parse().ok())
+    };
+
+    if let Some(max_res) = max_src_resolution {
+        let reader = ImageReader::new(Cursor::new(&image_bytes)).with_guessed_format();
+        if let Ok(reader) = reader {
+            if let Ok((w, h)) = reader.into_dimensions() {
+                let res_mp = (w * h) as f32 / 1_000_000.0;
+                if res_mp > max_res {
+                    return (StatusCode::BAD_REQUEST, "Source image resolution is too large".to_string()).into_response();
                 }
             }
         }
     }
 
     let processed_image_bytes =
-        match processing::process_image(image_bytes.into(), url_parts.processing_options).await {
+        match processing::process_image(image_bytes.into(), parsed_options).await {
             Ok(bytes) => bytes,
             Err(e) => {
                 return (
