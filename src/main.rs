@@ -104,100 +104,15 @@ async fn status_handler() -> impl IntoResponse {
 }
 
 async fn info_handler(
-    State(state): State<Arc<AppState>>,
+    State(_state): State<Arc<AppState>>,
     Path(path): Path<String>,
     auth_header: Option<TypedHeader<Authorization<Bearer>>>,
 ) -> impl IntoResponse {
     println!("Info path captured: {}", path);
 
-    if let Some(token) = env::var(ENV_IMGFORGE_AUTH_TOKEN).ok() {
-        if !token.is_empty() {
-            if let Some(TypedHeader(auth)) = auth_header {
-                if auth.token() != token {
-                    return (StatusCode::FORBIDDEN, "Invalid authorization token".to_string()).into_response();
-                }
-            } else {
-                return (StatusCode::FORBIDDEN, "Missing authorization token".to_string()).into_response();
-            }
-        }
-    }
-
-    let key_str = env::var(ENV_IMGFORGE_KEY).unwrap_or_default();
-    let salt_str = env::var(ENV_IMGFORGE_SALT).unwrap_or_default();
-    let allow_unsigned = env::var(ENV_ALLOW_UNSIGNED).unwrap_or_default().to_lowercase() == "true";
-
-    let key = match hex::decode(key_str) {
-        Ok(k) => k,
-        Err(_) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Invalid IMGFORGE_KEY".to_string(),
-            )
-                .into_response()
-        }
-    };
-    let salt = match hex::decode(salt_str) {
-        Ok(s) => s,
-        Err(_) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Invalid IMGFORGE_SALT".to_string(),
-            )
-                .into_response()
-        }
-    };
-
-    let url_parts = match parse_path(&path) {
-        Some(parts) => parts,
-        None => return (StatusCode::BAD_REQUEST, "Invalid URL format".to_string()).into_response(),
-    };
-
-    if url_parts.signature == "unsafe" {
-        if !allow_unsigned {
-            return (
-                StatusCode::FORBIDDEN,
-                "Unsigned URLs are not allowed".to_string(),
-            )
-                .into_response();
-        }
-    } else {
-        let path_to_sign = &path[path.find('/').unwrap() + 1..];
-        if !validate_signature(&key, &salt, &url_parts.signature, path_to_sign) {
-            return (StatusCode::FORBIDDEN, "Invalid signature".to_string()).into_response();
-        }
-    }
-
-    let decoded_url = match url_parts.source_url.decode() {
-        Ok(url) => url,
-        Err(e) => {
-            return (
-                StatusCode::BAD_REQUEST,
-                format!("Error decoding URL: {}", e),
-            )
-                .into_response()
-        }
-    };
-
-    let response = match reqwest::get(&decoded_url).await {
-        Ok(res) => res,
-        Err(e) => {
-            return (
-                StatusCode::BAD_REQUEST,
-                format!("Error fetching image: {}", e),
-            )
-                .into_response()
-        }
-    };
-
-    let image_bytes = match response.bytes().await {
-        Ok(bytes) => bytes,
-        Err(e) => {
-            return (
-                StatusCode::BAD_REQUEST,
-                format!("Error reading image bytes: {}", e),
-            )
-                .into_response()
-        }
+    let (_url_parts, _decoded_url, image_bytes, _content_type) = match common_image_setup(&path, auth_header).await {
+        Ok(data) => data,
+        Err(response) => return response,
     };
 
     let reader = image::io::Reader::new(Cursor::new(&image_bytes)).with_guessed_format();
@@ -241,106 +156,22 @@ async fn image_forge_handler(
 ) -> impl IntoResponse {
     println!("Full path captured: {}", path);
 
-    if let Some(token) = env::var(ENV_IMGFORGE_AUTH_TOKEN).ok() {
-        if !token.is_empty() {
-            if let Some(TypedHeader(auth)) = auth_header {
-                if auth.token() != token {
-                    return (StatusCode::FORBIDDEN, "Invalid authorization token".to_string()).into_response();
-                }
-            } else {
-                return (StatusCode::FORBIDDEN, "Missing authorization token".to_string()).into_response();
-            }
-        }
-    }
+    let (url_parts, _decoded_url, image_bytes, content_type) = match common_image_setup(&path, auth_header).await {
+        Ok(data) => data,
+        Err(response) => return response,
+    };
 
-    let key_str = env::var(ENV_IMGFORGE_KEY).unwrap_or_default();
-    let salt_str = env::var(ENV_IMGFORGE_SALT).unwrap_or_default();
-    let allow_unsigned = env::var(ENV_ALLOW_UNSIGNED).unwrap_or_default().to_lowercase() == "true";
     let allow_security_options = env::var(ENV_ALLOW_SECURITY_OPTIONS).unwrap_or_default().to_lowercase() == "true";
-
-    let key = match hex::decode(key_str) {
-        Ok(k) => k,
-        Err(_) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Invalid IMGFORGE_KEY".to_string(),
-            )
-                .into_response()
-        }
-    };
-    let salt = match hex::decode(salt_str) {
-        Ok(s) => s,
-        Err(_) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Invalid IMGFORGE_SALT".to_string(),
-            )
-                .into_response()
-        }
-    };
-
-    let url_parts = match parse_path(&path) {
-        Some(parts) => parts,
-        None => return (StatusCode::BAD_REQUEST, "Invalid URL format".to_string()).into_response(),
-    };
-
-    if url_parts.signature == "unsafe" {
-        if !allow_unsigned {
-            return (
-                StatusCode::FORBIDDEN,
-                "Unsigned URLs are not allowed".to_string(),
-            )
-                .into_response();
-        }
-    } else {
-        let path_to_sign = &path[path.find('/').unwrap() + 1..];
-        if !validate_signature(&key, &salt, &url_parts.signature, path_to_sign) {
-            return (StatusCode::FORBIDDEN, "Invalid signature".to_string()).into_response();
-        }
-    }
-
-    let decoded_url = match url_parts.source_url.decode() {
-        Ok(url) => url,
-        Err(e) => {
-            return (
-                StatusCode::BAD_REQUEST,
-                format!("Error decoding URL: {}", e),
-            )
-                .into_response()
-        }
-    };
-
-    let response = match reqwest::get(&decoded_url).await {
-        Ok(res) => res,
-        Err(e) => {
-            return (
-                StatusCode::BAD_REQUEST,
-                format!("Error fetching image: {}", e),
-            )
-                .into_response()
-        }
-    };
-
-    let mut headers = header::HeaderMap::new();
-    if let Some(content_type) = response.headers().get(header::CONTENT_TYPE) {
-        headers.insert(header::CONTENT_TYPE, content_type.clone());
-    }
-
-    let image_bytes = match response.bytes().await {
-        Ok(bytes) => bytes,
-        Err(e) => {
-            return (
-                StatusCode::BAD_REQUEST,
-                format!("Error reading image bytes: {}", e),
-            )
-                .into_response()
-        }
-    };
 
     let parsed_options = match processing::parse_all_options(url_parts.processing_options) {
         Ok(options) => options,
         Err(e) => return (StatusCode::BAD_REQUEST, e).into_response(),
     };
+
+    let mut headers = header::HeaderMap::new();
+    if let Some(ct) = content_type {
+        headers.insert(header::CONTENT_TYPE, ct.parse().unwrap());
+    }
 
     let max_src_file_size = if allow_security_options {
         parsed_options.max_src_file_size.or_else(|| env::var(ENV_MAX_SRC_FILE_SIZE).ok().and_then(|s| s.parse().ok()))
@@ -436,6 +267,118 @@ fn validate_signature(key: &[u8], salt: &[u8], signature: &str, path: &str) -> b
     let expected_signature = &hex::encode(expected_signature_bytes)[..32];
 
     signature.get(..expected_signature.len()) == Some(expected_signature)
+}
+
+async fn common_image_setup(
+    path: &str,
+    auth_header: Option<TypedHeader<Authorization<Bearer>>>,
+) -> Result<(ImgforgeUrl, String, Bytes, Option<String>), Response> {
+    // Authorization Header Check
+    if let Some(token) = env::var(ENV_IMGFORGE_AUTH_TOKEN).ok() {
+        if !token.is_empty() {
+            if let Some(TypedHeader(auth)) = auth_header {
+                if auth.token() != token {
+                    return Err((StatusCode::FORBIDDEN, "Invalid authorization token".to_string()).into_response());
+                }
+            } else {
+                return Err((StatusCode::FORBIDDEN, "Missing authorization token".to_string()).into_response());
+            }
+        }
+    }
+
+    // Key and Salt Decoding
+    let key_str = env::var(ENV_IMGFORGE_KEY).unwrap_or_default();
+    let salt_str = env::var(ENV_IMGFORGE_SALT).unwrap_or_default();
+    let allow_unsigned = env::var(ENV_ALLOW_UNSIGNED).unwrap_or_default().to_lowercase() == "true";
+
+    let key = match hex::decode(key_str) {
+        Ok(k) => k,
+        Err(_) => {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Invalid IMGFORGE_KEY".to_string(),
+            )
+                .into_response())
+        }
+    };
+    let salt = match hex::decode(salt_str) {
+        Ok(s) => s,
+        Err(_) => {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Invalid IMGFORGE_SALT".to_string(),
+            )
+                .into_response())
+        }
+    };
+
+    // URL Parsing
+    let url_parts = match parse_path(path) {
+        Some(parts) => parts,
+        None => return Err((StatusCode::BAD_REQUEST, "Invalid URL format".to_string()).into_response()),
+    };
+
+    // Signature Validation
+    if url_parts.signature == "unsafe" {
+        if !allow_unsigned {
+            return Err((
+                StatusCode::FORBIDDEN,
+                "Unsigned URLs are not allowed".to_string(),
+            )
+                .into_response());
+        }
+    } else {
+        let path_to_sign = &path[path.find('/').unwrap() + 1..];
+        if !validate_signature(&key, &salt, &url_parts.signature, path_to_sign) {
+            return Err((StatusCode::FORBIDDEN, "Invalid signature".to_string()).into_response());
+        }
+    }
+
+    // Source URL Decoding
+    let decoded_url = match url_parts.source_url.decode() {
+        Ok(url) => url,
+        Err(e) => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!("Error decoding URL: {}", e),
+            )
+                .into_response())
+        }
+    };
+
+    // Image Fetching
+    let response = match reqwest::get(&decoded_url).await {
+        Ok(res) => res,
+        Err(e) => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!("Error fetching image: {}", e),
+            )
+                .into_response())
+        }
+    };
+
+    let headers = response.headers().clone();
+
+    let image_bytes = match response.bytes().await {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!("Error reading image bytes: {}", e),
+            )
+                .into_response())
+        }
+    };
+
+    let mut content_type: Option<String> = None;
+    if let Some(ct) = headers.get(header::CONTENT_TYPE) {
+        if let Ok(ct_str) = ct.to_str() {
+            content_type = Some(ct_str.to_string());
+        }
+    }
+
+    Ok((url_parts, decoded_url, image_bytes, content_type))
 }
 
 fn parse_path(path: &str) -> Option<ImgforgeUrl> {
