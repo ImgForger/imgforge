@@ -1,7 +1,10 @@
-
 use crate::ProcessingOption;
-use image::{codecs::jpeg::JpegEncoder, imageops, load_from_memory, DynamicImage, GenericImageView, ImageBuffer, ImageFormat, Rgba};
+use image::{
+    codecs::jpeg::JpegEncoder, imageops, load_from_memory, DynamicImage, GenericImageView,
+    ImageBuffer, ImageFormat, Rgba,
+};
 use std::io::Cursor;
+use exif::{In, Tag};
 
 const RESIZE: &str = "resize";
 const WIDTH: &str = "width";
@@ -10,6 +13,8 @@ const GRAVITY: &str = "gravity";
 const ENLARGE: &str = "enlarge";
 const EXTEND: &str = "extend";
 const PADDING: &str = "padding";
+const ORIENTATION: &str = "orientation";
+const AUTO_ROTATE: &str = "auto_rotate";
 const BLUR: &str = "blur";
 const CROP: &str = "crop";
 const FORMAT: &str = "format";
@@ -31,7 +36,7 @@ struct Crop {
     height: u32,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct ParsedOptions {
     resize: Option<Resize>,
     blur: Option<f32>,
@@ -45,6 +50,29 @@ struct ParsedOptions {
     enlarge: bool,
     extend: bool,
     padding: Option<(u32, u32, u32, u32)>,
+    orientation: Option<u16>,
+    auto_rotate: bool,
+}
+
+impl Default for ParsedOptions {
+    fn default() -> Self {
+        Self {
+            resize: None,
+            blur: None,
+            crop: None,
+            format: None,
+            quality: None,
+            background: None,
+            width: None,
+            height: None,
+            gravity: None,
+            enlarge: false,
+            extend: false,
+            padding: None,
+            orientation: None,
+            auto_rotate: true,
+        }
+    }
 }
 
 fn parse_hex_color(hex: &str) -> Result<Rgba<u8>, String> {
@@ -100,26 +128,39 @@ fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions, St
             RESIZE => {
                 if option.args.len() < 3 {
                     return Err(
-                        "resize option requires at least 3 arguments: type, width, height".to_string(),
+                        "resize option requires at least 3 arguments: type, width, height"
+                            .to_string(),
                     );
                 }
                 parsed_options.resize = Some(Resize {
                     resizing_type: option.args[0].clone(),
-                    width: option.args[1].parse().map_err(|_| "Invalid width".to_string())?,
-                    height: option.args[2].parse().map_err(|_| "Invalid height".to_string())?,
+                    width: option.args[1]
+                        .parse()
+                        .map_err(|_| "Invalid width".to_string())?,
+                    height: option.args[2]
+                        .parse()
+                        .map_err(|_| "Invalid height".to_string())?,
                 });
             }
             WIDTH => {
                 if option.args.len() < 1 {
                     return Err("width option requires one argument".to_string());
                 }
-                parsed_options.width = Some(option.args[0].parse().map_err(|_| "Invalid width".to_string())?);
+                parsed_options.width = Some(
+                    option.args[0]
+                        .parse()
+                        .map_err(|_| "Invalid width".to_string())?,
+                );
             }
             HEIGHT => {
                 if option.args.len() < 1 {
                     return Err("height option requires one argument".to_string());
                 }
-                parsed_options.height = Some(option.args[0].parse().map_err(|_| "Invalid height".to_string())?);
+                parsed_options.height = Some(
+                    option.args[0]
+                        .parse()
+                        .map_err(|_| "Invalid height".to_string())?,
+                );
             }
             GRAVITY => {
                 if option.args.len() < 1 {
@@ -143,13 +184,33 @@ fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions, St
                 if option.args.is_empty() {
                     return Err("padding option requires at least one argument".to_string());
                 }
-                let values: Vec<u32> = option.args.iter().map(|s| s.parse().map_err(|_| "Invalid padding value".to_string())).collect::<Result<Vec<u32>, String>>()?;
+                let values: Vec<u32> = option
+                    .args
+                    .iter()
+                    .map(|s| s.parse().map_err(|_| "Invalid padding value".to_string()))
+                    .collect::<Result<Vec<u32>, String>>()?;
                 parsed_options.padding = Some(match values.len() {
                     1 => (values[0], values[0], values[0], values[0]),
                     2 => (values[0], values[1], values[0], values[1]),
                     4 => (values[0], values[1], values[2], values[3]),
                     _ => return Err("padding must have 1, 2, or 4 arguments".to_string()),
                 });
+            }
+            ORIENTATION => {
+                if option.args.len() < 1 {
+                    return Err("orientation option requires one argument".to_string());
+                }
+                parsed_options.orientation = Some(
+                    option.args[0]
+                        .parse()
+                        .map_err(|_| "Invalid orientation".to_string())?,
+                );
+            }
+            AUTO_ROTATE => {
+                if option.args.len() < 1 {
+                    return Err("auto_rotate option requires one argument".to_string());
+                }
+                parsed_options.auto_rotate = parse_boolean(&option.args[0]);
             }
             BLUR => {
                 if option.args.len() < 1 {
@@ -164,14 +225,22 @@ fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions, St
             CROP => {
                 if option.args.len() < 4 {
                     return Err(
-                        "crop option requires four arguments: x, y, width, height".to_string(),
+                        "crop option requires four arguments: x, y, width, height".to_string()
                     );
                 }
                 parsed_options.crop = Some(Crop {
-                    x: option.args[0].parse().map_err(|_| "Invalid x for crop".to_string())?,
-                    y: option.args[1].parse().map_err(|_| "Invalid y for crop".to_string())?,
-                    width: option.args[2].parse().map_err(|_| "Invalid width for crop".to_string())?,
-                    height: option.args[3].parse().map_err(|_| "Invalid height for crop".to_string())?,
+                    x: option.args[0]
+                        .parse()
+                        .map_err(|_| "Invalid x for crop".to_string())?,
+                    y: option.args[1]
+                        .parse()
+                        .map_err(|_| "Invalid y for crop".to_string())?,
+                    width: option.args[2]
+                        .parse()
+                        .map_err(|_| "Invalid width for crop".to_string())?,
+                    height: option.args[3]
+                        .parse()
+                        .map_err(|_| "Invalid height for crop".to_string())?,
                 });
             }
             FORMAT => {
@@ -210,7 +279,9 @@ fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions, St
         }
     }
 
-    if parsed_options.resize.is_none() && (parsed_options.width.is_some() || parsed_options.height.is_some()) {
+    if parsed_options.resize.is_none()
+        && (parsed_options.width.is_some() || parsed_options.height.is_some())
+    {
         parsed_options.resize = Some(Resize {
             resizing_type: "fit".to_string(),
             width: parsed_options.width.unwrap_or(0),
@@ -225,10 +296,32 @@ pub async fn process_image(
     image_bytes: Vec<u8>,
     options: Vec<ProcessingOption>,
 ) -> Result<Vec<u8>, String> {
-    let mut img = load_from_memory(&image_bytes).map_err(|e| e.to_string())?;
-    let original_format = image::guess_format(&image_bytes).map_err(|e| e.to_string())?;
-
     let parsed_options = parse_all_options(options)?;
+
+    let mut img = if parsed_options.auto_rotate {
+        load_from_memory(&image_bytes).map_err(|e| e.to_string())?
+    } else {
+        let exif_reader = exif::Reader::new();
+        let exif = exif_reader.read_raw(image_bytes.clone()).ok();
+        let mut img = load_from_memory(&image_bytes).map_err(|e| e.to_string())?;
+        if let Some(exif) = exif {
+            if let Some(orientation) = exif.get_field(Tag::Orientation, In::PRIMARY) {
+                match orientation.value.get_uint(0) {
+                    Some(2) => img = img.fliph(),
+                    Some(3) => img = img.rotate180(),
+                    Some(4) => img = img.flipv(),
+                    Some(5) => img = img.rotate90().fliph(),
+                    Some(6) => img = img.rotate90(),
+                    Some(7) => img = img.rotate270().fliph(),
+                    Some(8) => img = img.rotate270(),
+                    _ => {}
+                }
+            }
+        }
+        img
+    };
+
+    let original_format = image::guess_format(&image_bytes).map_err(|e| e.to_string())?;
     let mut background_applied = false;
 
     if let Some(crop) = parsed_options.crop {
@@ -282,7 +375,13 @@ pub async fn process_image(
         if let Some(resize) = &parsed_options.resize {
             let (w, h) = (resize.width, resize.height);
             if img.width() < w || img.height() < h {
-                let mut background = ImageBuffer::from_pixel(w, h, parsed_options.background.unwrap_or_else(|| Rgba([0, 0, 0, 0])));
+                let mut background = ImageBuffer::from_pixel(
+                    w,
+                    h,
+                    parsed_options
+                        .background
+                        .unwrap_or_else(|| Rgba([0, 0, 0, 0])),
+                );
                 let gravity = parsed_options.gravity.as_deref().unwrap_or("center");
                 let (x, y) = match gravity {
                     "center" => ((w - img.width()) / 2, (h - img.height()) / 2),
@@ -300,10 +399,25 @@ pub async fn process_image(
     }
 
     if let Some((top, right, bottom, left)) = parsed_options.padding {
-        let mut background = ImageBuffer::from_pixel(img.width() + left + right, img.height() + top + bottom, parsed_options.background.unwrap_or_else(|| Rgba([0, 0, 0, 0])));
+        let mut background = ImageBuffer::from_pixel(
+            img.width() + left + right,
+            img.height() + top + bottom,
+            parsed_options
+                .background
+                .unwrap_or_else(|| Rgba([0, 0, 0, 0])),
+        );
         imageops::overlay(&mut background, &img, left as i64, top as i64);
         img = DynamicImage::ImageRgba8(background);
         background_applied = true;
+    }
+
+    if let Some(orientation) = parsed_options.orientation {
+        img = match orientation {
+            90 => img.rotate90(),
+            180 => img.rotate180(),
+            270 => img.rotate270(),
+            _ => img,
+        };
     }
 
     if let Some(sigma) = parsed_options.blur {
@@ -328,7 +442,8 @@ pub async fn process_image(
             img.write_with_encoder(encoder).map_err(|e| e.to_string())?;
         }
         _ => {
-            img.write_to(&mut buf, output_format).map_err(|e| e.to_string())?;
+            img.write_to(&mut buf, output_format)
+                .map_err(|e| e.to_string())?;
         }
     }
 

@@ -1,4 +1,3 @@
-
 use axum::{
     body::Bytes,
     extract::Path,
@@ -68,7 +67,10 @@ async fn image_forge_handler(Path(path): Path<String>) -> impl IntoResponse {
 
     let key_str = env::var("IMGFORGE_KEY").unwrap_or_default();
     let salt_str = env::var("IMGFORGE_SALT").unwrap_or_default();
-    let allow_unsigned = env::var("ALLOW_UNSIGNED").unwrap_or_default().to_lowercase() == "true";
+    let allow_unsigned = env::var("ALLOW_UNSIGNED")
+        .unwrap_or_default()
+        .to_lowercase()
+        == "true";
 
     let key = match hex::decode(key_str) {
         Ok(k) => k,
@@ -149,12 +151,17 @@ async fn image_forge_handler(Path(path): Path<String>) -> impl IntoResponse {
         }
     };
 
-    let processed_image_bytes = match processing::process_image(image_bytes.into(), url_parts.processing_options).await {
-        Ok(bytes) => bytes,
-        Err(e) => {
-            return (StatusCode::BAD_REQUEST, format!("Error processing image: {}", e)).into_response();
-        }
-    };
+    let processed_image_bytes =
+        match processing::process_image(image_bytes.into(), url_parts.processing_options).await {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    format!("Error processing image: {}", e),
+                )
+                    .into_response();
+            }
+        };
 
     (StatusCode::OK, headers, processed_image_bytes).into_response()
 }
@@ -182,17 +189,23 @@ fn parse_path(path: &str) -> Option<ImgforgeUrl> {
     let signature = parts[0].to_string();
     let rest = &parts[1..];
 
-    let source_url_start_index = rest.iter().position(|&s| s == "plain" || !s.contains(':')).unwrap_or(rest.len());
+    let source_url_start_index = rest
+        .iter()
+        .position(|&s| s == "plain" || !s.contains(':'))
+        .unwrap_or(rest.len());
 
     let processing_options_parts = &rest[..source_url_start_index];
     let source_url_parts = &rest[source_url_start_index..];
 
-    let processing_options = processing_options_parts.iter().map(|s| {
-        let mut parts = s.split(':');
-        let name = parts.next().unwrap_or("").to_string();
-        let args = parts.map(|s| s.to_string()).collect();
-        ProcessingOption { name, args }
-    }).collect();
+    let processing_options = processing_options_parts
+        .iter()
+        .map(|s| {
+            let mut parts = s.split(':');
+            let name = parts.next().unwrap_or("").to_string();
+            let args = parts.map(|s| s.to_string()).collect();
+            ProcessingOption { name, args }
+        })
+        .collect();
 
     let source_url = parse_source_url_path(source_url_parts)?;
 
@@ -224,6 +237,9 @@ fn parse_source_url_path(parts: &[&str]) -> Option<SourceUrlInfo> {
             Some((url, ext)) => (url.to_string(), Some(ext.to_string())),
             None => (path.to_string(), None),
         };
-        Some(SourceUrlInfo::Base64 { encoded_url, extension })
+        Some(SourceUrlInfo::Base64 {
+            encoded_url,
+            extension,
+        })
     }
 }
