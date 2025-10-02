@@ -6,16 +6,44 @@ use crate::ProcessingOption;
 use image::{codecs::jpeg::JpegEncoder, imageops, load_from_memory, DynamicImage, GenericImageView, ImageBuffer, ImageFormat, Rgba};
 use std::io::Cursor;
 use exif::{In, Tag};
-use tracing::{debug, error, info};
+use tracing::{debug, error};
 
 /// Option name for resizing.
 const RESIZE: &str = "resize";
+/// Shorthand for resize.
+const RESIZE_SHORT: &str = "rs";
+/// Option name for resizing type.
+const RESIZING_TYPE: &str = "resizing_type";
+/// Shorthand for resizing type.
+const RESIZING_TYPE_SHORT: &str = "rt";
+/// Option name for size.
+const SIZE: &str = "size";
+/// Shorthand for size.
+const SIZE_SHORT: &str = "sz";
 /// Option name for width.
 const WIDTH: &str = "width";
+/// Shorthand for width.
+const WIDTH_SHORT: &str = "w";
 /// Option name for height.
 const HEIGHT: &str = "height";
+/// Shorthand for height.
+const HEIGHT_SHORT: &str = "h";
 /// Option name for gravity.
 const GRAVITY: &str = "gravity";
+/// Shorthand for gravity.
+const GRAVITY_SHORT: &str = "g";
+/// Option name for quality.
+const QUALITY: &str = "quality";
+/// Shorthand for quality.
+const QUALITY_SHORT: &str = "q";
+/// Option name for auto_rotate.
+const AUTO_ROTATE: &str = "auto_rotate";
+/// Shorthand for auto_rotate.
+const AUTO_ROTATE_SHORT: &str = "ar";
+/// Option name for background.
+const BACKGROUND: &str = "background";
+/// Shorthand for background.
+const BACKGROUND_SHORT: &str = "bg";
 /// Option name for enlarge.
 const ENLARGE: &str = "enlarge";
 /// Option name for extend.
@@ -24,8 +52,6 @@ const EXTEND: &str = "extend";
 const PADDING: &str = "padding";
 /// Option name for orientation.
 const ORIENTATION: &str = "orientation";
-/// Option name for auto_rotate.
-const AUTO_ROTATE: &str = "auto_rotate";
 /// Option name for raw.
 const RAW: &str = "raw";
 /// Option name for blur.
@@ -34,10 +60,6 @@ const BLUR: &str = "blur";
 const CROP: &str = "crop";
 /// Option name for format.
 const FORMAT: &str = "format";
-/// Option name for quality.
-const QUALITY: &str = "quality";
-/// Option name for background.
-const BACKGROUND: &str = "background";
 /// Option name for max_src_resolution.
 const MAX_SRC_RESOLUTION: &str = "max_src_resolution";
 /// Option name for max_src_file_size.
@@ -233,7 +255,7 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
     for option in options {
         debug!("Parsing option: {} with args: {:?}", option.name, option.args);
         match option.name.as_str() {
-            RESIZE => {
+            RESIZE | RESIZE_SHORT => {
                 if option.args.len() < 3 {
                     error!("Resize option requires at least 3 arguments, received: {}", option.args.len());
                     return Err(
@@ -246,21 +268,39 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
                     height: option.args[2].parse::<u32>().map_err(|e: std::num::ParseIntError| { error!("Invalid height for resize: {}", e); e.to_string() })?,
                 });
             }
-            WIDTH => {
+            RESIZING_TYPE | RESIZING_TYPE_SHORT => {
+                if parsed_options.resize.is_none() {
+                    parsed_options.resize = Some(Resize::default());
+                }
+                if let Some(ref mut resize) = parsed_options.resize {
+                    resize.resizing_type = option.args[0].clone();
+                }
+            }
+            SIZE | SIZE_SHORT => {
+                if option.args.len() < 2 {
+                    return Err("size option requires at least 2 arguments: width, height".to_string());
+                }
+                parsed_options.resize = Some(Resize {
+                    resizing_type: "fit".to_string(),
+                    width: option.args[0].parse::<u32>().map_err(|e| e.to_string())?,
+                    height: option.args[1].parse::<u32>().map_err(|e| e.to_string())?,
+                });
+            }
+            WIDTH | WIDTH_SHORT => {
                 if option.args.len() < 1 {
                     error!("Width option requires one argument");
                     return Err("width option requires one argument".to_string());
                 }
                 parsed_options.width = Some(option.args[0].parse::<u32>().map_err(|e: std::num::ParseIntError| { error!("Invalid width: {}", e); e.to_string() })?);
             }
-            HEIGHT => {
+            HEIGHT | HEIGHT_SHORT => {
                 if option.args.len() < 1 {
                     error!("Height option requires one argument");
                     return Err("height option requires one argument".to_string());
                 }
                 parsed_options.height = Some(option.args[0].parse::<u32>().map_err(|e: std::num::ParseIntError| { error!("Invalid height: {}", e); e.to_string() })?);
             }
-            GRAVITY => {
+            GRAVITY | GRAVITY_SHORT => {
                 if option.args.len() < 1 {
                     error!("Gravity option requires one argument");
                     return Err("gravity option requires one argument".to_string());
@@ -301,7 +341,7 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
                 }
                 parsed_options.orientation = Some(option.args[0].parse::<u16>().map_err(|e: std::num::ParseIntError| { error!("Invalid orientation: {}", e); e.to_string() })?);
             }
-            AUTO_ROTATE => {
+            AUTO_ROTATE | AUTO_ROTATE_SHORT => {
                 if option.args.len() < 1 {
                     error!("Auto_rotate option requires one argument");
                     return Err("auto_rotate option requires one argument".to_string());
@@ -352,7 +392,7 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
                     _ => { error!("Unsupported format: {}", option.args[0]); return Err(format!("Unsupported format: {}", option.args[0])); },
                 });
             }
-            QUALITY => {
+            QUALITY | QUALITY_SHORT => {
                 if option.args.len() < 1 {
                     error!("Quality option requires one argument");
                     return Err("quality option requires one argument".to_string());
@@ -364,7 +404,7 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
                         .clamp(1, 100),
                 );
             }
-            BACKGROUND => {
+            BACKGROUND | BACKGROUND_SHORT => {
                 if option.args.len() < 1 {
                     error!("Background option requires one argument");
                     return Err("background option requires one argument".to_string());
