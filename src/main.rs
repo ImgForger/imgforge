@@ -10,7 +10,9 @@ use axum_extra::headers::{authorization::Bearer, Authorization};
 use axum_extra::TypedHeader;
 use base64::{engine::general_purpose, Engine as _};
 use hmac::{Hmac, Mac};
+use image::codecs::gif::GifDecoder;
 use image::io::Reader as ImageReader;
+use image::{AnimationDecoder, ImageDecoder as _};
 use percent_encoding::percent_decode_str;
 use sha2::Sha256;
 use std::env;
@@ -25,6 +27,8 @@ const ENV_ALLOW_UNSIGNED: &str = "ALLOW_UNSIGNED";
 const ENV_MAX_SRC_FILE_SIZE: &str = "IMGFORGE_MAX_SRC_FILE_SIZE";
 const ENV_ALLOWED_MIME_TYPES: &str = "IMGFORGE_ALLOWED_MIME_TYPES";
 const ENV_MAX_SRC_RESOLUTION: &str = "IMGFORGE_MAX_SRC_RESOLUTION";
+const ENV_MAX_ANIMATION_FRAMES: &str = "IMGFORGE_MAX_ANIMATION_FRAMES";
+const ENV_MAX_ANIMATION_FRAME_RESOLUTION: &str = "IMGFORGE_MAX_ANIMATION_FRAME_RESOLUTION";
 
 #[derive(Debug)]
 enum SourceUrlInfo {
@@ -84,28 +88,17 @@ async fn image_forge_handler(
         if !token.is_empty() {
             if let Some(TypedHeader(auth)) = auth_header {
                 if auth.token() != token {
-                    return (
-                        StatusCode::FORBIDDEN,
-                        "Invalid authorization token".to_string(),
-                    )
-                        .into_response();
+                    return (StatusCode::FORBIDDEN, "Invalid authorization token".to_string()).into_response();
                 }
             } else {
-                return (
-                    StatusCode::FORBIDDEN,
-                    "Missing authorization token".to_string(),
-                )
-                    .into_response();
+                return (StatusCode::FORBIDDEN, "Missing authorization token".to_string()).into_response();
             }
         }
     }
 
     let key_str = env::var(ENV_IMGFORGE_KEY).unwrap_or_default();
     let salt_str = env::var(ENV_IMGFORGE_SALT).unwrap_or_default();
-    let allow_unsigned = env::var(ENV_ALLOW_UNSIGNED)
-        .unwrap_or_default()
-        .to_lowercase()
-        == "true";
+    let allow_unsigned = env::var(ENV_ALLOW_UNSIGNED).unwrap_or_default().to_lowercase() == "true";
 
     let key = match hex::decode(key_str) {
         Ok(k) => k,
@@ -189,24 +182,42 @@ async fn image_forge_handler(
     if let Ok(max_size) = env::var(ENV_MAX_SRC_FILE_SIZE) {
         if let Ok(max_size) = max_size.parse::<usize>() {
             if image_bytes.len() > max_size {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    "Source image file size is too large".to_string(),
-                )
-                    .into_response();
+                return (StatusCode::BAD_REQUEST, "Source image file size is too large".to_string()).into_response();
             }
         }
     }
 
     if let Ok(allowed_types) = env::var(ENV_ALLOWED_MIME_TYPES) {
         if let Some(content_type) = headers.get(header::CONTENT_TYPE) {
+            let content_type_str = content_type.to_str().unwrap_or("");
             let allowed_types: Vec<&str> = allowed_types.split(',').collect();
-            if !allowed_types.contains(&content_type.to_str().unwrap_or("")) {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    "Source image MIME type is not allowed".to_string(),
-                )
-                    .into_response();
+            if !allowed_types.contains(&content_type_str) {
+                return (StatusCode::BAD_REQUEST, "Source image MIME type is not allowed".to_string()).into_response();
+            }
+
+            if content_type_str == "image/gif" {
+                if let Ok(max_frames) = env::var(ENV_MAX_ANIMATION_FRAMES) {
+                    if let Ok(max_frames) = max_frames.parse::<usize>() {
+                        let decoder = GifDecoder::new(Cursor::new(&image_bytes)).unwrap();
+                        if decoder.into_frames().count() > max_frames {
+                            return (StatusCode::BAD_REQUEST, "Too many frames in animated image".to_string()).into_response();
+                        }
+                    }
+                }
+
+                if let Ok(max_res) = env::var(ENV_MAX_ANIMATION_FRAME_RESOLUTION) {
+                    if let Ok(max_res) = max_res.parse::<f32>() {
+                        let decoder = GifDecoder::new(Cursor::new(&image_bytes)).unwrap();
+                        for frame in decoder.into_frames() {
+                            let frame = frame.unwrap();
+                            let (w, h) = frame.buffer().dimensions();
+                            let res_mp = (w * h) as f32 / 1_000_000.0;
+                            if res_mp > max_res {
+                                return (StatusCode::BAD_REQUEST, "Animated image frame resolution is too large".to_string()).into_response();
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -218,11 +229,7 @@ async fn image_forge_handler(
                 if let Ok((w, h)) = reader.into_dimensions() {
                     let res_mp = (w * h) as f32 / 1_000_000.0;
                     if res_mp > max_res {
-                        return (
-                            StatusCode::BAD_REQUEST,
-                            "Source image resolution is too large".to_string(),
-                        )
-                            .into_response();
+                        return (StatusCode::BAD_REQUEST, "Source image resolution is too large".to_string()).into_response();
                     }
                 }
             }
