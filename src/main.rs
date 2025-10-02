@@ -12,6 +12,8 @@ use percent_encoding::percent_decode_str;
 use sha2::Sha256;
 use std::env;
 
+mod processing;
+
 #[derive(Debug)]
 enum SourceUrlInfo {
     Plain {
@@ -40,9 +42,9 @@ impl SourceUrlInfo {
 }
 
 #[derive(Debug)]
-struct ProcessingOption {
-    name: String,
-    args: Vec<String>,
+pub struct ProcessingOption {
+    pub name: String,
+    pub args: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -65,10 +67,7 @@ async fn image_forge_handler(Path(path): Path<String>) -> impl IntoResponse {
 
     let key_str = env::var("IMGFORGE_KEY").unwrap_or_default();
     let salt_str = env::var("IMGFORGE_SALT").unwrap_or_default();
-    let allow_unsigned = env::var("ALLOW_UNSIGNED")
-        .unwrap_or_default()
-        .to_lowercase()
-        == "true";
+    let allow_unsigned = env::var("ALLOW_UNSIGNED").unwrap_or_default().to_lowercase() == "true";
 
     let key = match hex::decode(key_str) {
         Ok(k) => k,
@@ -149,7 +148,14 @@ async fn image_forge_handler(Path(path): Path<String>) -> impl IntoResponse {
         }
     };
 
-    (StatusCode::OK, headers, image_bytes).into_response()
+    let processed_image_bytes = match processing::process_image(image_bytes.into(), url_parts.processing_options).await {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            return (StatusCode::BAD_REQUEST, format!("Error processing image: {}", e)).into_response();
+        }
+    };
+
+    (StatusCode::OK, headers, processed_image_bytes).into_response()
 }
 
 fn validate_signature(key: &[u8], salt: &[u8], signature: &str, path: &str) -> bool {
