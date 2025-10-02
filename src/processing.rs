@@ -20,6 +20,8 @@ const QUALITY: &str = "quality";
 const BACKGROUND: &str = "background";
 const MAX_SRC_RESOLUTION: &str = "max_src_resolution";
 const MAX_SRC_FILE_SIZE: &str = "max_src_file_size";
+const CACHE_BUSTER: &str = "cache_buster";
+const DPR: &str = "dpr";
 
 #[derive(Debug, Default)]
 pub struct Resize {
@@ -55,6 +57,8 @@ pub struct ParsedOptions {
     pub raw: bool,
     pub max_src_resolution: Option<f32>,
     pub max_src_file_size: Option<usize>,
+    pub cache_buster: Option<String>,
+    pub dpr: Option<f32>,
 }
 
 impl Default for ParsedOptions {
@@ -77,6 +81,8 @@ impl Default for ParsedOptions {
             raw: false,
             max_src_resolution: None,
             max_src_file_size: None,
+            cache_buster: None,
+            dpr: Some(1.0),
         }
     }
 }
@@ -267,6 +273,22 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
                 }
                 parsed_options.max_src_file_size = Some(option.args[0].parse().map_err(|_| "Invalid max_src_file_size".to_string())?);
             }
+            CACHE_BUSTER => {
+                if option.args.len() < 1 {
+                    return Err("cache_buster option requires one argument".to_string());
+                }
+                parsed_options.cache_buster = Some(option.args[0].clone());
+            }
+            DPR => {
+                if option.args.len() < 1 {
+                    return Err("dpr option requires one argument".to_string());
+                }
+                let dpr = option.args[0].parse::<f32>().map_err(|_| "Invalid dpr value".to_string())?;
+                if !(1.0..=5.0).contains(&dpr) {
+                    return Err("dpr value must be between 1.0 and 5.0".to_string());
+                }
+                parsed_options.dpr = Some(dpr);
+            }
             _ => {}
         }
     }
@@ -284,8 +306,23 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
 
 pub async fn process_image(
     image_bytes: Vec<u8>,
-    parsed_options: ParsedOptions,
+    mut parsed_options: ParsedOptions,
 ) -> Result<Vec<u8>, String> {
+    if let Some(dpr) = parsed_options.dpr {
+        if dpr > 1.0 {
+            if let Some(ref mut resize) = parsed_options.resize {
+                resize.width = (resize.width as f32 * dpr).round() as u32;
+                resize.height = (resize.height as f32 * dpr).round() as u32;
+            }
+            if let Some(ref mut padding) = parsed_options.padding {
+                padding.0 = (padding.0 as f32 * dpr).round() as u32;
+                padding.1 = (padding.1 as f32 * dpr).round() as u32;
+                padding.2 = (padding.2 as f32 * dpr).round() as u32;
+                padding.3 = (padding.3 as f32 * dpr).round() as u32;
+            }
+        }
+    }
+
     let mut img = if parsed_options.auto_rotate {
         load_from_memory(&image_bytes).map_err(|e| e.to_string())?
     } else {
