@@ -1,3 +1,4 @@
+
 use axum::{
     body::Bytes,
     extract::Path,
@@ -169,24 +170,31 @@ fn validate_signature(key: &[u8], salt: &[u8], signature: &str, path: &str) -> b
     let expected_signature_bytes = result.into_bytes();
     let expected_signature = &hex::encode(expected_signature_bytes)[..32];
 
-    // The original imgproxy uses a truncated signature, we match that behavior.
-    // We will compare the first 32 bytes of the hex-encoded signature.
-    // This is a guess and might need adjustment.
     signature.get(..expected_signature.len()) == Some(expected_signature)
 }
 
 fn parse_path(path: &str) -> Option<ImgforgeUrl> {
-    let parts: Vec<&str> = path.splitn(3, '/').collect();
-    if parts.len() < 3 {
+    let parts: Vec<&str> = path.split('/').collect();
+    if parts.len() < 2 {
         return None;
     }
 
     let signature = parts[0].to_string();
-    let processing_options_str = parts[1];
-    let source_url_path = parts[2];
+    let rest = &parts[1..];
 
-    let processing_options = parse_processing_options(processing_options_str);
-    let source_url = parse_source_url_path(source_url_path)?;
+    let source_url_start_index = rest.iter().position(|&s| s == "plain" || !s.contains(':')).unwrap_or(rest.len());
+
+    let processing_options_parts = &rest[..source_url_start_index];
+    let source_url_parts = &rest[source_url_start_index..];
+
+    let processing_options = processing_options_parts.iter().map(|s| {
+        let mut parts = s.split(':');
+        let name = parts.next().unwrap_or("").to_string();
+        let args = parts.map(|s| s.to_string()).collect();
+        ProcessingOption { name, args }
+    }).collect();
+
+    let source_url = parse_source_url_path(source_url_parts)?;
 
     Some(ImgforgeUrl {
         signature,
@@ -195,33 +203,27 @@ fn parse_path(path: &str) -> Option<ImgforgeUrl> {
     })
 }
 
-fn parse_processing_options(options_str: &str) -> Vec<ProcessingOption> {
-    options_str
-        .split('/')
-        .map(|s| {
-            let mut parts = s.split(':');
-            let name = parts.next().unwrap_or("").to_string();
-            let args = parts.map(|s| s.to_string()).collect();
-            ProcessingOption { name, args }
-        })
-        .collect()
-}
+fn parse_source_url_path(parts: &[&str]) -> Option<SourceUrlInfo> {
+    if parts.is_empty() {
+        return None;
+    }
 
-fn parse_source_url_path(path: &str) -> Option<SourceUrlInfo> {
-    if let Some(plain_path) = path.strip_prefix("plain/") {
-        let (url, extension) = match plain_path.rsplit_once('@') {
+    if parts[0] == "plain" {
+        if parts.len() < 2 {
+            return None;
+        }
+        let path = parts[1..].join("/");
+        let (url, extension) = match path.rsplit_once('@') {
             Some((url, ext)) => (url.to_string(), Some(ext.to_string())),
-            None => (plain_path.to_string(), None),
+            None => (path.to_string(), None),
         };
         Some(SourceUrlInfo::Plain { url, extension })
     } else {
+        let path = parts.join("/");
         let (encoded_url, extension) = match path.rsplit_once('.') {
             Some((url, ext)) => (url.to_string(), Some(ext.to_string())),
             None => (path.to_string(), None),
         };
-        Some(SourceUrlInfo::Base64 {
-            encoded_url,
-            extension,
-        })
+        Some(SourceUrlInfo::Base64 { encoded_url, extension })
     }
 }
