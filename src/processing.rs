@@ -1,6 +1,6 @@
 
 use crate::ProcessingOption;
-use image::{load_from_memory, DynamicImage, ImageFormat};
+use image::{codecs::jpeg::JpegEncoder, load_from_memory, DynamicImage, ImageFormat};
 use std::io::Cursor;
 
 pub async fn process_image(
@@ -8,7 +8,8 @@ pub async fn process_image(
     options: Vec<ProcessingOption>,
 ) -> Result<Vec<u8>, String> {
     let mut img = load_from_memory(&image_bytes).map_err(|e| e.to_string())?;
-    let format = image::guess_format(&image_bytes).map_err(|e| e.to_string())?;
+    let mut output_format = image::guess_format(&image_bytes).map_err(|e| e.to_string())?;
+    let mut quality = 85u8;
 
     for option in options {
         if option.name == "resize" {
@@ -25,10 +26,53 @@ pub async fn process_image(
                 "force" => img.resize_exact(width, height, image::imageops::FilterType::Lanczos3),
                 _ => return Err(format!("Unknown resize type: {}", resize_type)),
             };
+        } else if option.name == "blur" {
+            if option.args.len() < 1 {
+                return Err("blur option requires one argument: sigma".to_string());
+            }
+            let sigma: f32 = option.args[0].parse().map_err(|_| "Invalid sigma for blur".to_string())?;
+            img = img.blur(sigma);
+        } else if option.name == "crop" {
+            if option.args.len() < 4 {
+                return Err("crop option requires four arguments: x, y, width, height".to_string());
+            }
+            let x: u32 = option.args[0].parse().map_err(|_| "Invalid x for crop".to_string())?;
+            let y: u32 = option.args[1].parse().map_err(|_| "Invalid y for crop".to_string())?;
+            let width: u32 = option.args[2].parse().map_err(|_| "Invalid width for crop".to_string())?;
+            let height: u32 = option.args[3].parse().map_err(|_| "Invalid height for crop".to_string())?;
+            img = img.crop_imm(x, y, width, height);
+        } else if option.name == "format" {
+            if option.args.len() < 1 {
+                return Err("format option requires one argument".to_string());
+            }
+            output_format = match option.args[0].as_str() {
+                "jpg" | "jpeg" => ImageFormat::Jpeg,
+                "png" => ImageFormat::Png,
+                "gif" => ImageFormat::Gif,
+                "webp" => ImageFormat::WebP,
+                "avif" => ImageFormat::Avif,
+                "tiff" => ImageFormat::Tiff,
+                "bmp" => ImageFormat::Bmp,
+                _ => return Err(format!("Unsupported format: {}", option.args[0])),
+            };
+        } else if option.name == "quality" {
+            if option.args.len() < 1 {
+                return Err("quality option requires one argument".to_string());
+            }
+            quality = option.args[0].parse::<u8>().map_err(|_| "Invalid quality".to_string())?.clamp(1, 100);
         }
     }
 
     let mut buf = Cursor::new(Vec::new());
-    img.write_to(&mut buf, format).map_err(|e| e.to_string())?;
+    match output_format {
+        ImageFormat::Jpeg => {
+            let encoder = JpegEncoder::new_with_quality(&mut buf, quality);
+            img.write_with_encoder(encoder).map_err(|e| e.to_string())?;
+        }
+        _ => {
+            img.write_to(&mut buf, output_format).map_err(|e| e.to_string())?;
+        }
+    }
+
     Ok(buf.into_inner())
 }
