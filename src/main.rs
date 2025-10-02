@@ -6,6 +6,8 @@ use axum::{
     routing::get,
     Router,
 };
+use axum_extra::TypedHeader;
+use axum_extra::headers::{authorization::Bearer, Authorization};
 use base64::{engine::general_purpose, Engine as _};
 use hmac::{Hmac, Mac};
 use percent_encoding::percent_decode_str;
@@ -62,15 +64,27 @@ async fn main() {
     axum::serve(listener, app).await.unwrap();
 }
 
-async fn image_forge_handler(Path(path): Path<String>) -> impl IntoResponse {
+async fn image_forge_handler(
+    Path(path): Path<String>,
+    auth_header: Option<TypedHeader<Authorization<Bearer>>>,
+) -> impl IntoResponse {
     println!("Full path captured: {}", path);
+
+    if let Some(token) = env::var("IMGFORGE_AUTH_TOKEN").ok() {
+        if !token.is_empty() {
+            if let Some(TypedHeader(auth)) = auth_header {
+                if auth.token() != token {
+                    return (StatusCode::FORBIDDEN, "Invalid authorization token".to_string()).into_response();
+                }
+            } else {
+                return (StatusCode::FORBIDDEN, "Missing authorization token".to_string()).into_response();
+            }
+        }
+    }
 
     let key_str = env::var("IMGFORGE_KEY").unwrap_or_default();
     let salt_str = env::var("IMGFORGE_SALT").unwrap_or_default();
-    let allow_unsigned = env::var("ALLOW_UNSIGNED")
-        .unwrap_or_default()
-        .to_lowercase()
-        == "true";
+    let allow_unsigned = env::var("ALLOW_UNSIGNED").unwrap_or_default().to_lowercase() == "true";
 
     let key = match hex::decode(key_str) {
         Ok(k) => k,
