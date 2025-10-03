@@ -11,7 +11,7 @@ use axum::{
 };
 use axum_extra::headers::{authorization::Bearer, Authorization};
 use axum_extra::TypedHeader;
-use base64::{engine::general_purpose, Engine as _};
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use hmac::{Hmac, Mac};
 use image::AnimationDecoder;
 use image::ImageReader;
@@ -64,7 +64,7 @@ impl SourceUrlInfo {
                 .decode_utf8()
                 .map(|s| s.to_string())
                 .map_err(|e| e.to_string()),
-            SourceUrlInfo::Base64 { encoded_url, .. } => general_purpose::URL_SAFE_NO_PAD
+            SourceUrlInfo::Base64 { encoded_url, .. } => URL_SAFE_NO_PAD
                 .decode(encoded_url)
                 .map_err(|e| e.to_string())
                 .and_then(|bytes| String::from_utf8(bytes).map_err(|e| e.to_string())),
@@ -346,11 +346,11 @@ fn validate_signature(key: &[u8], salt: &[u8], signature: &str, path: &str) -> b
     mac.update(salt);
     mac.update(path.as_bytes());
 
-    let result = mac.finalize();
-    let expected_signature_bytes = result.into_bytes();
-    let expected_signature = &hex::encode(expected_signature_bytes)[..32];
-
-    signature.get(..expected_signature.len()) == Some(expected_signature)
+    let decoded_signature = match URL_SAFE_NO_PAD.decode(signature) {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+    mac.verify_slice(&decoded_signature).is_ok()
 }
 
 /// Performs common setup steps for image handling, including authorization, URL parsing,
@@ -420,8 +420,8 @@ async fn common_image_setup(
             return Err((StatusCode::FORBIDDEN, "Unsigned URLs are not allowed".to_string()).into_response());
         }
     } else {
-        let path_to_sign = &path[path.find('/').unwrap() + 1..];
-        if !validate_signature(&key, &salt, &url_parts.signature, path_to_sign) {
+        let path_to_sign = format!("/{}", &path[path.find('/').unwrap() + 1..]);
+        if !validate_signature(&key, &salt, &url_parts.signature, &path_to_sign) {
             error!("Invalid signature for path: {}", path);
             return Err((StatusCode::FORBIDDEN, "Invalid signature".to_string()).into_response());
         }
