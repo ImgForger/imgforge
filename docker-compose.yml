@@ -1,0 +1,5 @@
+services:
+  imgforge:
+    build: .
+    ports:
+      - "3000:3000"
