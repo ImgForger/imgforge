@@ -27,6 +27,7 @@ use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
 mod processing;
 
+const ENV_IMGFORGE_LOG_LEVEL: &str = "IMGFORGE_LOG_LEVEL";
 const ENV_IMGFORGE_KEY: &str = "IMGFORGE_KEY";
 const ENV_IMGFORGE_SALT: &str = "IMGFORGE_SALT";
 const ENV_IMGFORGE_AUTH_TOKEN: &str = "IMGFORGE_AUTH_TOKEN";
@@ -111,7 +112,7 @@ async fn main() {
 
     // Initialize tracing
     let subscriber = FmtSubscriber::builder()
-        .with_env_filter(EnvFilter::from_env("IMGFORGE_LOG_LEVEL"))
+        .with_env_filter(EnvFilter::from_env(ENV_IMGFORGE_LOG_LEVEL))
         .finish();
     tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
 
