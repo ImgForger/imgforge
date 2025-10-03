@@ -18,7 +18,7 @@ use percent_encoding::percent_decode_str;
 use serde_json::json;
 use sha2::Sha256;
 use std::env;
-use std::sync::Arc;
+use std::sync::{Arc, Once};
 use tokio::sync::Semaphore;
 use tracing::{debug, error, info};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
@@ -35,6 +35,23 @@ const ENV_ALLOWED_MIME_TYPES: &str = "IMGFORGE_ALLOWED_MIME_TYPES";
 const ENV_MAX_SRC_RESOLUTION: &str = "IMGFORGE_MAX_SRC_RESOLUTION";
 const ENV_ALLOW_SECURITY_OPTIONS: &str = "IMGFORGE_ALLOW_SECURITY_OPTIONS";
 const ENV_WORKERS: &str = "IMGFORGE_WORKERS";
+
+// Initialize libvips exactly once for the entire process lifetime.
+static VIPS_INIT: Once = Once::new();
+
+fn init_vips_once() {
+    VIPS_INIT.call_once(|| {
+        // Keep the VipsApp guard alive for the process lifetime by leaking it.
+        match VipsApp::new("imgforge", false) {
+            Ok(app) => {
+                std::mem::forget(app);
+            }
+            Err(e) => {
+                panic!("Failed to initialize libvips: {}", e);
+            }
+        }
+    });
+}
 
 /// Application state shared across handlers.
 struct AppState {
@@ -111,6 +128,9 @@ async fn main() {
 
     info!("Starting imgforge server with {} workers...", workers);
 
+    // Initialize libvips once for the whole process
+    init_vips_once();
+
     let app = Router::new()
         .route("/status", get(status_handler))
         .route("/info/{*path}", get(info_handler))
@@ -142,18 +162,6 @@ async fn info_handler(
         Err(response) => return response,
     };
     debug!("Processing info request for URL: {}", _decoded_url);
-
-    // Initialize libvips for image info
-    let _app = match VipsApp::new("imgforge", false) {
-        Ok(app) => app,
-        Err(_) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Failed to initialize libvips"})),
-            )
-                .into_response();
-        }
-    };
 
     let (width, height, format_str) = match VipsImage::new_from_buffer(&image_bytes, "") {
         Ok(img) => {
@@ -253,18 +261,6 @@ async fn image_forge_handler(
     };
 
     if let Some(max_res) = max_src_resolution {
-        // Initialize libvips for resolution check
-        let _app = match VipsApp::new("imgforge", false) {
-            Ok(app) => app,
-            Err(_) => {
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Failed to initialize libvips".to_string(),
-                )
-                    .into_response();
-            }
-        };
-
         match VipsImage::new_from_buffer(&image_bytes, "") {
             Ok(img) => {
                 let (w, h) = (img.get_width(), img.get_height());

@@ -4,7 +4,7 @@
 
 use crate::ProcessingOption;
 use exif::{In, Tag};
-use libvips::{ops, VipsApp, VipsImage};
+use libvips::{ops, VipsImage};
 use std::io::Cursor;
 use tracing::{debug, error};
 
@@ -729,12 +729,6 @@ fn save_image(img: VipsImage, format: &str, _quality: u8) -> Result<Vec<u8>, Str
 /// A `Result` containing the processed image bytes on success, or an error message as a `String`.
 pub async fn process_image(image_bytes: Vec<u8>, mut parsed_options: ParsedOptions) -> Result<Vec<u8>, String> {
     debug!("Starting image processing with options: {:?}", parsed_options);
-
-    // Initialize libvips
-    let _app = VipsApp::new("imgforge", false).map_err(|e| {
-        error!("Failed to initialize libvips: {}", e);
-        format!("Failed to initialize libvips: {}", e)
-    })?;
 
     // Apply DPR scaling
     if let Some(dpr) = parsed_options.dpr {
