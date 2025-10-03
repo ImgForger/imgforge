@@ -27,6 +27,8 @@ use tracing::{debug, error, info, Span};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
 mod processing;
+use processing::options::ProcessingOption;
+
 
 const ENV_IMGFORGE_LOG_LEVEL: &str = "IMGFORGE_LOG_LEVEL";
 const ENV_IMGFORGE_KEY: &str = "IMGFORGE_KEY";
@@ -88,14 +90,7 @@ impl SourceUrlInfo {
     }
 }
 
-/// Represents a single image processing option from the URL path.
-#[derive(Debug)]
-pub struct ProcessingOption {
-    /// The name of the processing option (e.g., "resize", "quality").
-    pub name: String,
-    /// Arguments for the processing option.
-    pub args: Vec<String>,
-}
+
 
 /// Represents the parsed components of an imgforge URL.
 #[derive(Debug)]
@@ -240,7 +235,7 @@ async fn image_forge_handler(
 
     let allow_security_options = env::var(ENV_ALLOW_SECURITY_OPTIONS).unwrap_or_default().to_lowercase() == "true";
 
-    let parsed_options = match processing::parse_all_options(url_parts.processing_options) {
+    let parsed_options = match processing::options::parse_all_options(url_parts.processing_options) {
         Ok(options) => options,
         Err(e) => {
             error!("Error parsing processing options: {}", e);
