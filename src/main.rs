@@ -4,7 +4,7 @@
 use axum::{
     body::Bytes,
     extract::{Path, State},
-    http::{header, StatusCode},
+    http::{header, Request, StatusCode},
     response::{IntoResponse, Json, Response},
     routing::get,
     Router,
@@ -15,12 +15,15 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use hmac::{Hmac, Mac};
 use libvips::{VipsApp, VipsImage};
 use percent_encoding::percent_decode_str;
+use rand::distributions::Alphanumeric;
+use rand::Rng;
 use serde_json::json;
 use sha2::Sha256;
 use std::env;
 use std::sync::{Arc, Once};
 use tokio::sync::Semaphore;
-use tracing::{debug, error, info};
+use tower_http::trace::TraceLayer;
+use tracing::{debug, error, info, Span};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
 mod processing;
@@ -135,15 +138,40 @@ async fn main() {
         .route("/status", get(status_handler))
         .route("/info/{*path}", get(info_handler))
         .route("/{*path}", get(image_forge_handler))
-        .with_state(state);
+        .with_state(state)
+        .layer(
+            TraceLayer::new_for_http().make_span_with(|request: &Request<axum::body::Body>| {
+                let request_id = generate_request_id();
+                tracing::info_span!(
+                    "request",
+                    id = %request_id,
+                    method = %request.method(),
+                    uri = %request.uri(),
+                )
+            }),
+        );
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
     info!("Listening on http://0.0.0.0:3000");
     axum::serve(listener, app).await.unwrap();
 }
 
+fn generate_request_id() -> String {
+    rand::thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(10)
+        .map(char::from)
+        .collect()
+}
+
 /// Handles the /status endpoint, returning a simple JSON status.
 async fn status_handler() -> impl IntoResponse {
-    (StatusCode::OK, Json(json!({"status": "ok"})))
+    let request_id = match Span::current().metadata() {
+        Some(metadata) => metadata.name().to_string(),
+        None => "unknown".to_string(),
+    };
+    let mut headers = header::HeaderMap::new();
+    headers.insert("X-Request-ID", request_id.parse().unwrap());
+    (StatusCode::OK, headers, Json(json!({"status": "ok"})))
 }
 
 /// Handles the /info/{*path} endpoint, returning metadata about the source image.
@@ -155,6 +183,13 @@ async fn info_handler(
     Path(path): Path<String>,
     auth_header: Option<TypedHeader<Authorization<Bearer>>>,
 ) -> impl IntoResponse {
+    let request_id = match Span::current().metadata() {
+        Some(metadata) => metadata.name().to_string(),
+        None => "unknown".to_string(),
+    };
+    let mut headers = header::HeaderMap::new();
+    headers.insert("X-Request-ID", request_id.parse().unwrap());
+
     info!("Info path captured: {}", path);
 
     let (_url_parts, _decoded_url, image_bytes, _content_type) = match common_image_setup(&path, auth_header).await {
@@ -177,7 +212,7 @@ async fn info_handler(
         "format": format_str,
     });
 
-    (StatusCode::OK, Json(json_response)).into_response()
+    (StatusCode::OK, headers, Json(json_response)).into_response()
 }
 
 /// Handles the main image processing endpoint.
@@ -189,6 +224,12 @@ async fn image_forge_handler(
     Path(path): Path<String>,
     auth_header: Option<TypedHeader<Authorization<Bearer>>>,
 ) -> impl IntoResponse {
+    let request_id = match Span::current().metadata() {
+        Some(metadata) => metadata.name().to_string(),
+        None => "unknown".to_string(),
+    };
+    let mut headers = header::HeaderMap::new();
+    headers.insert("X-Request-ID", request_id.parse().unwrap());
     info!("Full path captured: {}", path);
 
     let (url_parts, _decoded_url, image_bytes, content_type) = match common_image_setup(&path, auth_header).await {
@@ -208,7 +249,6 @@ async fn image_forge_handler(
     };
     debug!("Parsed options: {:?}", parsed_options);
 
-    let mut headers = header::HeaderMap::new();
     if let Some(ct) = content_type {
         headers.insert(header::CONTENT_TYPE, ct.parse().unwrap());
     }
