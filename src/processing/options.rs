@@ -2,13 +2,14 @@
 //! This module contains functions and structs for parsing image processing options
 //! and applying various transformations to images.
 
-use crate::ProcessingOption;
-use exif::{In, Tag};
-use image::{
-    codecs::jpeg::JpegEncoder, imageops, load_from_memory, DynamicImage, GenericImageView, ImageBuffer, ImageFormat,
-    Rgba,
-};
-use std::io::Cursor;
+/// Represents a single image processing option from the URL path.
+#[derive(Debug)]
+pub struct ProcessingOption {
+    /// The name of the processing option (e.g., "resize", "quality").
+    pub name: String,
+    /// Arguments for the processing option.
+    pub args: Vec<String>,
+}
 use tracing::{debug, error};
 
 /// Option name for resizing.
@@ -116,11 +117,11 @@ pub struct ParsedOptions {
     /// Optional crop operation parameters.
     pub crop: Option<Crop>,
     /// Optional output image format.
-    pub format: Option<ImageFormat>,
+    pub format: Option<String>,
     /// Optional output image quality (1-100).
     pub quality: Option<u8>,
     /// Optional background color for transparent areas or extending.
-    pub background: Option<Rgba<u8>>,
+    pub background: Option<[u8; 4]>, // RGBA array
     /// Optional target width (used with `resize` if no explicit resize type).
     pub width: Option<u32>,
     /// Optional target height (used with `resize` if no explicit resize type).
@@ -173,90 +174,6 @@ impl Default for ParsedOptions {
             dpr: Some(1.0),
         }
     }
-}
-
-/// Parses a hexadecimal color string into an `Rgba<u8>` color.
-///
-/// # Arguments
-///
-/// * `hex` - The hexadecimal color string (e.g., "ffffff" or "#ffffff").
-///
-/// # Returns
-///
-/// A `Result` containing the `Rgba<u8>` color on success, or an error message as a `String`.
-fn parse_hex_color(hex: &str) -> Result<Rgba<u8>, String> {
-    let hex = hex.trim_start_matches('#');
-    if hex.len() != 6 {
-        return Err("Invalid hex color format".to_string());
-    }
-    let r = u8::from_str_radix(&hex[0..2], 16).map_err(|_| "Invalid hex color".to_string())?;
-    let g = u8::from_str_radix(&hex[2..4], 16).map_err(|_| "Invalid hex color".to_string())?;
-    let b = u8::from_str_radix(&hex[4..6], 16).map_err(|_| "Invalid hex color".to_string())?;
-    Ok(Rgba([r, g, b, 255]))
-}
-
-/// Resizes an image to fill the target dimensions, cropping if necessary, based on gravity.
-///
-/// # Arguments
-///
-/// * `img` - The `DynamicImage` to resize.
-/// * `width` - The target width.
-/// * `height` - The target height.
-/// * `gravity` - The gravity string (e.g., "center", "north").
-///
-/// # Returns
-///
-/// The resized and cropped `DynamicImage`.
-fn resize_to_fill_with_gravity(img: &DynamicImage, width: u32, height: u32, gravity: &str) -> DynamicImage {
-    let (img_w, img_h) = img.dimensions();
-    let aspect_ratio = img_w as f32 / img_h as f32;
-    let target_aspect_ratio = width as f32 / height as f32;
-
-    let (resize_w, resize_h) = if aspect_ratio > target_aspect_ratio {
-        ((height as f32 * aspect_ratio).round() as u32, height)
-    } else {
-        (width, (width as f32 / aspect_ratio).round() as u32)
-    };
-
-    let resized_img = img.resize_exact(resize_w, resize_h, imageops::FilterType::Lanczos3);
-
-    let (crop_x, crop_y) = match gravity {
-        "no" | "center" => ((resize_w - width) / 2, (resize_h - height) / 2),
-        "north" => ((resize_w - width) / 2, 0),
-        "south" => ((resize_w - width) / 2, resize_h - height),
-        "west" => (0, (resize_h - height) / 2),
-        "east" => (resize_w - width, (resize_h - height) / 2),
-        _ => ((resize_w - width) / 2, (resize_h - height) / 2), // Default to center
-    };
-
-    resized_img.crop_imm(crop_x, crop_y, width, height)
-}
-
-/// Parses a string into a boolean value.
-///
-/// # Arguments
-///
-/// * `s` - The string to parse ("1", "true" for true, anything else for false).
-///
-/// # Returns
-///
-/// `true` if the string is "1" or "true" (case-sensitive), `false` otherwise.
-fn parse_boolean(s: &str) -> bool {
-    matches!(s, "1" | "true")
-}
-
-/// Determines if the given dimensions represent a portrait orientation.
-///
-/// # Arguments
-///
-/// * `width` - The width of the image.
-/// * `height` - The height of the image.
-///
-/// # Returns
-///
-/// `true` if the height is greater than the width, `false` otherwise.
-fn is_portrait(width: u32, height: u32) -> bool {
-    height > width
 }
 
 /// Parses a vector of `ProcessingOption` into a `ParsedOptions` struct.
@@ -347,14 +264,14 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
                     error!("Enlarge option requires one argument");
                     return Err("enlarge option requires one argument".to_string());
                 }
-                parsed_options.enlarge = parse_boolean(&option.args[0]);
+                parsed_options.enlarge = super::utils::parse_boolean(&option.args[0]);
             }
             EXTEND | EXTEND_SHORT => {
                 if option.args.is_empty() {
                     error!("Extend option requires one argument");
                     return Err("extend option requires one argument".to_string());
                 }
-                parsed_options.extend = parse_boolean(&option.args[0]);
+                parsed_options.extend = super::utils::parse_boolean(&option.args[0]);
             }
             PADDING | PADDING_SHORT => {
                 if option.args.is_empty() {
@@ -397,7 +314,7 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
                     error!("Auto_rotate option requires one argument");
                     return Err("auto_rotate option requires one argument".to_string());
                 }
-                parsed_options.auto_rotate = parse_boolean(&option.args[0]);
+                parsed_options.auto_rotate = super::utils::parse_boolean(&option.args[0]);
             }
             RAW => {
                 parsed_options.raw = true;
@@ -441,19 +358,7 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
                     error!("Format option requires one argument");
                     return Err("format option requires one argument".to_string());
                 }
-                parsed_options.format = Some(match option.args[0].as_str() {
-                    "jpg" | "jpeg" => ImageFormat::Jpeg,
-                    "png" => ImageFormat::Png,
-                    "gif" => ImageFormat::Gif,
-                    "webp" => ImageFormat::WebP,
-                    "avif" => ImageFormat::Avif,
-                    "tiff" => ImageFormat::Tiff,
-                    "bmp" => ImageFormat::Bmp,
-                    _ => {
-                        error!("Unsupported format: {}", option.args[0]);
-                        return Err(format!("Unsupported format: {}", option.args[0]));
-                    }
-                });
+                parsed_options.format = Some(option.args[0].clone());
             }
             QUALITY | QUALITY_SHORT => {
                 if option.args.is_empty() {
@@ -475,7 +380,7 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
                     error!("Background option requires one argument");
                     return Err("background option requires one argument".to_string());
                 }
-                parsed_options.background = Some(parse_hex_color(&option.args[0]).map_err(|e| {
+                parsed_options.background = Some(super::utils::parse_hex_color(&option.args[0]).map_err(|e| {
                     error!("Invalid hex color for background: {}", e);
                     e.to_string()
                 })?);
@@ -540,262 +445,4 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
     }
 
     Ok(parsed_options)
-}
-
-/// Processes an image by applying the given `ParsedOptions`.
-///
-/// This function takes raw image bytes and a set of parsed options, applies
-/// transformations like resizing, cropping, blurring, and format conversion,
-/// then returns the processed image bytes.
-///
-/// # Arguments
-///
-/// * `image_bytes` - The raw bytes of the image to process.
-/// * `parsed_options` - A `ParsedOptions` struct containing the desired transformations.
-///
-/// # Returns
-///
-/// A `Result` containing the processed image bytes on success, or an error message as a `String`.
-pub async fn process_image(image_bytes: Vec<u8>, mut parsed_options: ParsedOptions) -> Result<Vec<u8>, String> {
-    debug!("Starting image processing with options: {:?}", parsed_options);
-
-    if let Some(dpr) = parsed_options.dpr {
-        if dpr > 1.0 {
-            debug!("Applying DPR scaling: {}", dpr);
-            if let Some(ref mut resize) = parsed_options.resize {
-                debug!(
-                    "Scaling resize dimensions from {}x{} to {}x{}",
-                    resize.width,
-                    resize.height,
-                    (resize.width as f32 * dpr).round() as u32,
-                    (resize.height as f32 * dpr).round() as u32
-                );
-                resize.width = (resize.width as f32 * dpr).round() as u32;
-                resize.height = (resize.height as f32 * dpr).round() as u32;
-            }
-            if let Some(ref mut padding) = parsed_options.padding {
-                debug!(
-                    "Scaling padding from {:?} to {:?}",
-                    padding,
-                    (
-                        (padding.0 as f32 * dpr).round() as u32,
-                        (padding.1 as f32 * dpr).round() as u32,
-                        (padding.2 as f32 * dpr).round() as u32,
-                        (padding.3 as f32 * dpr).round() as u32
-                    )
-                );
-                padding.0 = (padding.0 as f32 * dpr).round() as u32;
-                padding.1 = (padding.1 as f32 * dpr).round() as u32;
-                padding.2 = (padding.2 as f32 * dpr).round() as u32;
-                padding.3 = (padding.3 as f32 * dpr).round() as u32;
-            }
-        }
-    }
-
-    let mut img = if parsed_options.auto_rotate {
-        debug!("Auto-rotating image based on EXIF data");
-        load_from_memory(&image_bytes).map_err(|e| {
-            error!("Error loading image from memory for auto-rotate: {}", e);
-            e.to_string()
-        })?
-    } else {
-        debug!("Not auto-rotating image");
-        let exif_reader = exif::Reader::new();
-        let exif = exif_reader.read_raw(image_bytes.clone()).ok();
-        let mut img = load_from_memory(&image_bytes).map_err(|e| {
-            error!("Error loading image from memory: {}", e);
-            e.to_string()
-        })?;
-        if let Some(exif) = exif {
-            if let Some(orientation) = exif.get_field(Tag::Orientation, In::PRIMARY) {
-                debug!("Found EXIF orientation: {:?}", orientation.value.get_uint(0));
-                match orientation.value.get_uint(0) {
-                    Some(2) => img = img.fliph(),
-                    Some(3) => img = img.rotate180(),
-                    Some(4) => img = img.flipv(),
-                    Some(5) => img = img.rotate90().fliph(),
-                    Some(6) => img = img.rotate90(),
-                    Some(7) => img = img.rotate270().fliph(),
-                    Some(8) => img = img.rotate270(),
-                    _ => {}
-                }
-            }
-        }
-        img
-    };
-
-    let original_format = image::guess_format(&image_bytes).map_err(|e| {
-        error!("Error guessing image format: {}", e);
-        e.to_string()
-    })?;
-    debug!("Original image format: {:?}", original_format);
-    let mut background_applied = false;
-
-    if let Some(crop) = parsed_options.crop {
-        debug!("Applying crop: {:?}", crop);
-        img = img.crop_imm(crop.x, crop.y, crop.width, crop.height);
-    }
-
-    if let Some(ref resize) = parsed_options.resize {
-        debug!("Applying resize: {:?}", resize);
-        let (w, h) = (resize.width, resize.height);
-
-        if !parsed_options.enlarge && (w > img.width() || h > img.height()) {
-            debug!("Not enlarging image as enlarge is false and target dimensions are larger than source");
-            // Do not enlarge
-        } else {
-            img = match resize.resizing_type.as_str() {
-                "fill" => {
-                    if w == 0 || h == 0 {
-                        error!("Resize:fill requires non-zero width and height");
-                        return Err("resize:fill requires non-zero width and height".to_string());
-                    }
-                    let gravity = parsed_options.gravity.as_deref().unwrap_or("center");
-                    debug!("Resizing to fill with gravity: {}", gravity);
-                    resize_to_fill_with_gravity(&img, w, h, gravity)
-                }
-                "fit" => {
-                    if w == 0 && h == 0 {
-                        error!("Resize:fit requires non-zero width and height");
-                        return Err("resize:fit requires non-zero width and height".to_string());
-                    } else {
-                        let (img_w, img_h) = img.dimensions();
-                        let aspect_ratio = img_w as f32 / img_h as f32;
-
-                        let (target_w, target_h) = if h == 0 {
-                            (w, (w as f32 / aspect_ratio).round() as u32)
-                        } else if w == 0 {
-                            ((h as f32 * aspect_ratio).round() as u32, h)
-                        } else {
-                            (w, h)
-                        };
-                        debug!("Resizing to fit from {}x{} to {}x{}", img_w, img_h, target_w, target_h);
-                        img.resize(target_w, target_h, imageops::FilterType::Lanczos3)
-                    }
-                }
-                "force" => {
-                    if w == 0 || h == 0 {
-                        error!("Resize:force requires non-zero width and height");
-                        return Err("resize:force requires non-zero width and height".to_string());
-                    }
-                    debug!("Resizing to force {}x{}", w, h);
-                    img.resize_exact(w, h, imageops::FilterType::Lanczos3)
-                }
-                "auto" => {
-                    if w == 0 || h == 0 {
-                        error!("Resize:auto requires non-zero width and height");
-                        return Err("resize:auto requires non-zero width and height".to_string());
-                    }
-                    let (img_w, img_h) = img.dimensions();
-                    let src_is_portrait = is_portrait(img_w, img_h);
-                    let target_is_portrait = is_portrait(w, h);
-
-                    if src_is_portrait == target_is_portrait {
-                        debug!(
-                            "Auto resize: orientations match ({}x{} -> {}x{}), using fill",
-                            img_w, img_h, w, h
-                        );
-                        let gravity = parsed_options.gravity.as_deref().unwrap_or("center");
-                        resize_to_fill_with_gravity(&img, w, h, gravity)
-                    } else {
-                        debug!(
-                            "Auto resize: orientations differ ({}x{} -> {}x{}), using fit",
-                            img_w, img_h, w, h
-                        );
-                        img.resize(w, h, imageops::FilterType::Lanczos3)
-                    }
-                }
-                _ => {
-                    error!("Unknown resize type: {}", resize.resizing_type);
-                    return Err(format!("Unknown resize type: {}", resize.resizing_type));
-                }
-            };
-        }
-    }
-
-    if parsed_options.extend {
-        debug!("Applying extend option");
-        if let Some(resize) = &parsed_options.resize {
-            let (w, h) = (resize.width, resize.height);
-            if img.width() < w || img.height() < h {
-                debug!("Extending image to {}x{}", w, h);
-                let mut background =
-                    ImageBuffer::from_pixel(w, h, parsed_options.background.unwrap_or(Rgba([0, 0, 0, 0])));
-                let gravity = parsed_options.gravity.as_deref().unwrap_or("center");
-                let (x, y) = match gravity {
-                    "center" => ((w - img.width()) / 2, (h - img.height()) / 2),
-                    "north" => ((w - img.width()) / 2, 0),
-                    "south" => ((w - img.width()) / 2, h - img.height()),
-                    "west" => (0, (h - img.height()) / 2),
-                    "east" => (w - img.width(), (h - img.height()) / 2),
-                    _ => ((w - img.width()) / 2, (h - img.height()) / 2),
-                };
-                imageops::overlay(&mut background, &img, x as i64, y as i64);
-                img = DynamicImage::ImageRgba8(background);
-                background_applied = true;
-            }
-        }
-    }
-
-    if let Some((top, right, bottom, left)) = parsed_options.padding {
-        debug!("Applying padding: {:?}", (top, right, bottom, left));
-        let mut background = ImageBuffer::from_pixel(
-            img.width() + left + right,
-            img.height() + top + bottom,
-            parsed_options.background.unwrap_or(Rgba([0, 0, 0, 0])),
-        );
-        imageops::overlay(&mut background, &img, left as i64, top as i64);
-        img = DynamicImage::ImageRgba8(background);
-        background_applied = true;
-    }
-
-    if let Some(rotation) = parsed_options.rotation {
-        debug!("Applying rotation: {}", rotation);
-        img = match rotation {
-            90 => img.rotate90(),
-            180 => img.rotate180(),
-            270 => img.rotate270(),
-            _ => img,
-        };
-    }
-
-    if let Some(sigma) = parsed_options.blur {
-        debug!("Applying blur with sigma: {}", sigma);
-        img = img.blur(sigma);
-    }
-
-    let output_format = parsed_options.format.unwrap_or(original_format);
-    debug!("Output format: {:?}", output_format);
-
-    if let Some(bg_color) = parsed_options.background {
-        if !background_applied && output_format == ImageFormat::Jpeg {
-            debug!("Applying background color for JPEG output: {:?}", bg_color);
-            let mut background = ImageBuffer::from_pixel(img.width(), img.height(), bg_color);
-            imageops::overlay(&mut background, &img, 0i64, 0i64);
-            img = DynamicImage::ImageRgba8(background);
-        }
-    }
-
-    let mut buf = Cursor::new(Vec::new());
-    match output_format {
-        ImageFormat::Jpeg => {
-            let quality = parsed_options.quality.unwrap_or(85);
-            debug!("Encoding to JPEG with quality: {}", quality);
-            let encoder = JpegEncoder::new_with_quality(&mut buf, quality);
-            img.write_with_encoder(encoder).map_err(|e| {
-                error!("Error encoding JPEG: {}", e);
-                e.to_string()
-            })?;
-        }
-        _ => {
-            debug!("Encoding to {:?} format", output_format);
-            img.write_to(&mut buf, output_format).map_err(|e| {
-                error!("Error encoding image to {:?}: {}", output_format, e);
-                e.to_string()
-            })?;
-        }
-    }
-
-    debug!("Image processing complete");
-    Ok(buf.into_inner())
 }

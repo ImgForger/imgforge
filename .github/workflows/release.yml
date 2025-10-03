@@ -1,0 +1,43 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions: write-all
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: taiki-e/create-gh-release-action@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  build-and-upload-assets:
+    needs: create-release
+    strategy:
+      matrix:
+        include:
+          - name: linux-amd64
+            target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - name: linux-arm64
+            target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Build and upload
+        uses: taiki-e/upload-rust-binary-action@v1
+        with:
+          bin: ${{ github.event.repository.name }}
+          target: ${{ matrix.target }}
+          archive: $bin-${{ matrix.name }}
+          token: ${{ secrets.GITHUB_TOKEN }}

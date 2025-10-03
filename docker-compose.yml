@@ -1,3 +1,4 @@
+name: imgforger
 services:
   imgforge:
     build: .
