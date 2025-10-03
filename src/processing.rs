@@ -696,9 +696,16 @@ fn apply_blur(img: VipsImage, sigma: f32) -> Result<VipsImage, String> {
 
 /// Applies background color to an image (useful for JPEG output).
 fn apply_background_color(img: VipsImage, _bg_color: [u8; 4]) -> Result<VipsImage, String> {
-    // For now, return the original image as background compositing is complex in libvips-rs
-    // TODO: Implement proper background color application
-    Ok(img)
+    // Use libvips flatten to composite over a solid background, dropping alpha.
+    // Only RGB is used; input alpha is ignored for the background color itself.
+    let bg = vec![
+        _bg_color[0] as f64,
+        _bg_color[1] as f64,
+        _bg_color[2] as f64,
+    ];
+    let mut opts = ops::FlattenOptions::default();
+    opts.background = bg;
+    ops::flatten_with_opts(&img, &opts).map_err(|e| format!("Error applying background color: {}", e))
 }
 
 /// Saves an image to bytes in the specified format.
