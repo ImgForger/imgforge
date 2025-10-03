@@ -13,8 +13,8 @@ use axum_extra::headers::{authorization::Bearer, Authorization};
 use axum_extra::TypedHeader;
 use base64::{engine::general_purpose, Engine as _};
 use hmac::{Hmac, Mac};
+use image::AnimationDecoder;
 use image::ImageReader;
-use image::{AnimationDecoder, ImageDecoder as _};
 use percent_encoding::percent_decode_str;
 use serde_json::json;
 use sha2::Sha256;
@@ -50,12 +50,9 @@ struct AppState {
 #[derive(Debug)]
 enum SourceUrlInfo {
     /// A plain (percent-encoded) source URL.
-    Plain { url: String, extension: Option<String> },
+    Plain { url: String },
     /// A Base64-encoded source URL.
-    Base64 {
-        encoded_url: String,
-        extension: Option<String>,
-    },
+    Base64 { encoded_url: String },
 }
 
 impl SourceUrlInfo {
@@ -105,7 +102,8 @@ async fn main() {
     let semaphore = if workers > 0 {
         Semaphore::new(workers)
     } else {
-        Semaphore::new(num_cpus::get())
+        // The default number of workers per instance is twice the number of CPUs on the machine that runs it.
+        Semaphore::new(num_cpus::get() * 2)
     };
 
     let state = Arc::new(AppState { semaphore });
@@ -493,7 +491,7 @@ fn parse_path(path: &str) -> Option<ImgforgeUrl> {
     let processing_options_parts = &rest[..source_url_start_index];
     let source_url_parts = &rest[source_url_start_index..];
 
-    let processing_options = processing_options_parts
+    let mut processing_options: Vec<ProcessingOption> = processing_options_parts
         .iter()
         .map(|s| {
             let mut parts = s.split(':');
@@ -503,7 +501,14 @@ fn parse_path(path: &str) -> Option<ImgforgeUrl> {
         })
         .collect();
 
-    let source_url = parse_source_url_path(source_url_parts)?;
+    let (source_url, extension) = parse_source_url_path(source_url_parts)?;
+
+    if let Some(ext) = extension {
+        processing_options.push(ProcessingOption {
+            name: "format".to_string(),
+            args: vec![ext.clone()],
+        });
+    }
 
     Some(ImgforgeUrl {
         signature,
@@ -521,7 +526,7 @@ fn parse_path(path: &str) -> Option<ImgforgeUrl> {
 /// # Returns
 ///
 /// An `Option<SourceUrlInfo>` containing the parsed source URL information if successful, `None` otherwise.
-fn parse_source_url_path(parts: &[&str]) -> Option<SourceUrlInfo> {
+fn parse_source_url_path(parts: &[&str]) -> Option<(SourceUrlInfo, Option<String>)> {
     if parts.is_empty() {
         return None;
     }
@@ -535,13 +540,13 @@ fn parse_source_url_path(parts: &[&str]) -> Option<SourceUrlInfo> {
             Some((url, ext)) => (url.to_string(), Some(ext.to_string())),
             None => (path.to_string(), None),
         };
-        Some(SourceUrlInfo::Plain { url, extension })
+        Some((SourceUrlInfo::Plain { url }, extension))
     } else {
         let path = parts.join("/");
         let (encoded_url, extension) = match path.rsplit_once('.') {
             Some((url, ext)) => (url.to_string(), Some(ext.to_string())),
             None => (path.to_string(), None),
         };
-        Some(SourceUrlInfo::Base64 { encoded_url, extension })
+        Some((SourceUrlInfo::Base64 { encoded_url }, extension))
     }
 }
