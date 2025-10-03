@@ -12,7 +12,9 @@ COPY . .
 RUN cargo build --release
 
 # Final stage
-FROM debian:buster-slim
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y libssl3 && rm -rf /var/lib/apt/lists/*
 
 # Copy the compiled binary from the builder stage
 COPY --from=builder /usr/src/imgforge/target/release/imgforge .
