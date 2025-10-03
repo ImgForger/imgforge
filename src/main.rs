@@ -29,7 +29,6 @@ use tracing_subscriber::{EnvFilter, FmtSubscriber};
 mod processing;
 use processing::options::ProcessingOption;
 
-
 const ENV_IMGFORGE_LOG_LEVEL: &str = "IMGFORGE_LOG_LEVEL";
 const ENV_IMGFORGE_KEY: &str = "IMGFORGE_KEY";
 const ENV_IMGFORGE_SALT: &str = "IMGFORGE_SALT";
@@ -89,8 +88,6 @@ impl SourceUrlInfo {
         }
     }
 }
-
-
 
 /// Represents the parsed components of an imgforge URL.
 #[derive(Debug)]
@@ -433,7 +430,7 @@ async fn common_image_setup(
     } else {
         let path_to_sign = format!("/{}", &path[path.find('/').unwrap() + 1..]);
         if !validate_signature(&key, &salt, &url_parts.signature, &path_to_sign) {
-            error!("Invalid signature for path: {}", path);
+            error!("Invalid signature for path: {}", path_to_sign);
             return Err((StatusCode::FORBIDDEN, "Invalid signature".to_string()).into_response());
         }
     }
