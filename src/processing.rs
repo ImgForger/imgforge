@@ -245,6 +245,20 @@ fn parse_boolean(s: &str) -> bool {
     matches!(s, "1" | "true")
 }
 
+/// Determines if the given dimensions represent a portrait orientation.
+///
+/// # Arguments
+///
+/// * `width` - The width of the image.
+/// * `height` - The height of the image.
+///
+/// # Returns
+///
+/// `true` if the height is greater than the width, `false` otherwise.
+fn is_portrait(width: u32, height: u32) -> bool {
+    height > width
+}
+
 /// Parses a vector of `ProcessingOption` into a `ParsedOptions` struct.
 ///
 /// This function iterates through the raw processing options, validates their arguments,
@@ -642,8 +656,8 @@ pub async fn process_image(image_bytes: Vec<u8>, mut parsed_options: ParsedOptio
                 }
                 "fit" => {
                     if w == 0 && h == 0 {
-                        debug!("Resizing to fit, no dimensions specified, returning original image");
-                        img
+                        error!("Resize:fit requires non-zero width and height");
+                        return Err("resize:fit requires non-zero width and height".to_string());
                     } else {
                         let (img_w, img_h) = img.dimensions();
                         let aspect_ratio = img_w as f32 / img_h as f32;
@@ -666,6 +680,30 @@ pub async fn process_image(image_bytes: Vec<u8>, mut parsed_options: ParsedOptio
                     }
                     debug!("Resizing to force {}x{}", w, h);
                     img.resize_exact(w, h, imageops::FilterType::Lanczos3)
+                }
+                "auto" => {
+                    if w == 0 || h == 0 {
+                        error!("Resize:auto requires non-zero width and height");
+                        return Err("resize:auto requires non-zero width and height".to_string());
+                    }
+                    let (img_w, img_h) = img.dimensions();
+                    let src_is_portrait = is_portrait(img_w, img_h);
+                    let target_is_portrait = is_portrait(w, h);
+
+                    if src_is_portrait == target_is_portrait {
+                        debug!(
+                            "Auto resize: orientations match ({}x{} -> {}x{}), using fill",
+                            img_w, img_h, w, h
+                        );
+                        let gravity = parsed_options.gravity.as_deref().unwrap_or("center");
+                        resize_to_fill_with_gravity(&img, w, h, gravity)
+                    } else {
+                        debug!(
+                            "Auto resize: orientations differ ({}x{} -> {}x{}), using fit",
+                            img_w, img_h, w, h
+                        );
+                        img.resize(w, h, imageops::FilterType::Lanczos3)
+                    }
                 }
                 _ => {
                     error!("Unknown resize type: {}", resize.resizing_type);
