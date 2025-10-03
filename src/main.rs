@@ -13,7 +13,7 @@ use axum_extra::headers::{authorization::Bearer, Authorization};
 use axum_extra::TypedHeader;
 use base64::{engine::general_purpose, Engine as _};
 use hmac::{Hmac, Mac};
-use image::io::Reader as ImageReader;
+use image::ImageReader;
 use image::{AnimationDecoder, ImageDecoder as _};
 use percent_encoding::percent_decode_str;
 use serde_json::json;
@@ -149,7 +149,7 @@ async fn info_handler(
     };
     debug!("Processing info request for URL: {}", _decoded_url);
 
-    let reader = image::io::Reader::new(Cursor::new(&image_bytes)).with_guessed_format();
+    let reader = ImageReader::new(Cursor::new(&image_bytes)).with_guessed_format();
     let (width, height, format_str) = if let Ok(reader) = reader {
         if let Some(format) = reader.format() {
             let format_str = match format {
@@ -311,7 +311,7 @@ async fn image_forge_handler(
         }
     }
 
-    let permit = if parsed_options.raw {
+    let _permit = if parsed_options.raw {
         None
     } else {
         Some(state.semaphore.acquire().await.unwrap())
