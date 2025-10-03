@@ -95,17 +95,16 @@ struct ImgforgeUrl {
 /// Main entry point for the imgforge server application.
 #[tokio::main]
 async fn main() {
-    let workers = env::var(ENV_WORKERS)
+    let mut workers = env::var(ENV_WORKERS)
         .unwrap_or_else(|_| "0".to_string())
         .parse()
         .unwrap_or(0);
-    let semaphore = if workers > 0 {
-        Semaphore::new(workers)
-    } else {
-        // The default number of workers per instance is twice the number of CPUs on the machine that runs it.
-        Semaphore::new(num_cpus::get() * 2)
-    };
-
+    if workers == 0 {
+        // If no workers are specified, default to twice the number of CPUs.
+        debug!("No workers specified, defaulting to {}", num_cpus::get() * 2);
+        workers = num_cpus::get() * 2;
+    }
+    let semaphore = Semaphore::new(workers);
     let state = Arc::new(AppState { semaphore });
 
     // Initialize tracing
@@ -114,7 +113,7 @@ async fn main() {
         .finish();
     tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
 
-    info!("Starting imgforge server...");
+    info!("Starting imgforge server with {} workers...", workers);
 
     let app = Router::new()
         .route("/status", get(status_handler))
