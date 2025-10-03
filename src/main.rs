@@ -30,7 +30,7 @@ mod processing;
 const ENV_IMGFORGE_LOG_LEVEL: &str = "IMGFORGE_LOG_LEVEL";
 const ENV_IMGFORGE_KEY: &str = "IMGFORGE_KEY";
 const ENV_IMGFORGE_SALT: &str = "IMGFORGE_SALT";
-const ENV_IMGFORGE_AUTH_TOKEN: &str = "IMGFORGE_AUTH_TOKEN";
+const ENV_IMGFORGE_SECRET: &str = "IMGFORGE_SECRET";
 const ENV_ALLOW_UNSIGNED: &str = "ALLOW_UNSIGNED";
 const ENV_MAX_SRC_FILE_SIZE: &str = "IMGFORGE_MAX_SRC_FILE_SIZE";
 const ENV_ALLOWED_MIME_TYPES: &str = "IMGFORGE_ALLOWED_MIME_TYPES";
@@ -370,7 +370,7 @@ async fn common_image_setup(
     auth_header: Option<TypedHeader<Authorization<Bearer>>>,
 ) -> Result<(ImgforgeUrl, String, Bytes, Option<String>), Response> {
     // Authorization Header Check
-    if let Some(token) = env::var(ENV_IMGFORGE_AUTH_TOKEN).ok() {
+    if let Some(token) = env::var(ENV_IMGFORGE_SECRET).ok() {
         if !token.is_empty() {
             if let Some(TypedHeader(auth)) = auth_header {
                 if auth.token() != token {
