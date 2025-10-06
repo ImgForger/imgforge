@@ -15,8 +15,8 @@ pub enum CacheConfig {
         ttl: Option<u64>,
     },
     Hybrid {
-        dram_capacity: usize,
-        dram_ttl: Option<u64>,
+        memory_capacity: usize,
+        memory_ttl: Option<u64>,
         disk_path: String,
         disk_capacity: usize,
         disk_ttl: Option<u64>,
@@ -63,8 +63,8 @@ impl CacheConfig {
                     .map_err(|e| CacheError::InvalidConfiguration(format!("Invalid hybrid disk capacity: {}", e)))?;
                 let disk_ttl = env::var(CACHE_DISK_TTL).ok().and_then(|v| v.parse().ok());
                 Ok(Some(CacheConfig::Hybrid {
-                    dram_capacity,
-                    dram_ttl,
+                    memory_capacity: dram_capacity,
+                    memory_ttl: dram_ttl,
                     disk_path,
                     disk_capacity,
                     disk_ttl,
