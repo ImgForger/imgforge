@@ -187,8 +187,8 @@ pub fn apply_padding(
         &img,
         -(left as i32),
         -(top as i32),
-        (img.get_width() + left as i32 + right as i32) as i32,
-        (img.get_height() + top as i32 + bottom as i32) as i32,
+        img.get_width() + left as i32 + right as i32,
+        img.get_height() + top as i32 + bottom as i32,
     )
     .map_err(|e| format!("Error applying padding: {}", e))
 }
@@ -212,12 +212,10 @@ pub fn apply_blur(img: VipsImage, sigma: f32) -> Result<VipsImage, String> {
 pub fn apply_background_color(img: VipsImage, _bg_color: [u8; 4]) -> Result<VipsImage, String> {
     // Use libvips flatten to composite over a solid background, dropping alpha.
     // Only RGB is used; input alpha is ignored for the background color itself.
-    let bg = vec![
-        _bg_color[0] as f64,
-        _bg_color[1] as f64,
-        _bg_color[2] as f64,
-    ];
-    let mut opts = ops::FlattenOptions::default();
-    opts.background = bg;
+    let bg = vec![_bg_color[0] as f64, _bg_color[1] as f64, _bg_color[2] as f64];
+    let opts = ops::FlattenOptions {
+        background: bg,
+        ..Default::default()
+    };
     ops::flatten_with_opts(&img, &opts).map_err(|e| format!("Error applying background color: {}", e))
 }

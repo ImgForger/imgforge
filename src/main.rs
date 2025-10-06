@@ -30,7 +30,7 @@ mod caching;
 mod constants;
 mod processing;
 
-use caching::cache::Cache;
+use caching::cache::ImgforgeCache as Cache;
 use caching::config::CacheConfig;
 use constants::*;
 use processing::options::ProcessingOption;
@@ -390,7 +390,7 @@ async fn common_image_setup(
     auth_header: Option<TypedHeader<Authorization<Bearer>>>,
 ) -> Result<(ImgforgeUrl, String, Bytes, Option<String>), Response> {
     // Authorization Header Check
-    if let Some(token) = env::var(ENV_IMGFORGE_SECRET).ok() {
+    if let Ok(token) = env::var(ENV_IMGFORGE_SECRET) {
         if !token.is_empty() {
             if let Some(TypedHeader(auth)) = auth_header {
                 if auth.token() != token {
