@@ -223,9 +223,11 @@ async fn image_forge_handler(
     headers.insert("X-Request-ID", request_id.parse().unwrap());
     info!("Full path captured: {}", path);
 
-    if let Some(cached_image) = state.cache.get(&path).await {
-        debug!("Image found in cache");
-        return (StatusCode::OK, headers, cached_image).into_response();
+    if !matches!(state.cache, Cache::None) {
+        if let Some(cached_image) = state.cache.get(&path).await {
+            debug!("Image found in cache");
+            return (StatusCode::OK, headers, cached_image).into_response();
+        }
     }
 
     let (url_parts, _decoded_url, image_bytes, content_type) = match common_image_setup(&path, auth_header).await {
@@ -336,8 +338,10 @@ async fn image_forge_handler(
         }
     };
 
-    if let Err(e) = state.cache.insert(path.clone(), processed_image_bytes.clone()).await {
-        error!("Failed to cache image: {}", e);
+    if !matches!(state.cache, Cache::None) {
+        if let Err(e) = state.cache.insert(path.clone(), processed_image_bytes.clone()).await {
+            error!("Failed to cache image: {}", e);
+        }
     }
 
     (StatusCode::OK, headers, processed_image_bytes).into_response()
