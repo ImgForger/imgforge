@@ -26,7 +26,10 @@ use tower_http::trace::TraceLayer;
 use tracing::{debug, error, info, Span};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
+mod caching;
 mod processing;
+use caching::cache::Cache;
+use caching::config::CacheConfig;
 use processing::options::ProcessingOption;
 
 const ENV_IMGFORGE_LOG_LEVEL: &str = "IMGFORGE_LOG_LEVEL";
@@ -61,6 +64,8 @@ fn init_vips_once() {
 struct AppState {
     /// Semaphore to limit the number of concurrent image processing tasks.
     semaphore: Semaphore,
+    /// The image cache.
+    cache: Cache,
 }
 
 /// Information about the source URL, including its type and extension.
@@ -113,7 +118,11 @@ async fn main() {
         workers = num_cpus::get() * 2;
     }
     let semaphore = Semaphore::new(workers);
-    let state = Arc::new(AppState { semaphore });
+    let cache_config = CacheConfig::from_env().expect("Failed to load cache config");
+    let cache = Cache::new(cache_config)
+        .await
+        .expect("Failed to initialize cache");
+    let state = Arc::new(AppState { semaphore, cache });
 
     // Initialize tracing
     let subscriber = FmtSubscriber::builder()
@@ -224,6 +233,11 @@ async fn image_forge_handler(
     headers.insert("X-Request-ID", request_id.parse().unwrap());
     info!("Full path captured: {}", path);
 
+    if let Some(cached_image) = state.cache.get(&path).await {
+        debug!("Image found in cache");
+        return (StatusCode::OK, headers, cached_image).into_response();
+    }
+
     let (url_parts, _decoded_url, image_bytes, content_type) = match common_image_setup(&path, auth_header).await {
         Ok(data) => data,
         Err(response) => return response,
@@ -331,6 +345,14 @@ async fn image_forge_handler(
             return (StatusCode::BAD_REQUEST, format!("Error processing image: {}", e)).into_response();
         }
     };
+
+    if let Err(e) = state
+        .cache
+        .insert(path.clone(), processed_image_bytes.clone())
+        .await
+    {
+        error!("Failed to cache image: {}", e);
+    }
 
     (StatusCode::OK, headers, processed_image_bytes).into_response()
 }
