@@ -15,7 +15,7 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use hmac::{Hmac, Mac};
 use libvips::{VipsApp, VipsImage};
 use percent_encoding::percent_decode_str;
-use rand::distributions::Alphanumeric;
+use rand::distr::Alphanumeric;
 use rand::Rng;
 use serde_json::json;
 use sha2::Sha256;
@@ -27,21 +27,13 @@ use tracing::{debug, error, info, Span};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
 mod caching;
+mod constants;
 mod processing;
+
 use caching::cache::Cache;
 use caching::config::CacheConfig;
+use constants::*;
 use processing::options::ProcessingOption;
-
-const ENV_IMGFORGE_LOG_LEVEL: &str = "IMGFORGE_LOG_LEVEL";
-const ENV_IMGFORGE_KEY: &str = "IMGFORGE_KEY";
-const ENV_IMGFORGE_SALT: &str = "IMGFORGE_SALT";
-const ENV_IMGFORGE_SECRET: &str = "IMGFORGE_SECRET";
-const ENV_ALLOW_UNSIGNED: &str = "ALLOW_UNSIGNED";
-const ENV_MAX_SRC_FILE_SIZE: &str = "IMGFORGE_MAX_SRC_FILE_SIZE";
-const ENV_ALLOWED_MIME_TYPES: &str = "IMGFORGE_ALLOWED_MIME_TYPES";
-const ENV_MAX_SRC_RESOLUTION: &str = "IMGFORGE_MAX_SRC_RESOLUTION";
-const ENV_ALLOW_SECURITY_OPTIONS: &str = "IMGFORGE_ALLOW_SECURITY_OPTIONS";
-const ENV_WORKERS: &str = "IMGFORGE_WORKERS";
 
 // Initialize libvips exactly once for the entire process lifetime.
 static VIPS_INIT: Once = Once::new();
@@ -119,9 +111,7 @@ async fn main() {
     }
     let semaphore = Semaphore::new(workers);
     let cache_config = CacheConfig::from_env().expect("Failed to load cache config");
-    let cache = Cache::new(cache_config)
-        .await
-        .expect("Failed to initialize cache");
+    let cache = Cache::new(cache_config).await.expect("Failed to initialize cache");
     let state = Arc::new(AppState { semaphore, cache });
 
     // Initialize tracing
@@ -157,7 +147,7 @@ async fn main() {
 }
 
 fn generate_request_id() -> String {
-    rand::thread_rng()
+    rand::rng()
         .sample_iter(&Alphanumeric)
         .take(10)
         .map(char::from)
@@ -346,11 +336,7 @@ async fn image_forge_handler(
         }
     };
 
-    if let Err(e) = state
-        .cache
-        .insert(path.clone(), processed_image_bytes.clone())
-        .await
-    {
+    if let Err(e) = state.cache.insert(path.clone(), processed_image_bytes.clone()).await {
         error!("Failed to cache image: {}", e);
     }
 
