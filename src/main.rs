@@ -225,7 +225,7 @@ async fn image_forge_handler(
 
     if !matches!(state.cache, Cache::None) {
         if let Some(cached_image) = state.cache.get(&path).await {
-            debug!("Image found in cache");
+            debug!("Image found in cache for path: {}", path);
             return (StatusCode::OK, headers, cached_image).into_response();
         }
     }
