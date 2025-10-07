@@ -5,6 +5,7 @@ use foyer::{BlockEngineBuilder, Cache, CacheBuilder, FsDeviceBuilder, HybridCach
 use std::path::Path;
 use std::sync::Arc;
 
+/// Represents the different cache backends for Imgforge.
 pub enum ImgforgeCache {
     None,
     Memory(Arc<Cache<String, Vec<u8>>>),
@@ -13,6 +14,7 @@ pub enum ImgforgeCache {
 }
 
 impl ImgforgeCache {
+    /// Create a new cache instance based on the provided configuration.
     pub async fn new(config: Option<CacheConfig>) -> Result<Self, CacheError> {
         match config {
             None => Ok(ImgforgeCache::None),
@@ -58,17 +60,12 @@ impl ImgforgeCache {
         }
     }
 
+    /// Retrieve a value from the cache by key.
     pub async fn get(&self, key: &str) -> Option<Vec<u8>> {
         match self {
             ImgforgeCache::None => None,
             ImgforgeCache::Memory(cache) => cache.get(key).map(|e| e.value().clone()),
-            ImgforgeCache::Disk(cache) => cache
-                .get(&key.to_string())
-                .await
-                .ok()
-                .flatten()
-                .map(|e| e.value().clone()),
-            ImgforgeCache::Hybrid(cache) => cache
+            ImgforgeCache::Disk(cache) | ImgforgeCache::Hybrid(cache) => cache
                 .get(&key.to_string())
                 .await
                 .ok()
@@ -77,6 +74,7 @@ impl ImgforgeCache {
         }
     }
 
+    /// Insert a value into the cache.
     pub async fn insert(&self, key: String, value: Vec<u8>) -> Result<(), CacheError> {
         match self {
             ImgforgeCache::None => Ok(()),
@@ -84,11 +82,7 @@ impl ImgforgeCache {
                 cache.insert(key, value);
                 Ok(())
             }
-            ImgforgeCache::Disk(cache) => {
-                cache.insert(key, value);
-                Ok(())
-            }
-            ImgforgeCache::Hybrid(cache) => {
+            ImgforgeCache::Disk(cache) | ImgforgeCache::Hybrid(cache) => {
                 cache.insert(key, value);
                 Ok(())
             }
