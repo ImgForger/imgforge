@@ -89,3 +89,81 @@ impl ImgforgeCache {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::caching::config::CacheConfig;
+    use tempfile::tempdir;
+
+    #[tokio::test]
+    async fn test_new_none_cache() {
+        let cache = ImgforgeCache::new(None).await.unwrap();
+        assert!(matches!(cache, ImgforgeCache::None));
+    }
+
+    #[tokio::test]
+    async fn test_new_memory_cache() {
+        let config = Some(CacheConfig::Memory {
+            capacity: 1000,
+        });
+        let cache = ImgforgeCache::new(config).await.unwrap();
+        assert!(matches!(cache, ImgforgeCache::Memory(_)));
+    }
+
+    #[tokio::test]
+    async fn test_new_disk_cache() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().to_str().unwrap().to_string();
+        let config = Some(CacheConfig::Disk {
+            path,
+            capacity: 10000,
+        });
+        let cache = ImgforgeCache::new(config).await.unwrap();
+        assert!(matches!(cache, ImgforgeCache::Disk(_)));
+    }
+
+    #[tokio::test]
+    async fn test_new_hybrid_cache() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().to_str().unwrap().to_string();
+        let config = Some(CacheConfig::Hybrid {
+            memory_capacity: 1000,
+            disk_path: path,
+            disk_capacity: 10000,
+        });
+        let cache = ImgforgeCache::new(config).await.unwrap();
+        assert!(matches!(cache, ImgforgeCache::Hybrid(_)));
+    }
+
+    #[tokio::test]
+    async fn test_cache_operations() {
+        let config = Some(CacheConfig::Memory {
+            capacity: 1000,
+        });
+        let cache = ImgforgeCache::new(config).await.unwrap();
+
+        let key = "test_key".to_string();
+        let value = vec![1, 2, 3];
+
+        cache.insert(key.clone(), value.clone()).await.unwrap();
+        let retrieved = cache.get(&key).await.unwrap();
+        assert_eq!(retrieved, value);
+    }
+
+    #[tokio::test]
+    async fn test_cache_operations_disk() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().to_str().unwrap().to_string();
+        let config = Some(CacheConfig::Disk {
+            path,
+            capacity: 10000,
+        });
+        let cache = ImgforgeCache::new(config).await.unwrap();
+        let key = "test_key".to_string();
+        let value = vec![1, 2, 3];
+        cache.insert(key.clone(), value.clone()).await.unwrap();
+        let retrieved = cache.get(&key).await.unwrap();
+        assert_eq!(retrieved, value);
+    }
+}

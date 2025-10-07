@@ -11,7 +11,5 @@ pub const ENV_WORKERS: &str = "IMGFORGE_WORKERS";
 
 pub const CACHE_TYPE: &str = "CACHE_TYPE";
 pub const CACHE_MEMORY_CAPACITY: &str = "CACHE_MEMORY_CAPACITY";
-pub const CACHE_MEMORY_TTL: &str = "CACHE_MEMORY_TTL";
 pub const CACHE_DISK_PATH: &str = "CACHE_DISK_PATH";
 pub const CACHE_DISK_CAPACITY: &str = "CACHE_DISK_CAPACITY";
-pub const CACHE_DISK_TTL: &str = "CACHE_DISK_TTL";
