@@ -44,7 +44,7 @@ impl CacheConfig {
                 Ok(Some(CacheConfig::Disk { path, capacity }))
             }
             "hybrid" => {
-                let dram_capacity = env::var(CACHE_MEMORY_CAPACITY)
+                let memory_capacity = env::var(CACHE_MEMORY_CAPACITY)
                     .unwrap_or_else(|_| "1000".to_string())
                     .parse()
                     .map_err(|e| CacheError::InvalidConfiguration(format!("Invalid hybrid DRAM capacity: {}", e)))?;
@@ -55,7 +55,7 @@ impl CacheConfig {
                     .parse()
                     .map_err(|e| CacheError::InvalidConfiguration(format!("Invalid hybrid disk capacity: {}", e)))?;
                 Ok(Some(CacheConfig::Hybrid {
-                    memory_capacity: dram_capacity,
+                    memory_capacity,
                     disk_path,
                     disk_capacity,
                 }))
