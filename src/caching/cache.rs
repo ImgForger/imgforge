@@ -1,6 +1,6 @@
 use crate::caching::config::CacheConfig;
 use crate::caching::error::CacheError;
-use foyer::DeviceBuilder;
+use foyer::{DeviceBuilder, RecoverMode};
 use foyer::{BlockEngineBuilder, Cache, CacheBuilder, FsDeviceBuilder, HybridCache, HybridCacheBuilder};
 use std::path::Path;
 use std::sync::Arc;
@@ -32,6 +32,7 @@ impl ImgforgeCache {
                     .memory(0) // No memory, pure disk
                     .storage()
                     .with_engine_config(engine)
+                    .with_recover_mode(RecoverMode::Quiet)
                     .build()
                     .await
                     .map_err(|e| CacheError::Initialization(e.to_string()))?;
@@ -52,6 +53,7 @@ impl ImgforgeCache {
                     .memory(memory_capacity)
                     .storage()
                     .with_engine_config(engine)
+                    .with_recover_mode(RecoverMode::Quiet)
                     .build()
                     .await
                     .map_err(|e| CacheError::Initialization(e.to_string()))?;
@@ -104,9 +106,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_new_memory_cache() {
-        let config = Some(CacheConfig::Memory {
-            capacity: 1000,
-        });
+        let config = Some(CacheConfig::Memory { capacity: 1000 });
         let cache = ImgforgeCache::new(config).await.unwrap();
         assert!(matches!(cache, ImgforgeCache::Memory(_)));
     }
@@ -115,10 +115,7 @@ mod tests {
     async fn test_new_disk_cache() {
         let dir = tempdir().unwrap();
         let path = dir.path().to_str().unwrap().to_string();
-        let config = Some(CacheConfig::Disk {
-            path,
-            capacity: 10000,
-        });
+        let config = Some(CacheConfig::Disk { path, capacity: 10000 });
         let cache = ImgforgeCache::new(config).await.unwrap();
         assert!(matches!(cache, ImgforgeCache::Disk(_)));
     }
@@ -138,9 +135,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cache_operations() {
-        let config = Some(CacheConfig::Memory {
-            capacity: 1000,
-        });
+        let config = Some(CacheConfig::Memory { capacity: 1000 });
         let cache = ImgforgeCache::new(config).await.unwrap();
 
         let key = "test_key".to_string();
@@ -155,10 +150,7 @@ mod tests {
     async fn test_cache_operations_disk() {
         let dir = tempdir().unwrap();
         let path = dir.path().to_str().unwrap().to_string();
-        let config = Some(CacheConfig::Disk {
-            path,
-            capacity: 10000,
-        });
+        let config = Some(CacheConfig::Disk { path, capacity: 10000 });
         let cache = ImgforgeCache::new(config).await.unwrap();
         let key = "test_key".to_string();
         let value = vec![1, 2, 3];
