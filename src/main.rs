@@ -15,7 +15,7 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use hmac::{Hmac, Mac};
 use libvips::{VipsApp, VipsImage};
 use percent_encoding::percent_decode_str;
-use rand::distributions::Alphanumeric;
+use rand::distr::Alphanumeric;
 use rand::Rng;
 use serde_json::json;
 use sha2::Sha256;
@@ -26,19 +26,14 @@ use tower_http::trace::TraceLayer;
 use tracing::{debug, error, info, Span};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
+mod caching;
+mod constants;
 mod processing;
-use processing::options::ProcessingOption;
 
-const ENV_IMGFORGE_LOG_LEVEL: &str = "IMGFORGE_LOG_LEVEL";
-const ENV_IMGFORGE_KEY: &str = "IMGFORGE_KEY";
-const ENV_IMGFORGE_SALT: &str = "IMGFORGE_SALT";
-const ENV_IMGFORGE_SECRET: &str = "IMGFORGE_SECRET";
-const ENV_ALLOW_UNSIGNED: &str = "ALLOW_UNSIGNED";
-const ENV_MAX_SRC_FILE_SIZE: &str = "IMGFORGE_MAX_SRC_FILE_SIZE";
-const ENV_ALLOWED_MIME_TYPES: &str = "IMGFORGE_ALLOWED_MIME_TYPES";
-const ENV_MAX_SRC_RESOLUTION: &str = "IMGFORGE_MAX_SRC_RESOLUTION";
-const ENV_ALLOW_SECURITY_OPTIONS: &str = "IMGFORGE_ALLOW_SECURITY_OPTIONS";
-const ENV_WORKERS: &str = "IMGFORGE_WORKERS";
+use caching::cache::ImgforgeCache as Cache;
+use caching::config::CacheConfig;
+use constants::*;
+use processing::options::ProcessingOption;
 
 // Initialize libvips exactly once for the entire process lifetime.
 static VIPS_INIT: Once = Once::new();
@@ -61,6 +56,8 @@ fn init_vips_once() {
 struct AppState {
     /// Semaphore to limit the number of concurrent image processing tasks.
     semaphore: Semaphore,
+    /// The image cache.
+    cache: Cache,
 }
 
 /// Information about the source URL, including its type and extension.
@@ -113,7 +110,9 @@ async fn main() {
         workers = num_cpus::get() * 2;
     }
     let semaphore = Semaphore::new(workers);
-    let state = Arc::new(AppState { semaphore });
+    let cache_config = CacheConfig::from_env().expect("Failed to load cache config");
+    let cache = Cache::new(cache_config).await.expect("Failed to initialize cache");
+    let state = Arc::new(AppState { semaphore, cache });
 
     // Initialize tracing
     let subscriber = FmtSubscriber::builder()
@@ -148,7 +147,7 @@ async fn main() {
 }
 
 fn generate_request_id() -> String {
-    rand::thread_rng()
+    rand::rng()
         .sample_iter(&Alphanumeric)
         .take(10)
         .map(char::from)
@@ -223,6 +222,13 @@ async fn image_forge_handler(
     let mut headers = header::HeaderMap::new();
     headers.insert("X-Request-ID", request_id.parse().unwrap());
     info!("Full path captured: {}", path);
+
+    if !matches!(state.cache, Cache::None) {
+        if let Some(cached_image) = state.cache.get(&path).await {
+            debug!("Image found in cache for path: {}", path);
+            return (StatusCode::OK, headers, cached_image).into_response();
+        }
+    }
 
     let (url_parts, _decoded_url, image_bytes, content_type) = match common_image_setup(&path, auth_header).await {
         Ok(data) => data,
@@ -332,6 +338,12 @@ async fn image_forge_handler(
         }
     };
 
+    if !matches!(state.cache, Cache::None) {
+        if let Err(e) = state.cache.insert(path.clone(), processed_image_bytes.clone()).await {
+            error!("Failed to cache image: {}", e);
+        }
+    }
+
     (StatusCode::OK, headers, processed_image_bytes).into_response()
 }
 
@@ -378,7 +390,7 @@ async fn common_image_setup(
     auth_header: Option<TypedHeader<Authorization<Bearer>>>,
 ) -> Result<(ImgforgeUrl, String, Bytes, Option<String>), Response> {
     // Authorization Header Check
-    if let Some(token) = env::var(ENV_IMGFORGE_SECRET).ok() {
+    if let Ok(token) = env::var(ENV_IMGFORGE_SECRET) {
         if !token.is_empty() {
             if let Some(TypedHeader(auth)) = auth_header {
                 if auth.token() != token {

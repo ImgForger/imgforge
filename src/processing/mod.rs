@@ -135,3 +135,6 @@ pub async fn process_image(image_bytes: Vec<u8>, mut parsed_options: ParsedOptio
     debug!("Image processing complete");
     Ok(output_bytes)
 }
+
+#[cfg(test)]
+mod tests;
