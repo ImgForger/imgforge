@@ -71,8 +71,6 @@ imgforge is configured using environment variables:
 | `IMGFORGE_MAX_SRC_FILE_SIZE` | The maximum allowed source image file size. |
 | `IMGFORGE_ALLOWED_MIME_TYPES` | A comma-separated list of allowed MIME types. |
 | `IMGFORGE_MAX_SRC_RESOLUTION` | The maximum allowed source image resolution. |
-| `IMGFORGE_MAX_ANIMATION_FRAMES` | The maximum number of frames in an animated image. |
-| `IMGFORGE_MAX_ANIMATION_FRAME_RESOLUTION` | The maximum resolution of a single frame in an animated image. |
 | `IMGFORGE_ALLOW_SECURITY_OPTIONS` | Allow security options to be set per-request. |
 | `IMGFORGE_WORKERS` | The number of worker threads to use for image processing. |
 | `IMGFORGE_LOG_LEVEL` | The log level to use. |

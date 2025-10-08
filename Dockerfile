@@ -3,6 +3,8 @@
 # Builder stage
 FROM rust:1.90 AS builder
 
+RUN apt-get update && apt-get install -y libvips-dev pkg-config
+
 WORKDIR /usr/src/imgforge
 
 # Copy the source code
@@ -14,7 +16,7 @@ RUN cargo build --release
 # Final stage
 FROM debian:bookworm-slim
 
-RUN apt-get update && apt-get install -y ca-certificates libssl3 && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y ca-certificates libssl3 libvips-tools && rm -rf /var/lib/apt/lists/*
 
 # Copy the compiled binary from the builder stage
 COPY --from=builder /usr/src/imgforge/target/release/imgforge .
