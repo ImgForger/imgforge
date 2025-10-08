@@ -116,7 +116,7 @@ async fn main() {
 
     // Initialize tracing
     let subscriber = FmtSubscriber::builder()
-        .with_env_filter(EnvFilter::from_env(ENV_IMGFORGE_LOG_LEVEL))
+        .with_env_filter(EnvFilter::from_env(ENV_LOG_LEVEL))
         .finish();
     tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
 
@@ -390,7 +390,7 @@ async fn common_image_setup(
     auth_header: Option<TypedHeader<Authorization<Bearer>>>,
 ) -> Result<(ImgforgeUrl, String, Bytes, Option<String>), Response> {
     // Authorization Header Check
-    if let Ok(token) = env::var(ENV_IMGFORGE_SECRET) {
+    if let Ok(token) = env::var(ENV_SECRET) {
         if !token.is_empty() {
             if let Some(TypedHeader(auth)) = auth_header {
                 if auth.token() != token {
@@ -405,8 +405,8 @@ async fn common_image_setup(
     }
 
     // Key and Salt Decoding
-    let key_str = env::var(ENV_IMGFORGE_KEY).unwrap_or_default();
-    let salt_str = env::var(ENV_IMGFORGE_SALT).unwrap_or_default();
+    let key_str = env::var(ENV_KEY).unwrap_or_default();
+    let salt_str = env::var(ENV_SALT).unwrap_or_default();
     let allow_unsigned = env::var(ENV_ALLOW_UNSIGNED).unwrap_or_default().to_lowercase() == "true";
 
     let key = match hex::decode(key_str) {
