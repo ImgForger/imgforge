@@ -3,8 +3,10 @@ pub mod save;
 pub mod transform;
 pub mod utils;
 
+use crate::monitoring::{IMAGE_PROCESSING_DURATION_SECONDS, PROCESSED_IMAGES_TOTAL};
 use crate::processing::options::ParsedOptions;
 use libvips::VipsImage;
+use std::time::Instant;
 use tracing::{debug, error};
 
 /// Processes an image by applying the given `ParsedOptions`.
@@ -22,6 +24,7 @@ use tracing::{debug, error};
 ///
 /// A `Result` containing the processed image bytes on success, or an error message as a `String`.
 pub async fn process_image(image_bytes: Vec<u8>, mut parsed_options: ParsedOptions) -> Result<Vec<u8>, String> {
+    let start = Instant::now();
     debug!("Starting image processing with options: {:?}", parsed_options);
 
     // Apply DPR scaling
@@ -92,7 +95,10 @@ pub async fn process_image(image_bytes: Vec<u8>, mut parsed_options: ParsedOptio
 
     // Apply min dimensions if specified
     if parsed_options.min_width.is_some() || parsed_options.min_height.is_some() {
-        debug!("Applying min dimensions: min_width={:?}, min_height={:?}", parsed_options.min_width, parsed_options.min_height);
+        debug!(
+            "Applying min dimensions: min_width={:?}, min_height={:?}",
+            parsed_options.min_width, parsed_options.min_height
+        );
         img = transform::apply_min_dimensions(img, parsed_options.min_width, parsed_options.min_height)?;
     }
 
@@ -163,6 +169,13 @@ pub async fn process_image(image_bytes: Vec<u8>, mut parsed_options: ParsedOptio
     let output_bytes = save::save_image(img, output_format, quality)?;
 
     debug!("Image processing complete");
+
+    let duration = start.elapsed().as_secs_f64();
+    IMAGE_PROCESSING_DURATION_SECONDS
+        .with_label_values(&[output_format])
+        .observe(duration);
+    PROCESSED_IMAGES_TOTAL.with_label_values(&[output_format]).inc();
+
     Ok(output_bytes)
 }
 
