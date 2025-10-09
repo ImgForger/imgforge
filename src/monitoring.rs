@@ -13,6 +13,7 @@ lazy_static! {
             "Image processing duration in seconds"
         ),
         &["format"]
+    )
     .unwrap();
     pub static ref SOURCE_IMAGE_FETCH_DURATION_SECONDS: HistogramVec = HistogramVec::new(
         prometheus::HistogramOpts::new(
