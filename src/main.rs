@@ -23,7 +23,10 @@ use serde_json::json;
 use sha2::Sha256;
 use std::env;
 use std::sync::{Arc, Once};
-use tokio::{net::TcpListener, sync::Semaphore};
+use std::time::Duration;
+use tokio::net::TcpListener;
+use tokio::sync::Semaphore;
+use tower_http::timeout::TimeoutLayer;
 use tower_http::trace::TraceLayer;
 use tracing::{debug, error, info, Span};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
@@ -150,9 +153,16 @@ async fn main() {
                     uri = %request.uri(),
                 )
             }),
-        );
-    let listener = TcpListener::bind("0.0.0.0:3000").await.unwrap();
-    info!("Listening on http://0.0.0.0:3000");
+        )
+        .layer(TimeoutLayer::new(
+            env::var(ENV_TIMEOUT)
+                .ok()
+                .and_then(|s| s.parse::<u64>().ok())
+                .map_or(Duration::from_secs(30), Duration::from_secs),
+        ));
+    let bind_address = env::var(ENV_BIND).unwrap_or_else(|_| "0.0.0.0:3000".to_string());
+    let listener = TcpListener::bind(&bind_address).await.unwrap();
+    info!("Listening on http://{}", bind_address);
 
     let main_server = axum::serve(listener, app);
 
@@ -491,7 +501,18 @@ async fn common_image_setup(
 
     // Image Fetching
     let fetch_start = std::time::Instant::now();
-    let response = match reqwest::get(&decoded_url).await {
+
+    let download_timeout = env::var(ENV_DOWNLOAD_TIMEOUT)
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .map_or(Duration::from_secs(10), Duration::from_secs);
+
+    let client = reqwest::Client::builder()
+        .timeout(download_timeout)
+        .build()
+        .expect("Failed to build reqwest client");
+
+    let response = match client.get(&decoded_url).send().await {
         Ok(res) => {
             let fetch_duration = fetch_start.elapsed().as_secs_f64();
             crate::monitoring::SOURCE_IMAGE_FETCH_DURATION_SECONDS
