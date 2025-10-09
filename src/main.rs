@@ -23,7 +23,7 @@ use serde_json::json;
 use sha2::Sha256;
 use std::env;
 use std::sync::{Arc, Once};
-use tokio::sync::Semaphore;
+use tokio::{net::TcpListener, sync::Semaphore};
 use tower_http::trace::TraceLayer;
 use tracing::{debug, error, info, Span};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
@@ -131,11 +131,13 @@ async fn main() {
     let (prometheus_layer, metric_handle) = PrometheusMetricLayer::pair();
     monitoring::register_metrics(prometheus::default_registry());
 
+    let main_metric_handle = metric_handle.clone();
+
     let app = Router::new()
         .route("/status", get(status_handler))
         .route("/info/{*path}", get(info_handler))
         .route("/{*path}", get(image_forge_handler))
-        .route("/metrics", get(move || async move { metric_handle.render() }))
+        .route("/metrics", get(move || async move { main_metric_handle.render() }))
         .with_state(state)
         .layer(prometheus_layer)
         .layer(
@@ -149,9 +151,32 @@ async fn main() {
                 )
             }),
         );
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
+    let listener = TcpListener::bind("0.0.0.0:3000").await.unwrap();
     info!("Listening on http://0.0.0.0:3000");
-    axum::serve(listener, app).await.unwrap();
+
+    let main_server = axum::serve(listener, app);
+
+    // Conditionally start Prometheus server
+    if let Ok(prometheus_bind_address) = env::var(ENV_PROMETHEUS_BIND) {
+        info!(
+            "Prometheus metrics will be exposed on http://{}",
+            prometheus_bind_address
+        );
+        let prometheus_listener = TcpListener::bind(&prometheus_bind_address)
+            .await
+            .unwrap_or_else(|_| panic!("Failed to bind Prometheus to {}", prometheus_bind_address));
+
+        let prometheus_app = Router::new().route("/metrics", get(move || async move { metric_handle.render() }));
+
+        let prometheus_server = axum::serve(prometheus_listener, prometheus_app);
+
+        tokio::select! {
+            _ = main_server => {},
+            _ = prometheus_server => {},
+        }
+    } else {
+        main_server.await.unwrap();
+    }
 }
 
 fn generate_request_id() -> String {
