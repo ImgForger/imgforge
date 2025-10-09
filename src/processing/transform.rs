@@ -1,3 +1,4 @@
+use crate::constants::*;
 use crate::processing::options::{Crop, Resize, Watermark};
 use exif::{In, Tag};
 use libvips::{ops, VipsImage};
@@ -281,7 +282,7 @@ pub fn apply_pixelate(img: VipsImage, amount: u32) -> Result<VipsImage, String> 
 /// Applies a watermark to an image.
 pub fn apply_watermark(img: VipsImage, watermark_opts: &Watermark) -> Result<VipsImage, String> {
     let watermark_path =
-        env::var("WATERMARK_PATH").map_err(|_| "WATERMARK_PATH environment variable not set".to_string())?;
+        env::var(ENV_WATERMARK_PATH).map_err(|_| "WATERMARK_PATH environment variable not set".to_string())?;
     let watermark_img = VipsImage::new_from_file(&watermark_path)
         .map_err(|e| format!("Failed to load watermark image from {}: {}", watermark_path, e))?;
 

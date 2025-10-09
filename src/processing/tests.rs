@@ -1,5 +1,6 @@
 #[cfg(test)]
 mod test_processing {
+    use crate::constants::ENV_WATERMARK_PATH;
     use crate::processing::options::{parse_all_options, Crop, ProcessingOption, Resize, Watermark};
     use crate::processing::transform;
     use image::{ImageBuffer, Rgba};
@@ -404,7 +405,7 @@ mod test_processing {
         let watermark_bytes = create_test_image(50, 50);
         let watermark_path = "/tmp/test_watermark.png";
         std::fs::write(watermark_path, watermark_bytes).unwrap();
-        std::env::set_var("WATERMARK_PATH", watermark_path);
+        std::env::set_var(ENV_WATERMARK_PATH, watermark_path);
 
         let img = VipsImage::new_from_buffer(&create_test_image(200, 200), "").unwrap();
         let watermark_opts = Watermark {
