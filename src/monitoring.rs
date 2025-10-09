@@ -43,6 +43,11 @@ lazy_static! {
         &["cache_type"]
     )
     .unwrap();
+    pub static ref STATUS_CODES_TOTAL: IntCounterVec = IntCounterVec::new(
+        Opts::new("status_codes_total", "Total number of response status codes"),
+        &["status"]
+    )
+    .unwrap();
 }
 
 pub fn register_metrics(registry: &Registry) {
@@ -61,4 +66,5 @@ pub fn register_metrics(registry: &Registry) {
         .unwrap();
     registry.register(Box::new(CACHE_HITS_TOTAL.clone())).unwrap();
     registry.register(Box::new(CACHE_MISSES_TOTAL.clone())).unwrap();
+    registry.register(Box::new(STATUS_CODES_TOTAL.clone())).unwrap();
 }
