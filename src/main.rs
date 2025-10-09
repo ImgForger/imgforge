@@ -13,6 +13,8 @@ use axum_extra::headers::{authorization::Bearer, Authorization};
 use axum_extra::TypedHeader;
 use axum_prometheus::PrometheusMetricLayer;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use governor::state::{InMemoryState, NotKeyed};
+use governor::{Quota, RateLimiter};
 use hmac::{Hmac, Mac};
 use libvips::{VipsApp, VipsImage};
 use percent_encoding::percent_decode_str;
@@ -22,6 +24,7 @@ use rand::Rng;
 use serde_json::json;
 use sha2::Sha256;
 use std::env;
+use std::num::NonZeroU32;
 use std::sync::{Arc, Once};
 use std::time::Duration;
 use tokio::net::TcpListener;
@@ -65,6 +68,8 @@ struct AppState {
     semaphore: Semaphore,
     /// The image cache.
     cache: Cache,
+    /// Rate limiter for incoming requests.
+    rate_limiter: RateLimiter<NotKeyed, InMemoryState, governor::clock::DefaultClock>,
 }
 
 /// Information about the source URL, including its type and extension.
@@ -119,7 +124,20 @@ async fn main() {
     let semaphore = Semaphore::new(workers);
     let cache_config = CacheConfig::from_env().expect("Failed to load cache config");
     let cache = Cache::new(cache_config).await.expect("Failed to initialize cache");
-    let state = Arc::new(AppState { semaphore, cache });
+
+    let rate_limit_per_minute = env::var(ENV_RATE_LIMIT_PER_MINUTE)
+        .unwrap_or_else(|_| "600".to_string())
+        .parse::<u32>()
+        .expect("IMGFORGE_RATE_LIMIT_PER_MINUTE must be a valid integer");
+    let rate_limiter = RateLimiter::direct(Quota::per_minute(
+        NonZeroU32::new(rate_limit_per_minute).expect("Rate limit must be greater than 0"),
+    ));
+
+    let state = Arc::new(AppState {
+        semaphore,
+        cache,
+        rate_limiter,
+    });
 
     // Initialize tracing
     let subscriber = FmtSubscriber::builder()
@@ -142,7 +160,12 @@ async fn main() {
         .route("/info/{*path}", get(info_handler))
         .route(
             "/{*path}",
-            get(image_forge_handler).layer(axum::middleware::from_fn(middleware::status_code_metric_middleware)),
+            get(image_forge_handler)
+                .layer(axum::middleware::from_fn_with_state(
+                    state.clone(),
+                    middleware::rate_limit_middleware,
+                ))
+                .layer(axum::middleware::from_fn(middleware::status_code_metric_middleware)),
         )
         .route("/metrics", get(move || async move { main_metric_handle.render() }))
         .with_state(state)
