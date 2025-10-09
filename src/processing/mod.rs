@@ -3,8 +3,10 @@ pub mod save;
 pub mod transform;
 pub mod utils;
 
+use crate::monitoring::{IMAGE_PROCESSING_DURATION_SECONDS, PROCESSED_IMAGES_TOTAL};
 use crate::processing::options::ParsedOptions;
 use libvips::VipsImage;
+use std::time::Instant;
 use tracing::{debug, error};
 
 /// Processes an image by applying the given `ParsedOptions`.
@@ -22,6 +24,7 @@ use tracing::{debug, error};
 ///
 /// A `Result` containing the processed image bytes on success, or an error message as a `String`.
 pub async fn process_image(image_bytes: Vec<u8>, mut parsed_options: ParsedOptions) -> Result<Vec<u8>, String> {
+    let start = Instant::now();
     debug!("Starting image processing with options: {:?}", parsed_options);
 
     // Apply DPR scaling
@@ -90,6 +93,21 @@ pub async fn process_image(image_bytes: Vec<u8>, mut parsed_options: ParsedOptio
         }
     }
 
+    // Apply min dimensions if specified
+    if parsed_options.min_width.is_some() || parsed_options.min_height.is_some() {
+        debug!(
+            "Applying min dimensions: min_width={:?}, min_height={:?}",
+            parsed_options.min_width, parsed_options.min_height
+        );
+        img = transform::apply_min_dimensions(img, parsed_options.min_width, parsed_options.min_height)?;
+    }
+
+    // Apply zoom if specified
+    if let Some(zoom) = parsed_options.zoom {
+        debug!("Applying zoom: {}", zoom);
+        img = transform::apply_zoom(img, zoom)?;
+    }
+
     // Apply extend if specified
     if parsed_options.extend {
         debug!("Applying extend option");
@@ -119,6 +137,24 @@ pub async fn process_image(image_bytes: Vec<u8>, mut parsed_options: ParsedOptio
         img = transform::apply_blur(img, sigma)?;
     }
 
+    // Apply sharpen if specified
+    if let Some(sigma) = parsed_options.sharpen {
+        debug!("Applying sharpen with sigma: {}", sigma);
+        img = transform::apply_sharpen(img, sigma)?;
+    }
+
+    // Apply pixelate if specified
+    if let Some(amount) = parsed_options.pixelate {
+        debug!("Applying pixelate with amount: {}", amount);
+        img = transform::apply_pixelate(img, amount)?;
+    }
+
+    // Apply watermark if specified
+    if let Some(ref watermark_opts) = parsed_options.watermark {
+        debug!("Applying watermark with options: {:?}", watermark_opts);
+        img = transform::apply_watermark(img, watermark_opts)?;
+    }
+
     // Apply background color for JPEG if needed
     let output_format = parsed_options.format.as_deref().unwrap_or("jpeg");
     if let Some(bg_color) = parsed_options.background {
@@ -133,6 +169,13 @@ pub async fn process_image(image_bytes: Vec<u8>, mut parsed_options: ParsedOptio
     let output_bytes = save::save_image(img, output_format, quality)?;
 
     debug!("Image processing complete");
+
+    let duration = start.elapsed().as_secs_f64();
+    IMAGE_PROCESSING_DURATION_SECONDS
+        .with_label_values(&[output_format])
+        .observe(duration);
+    PROCESSED_IMAGES_TOTAL.with_label_values(&[output_format]).inc();
+
     Ok(output_bytes)
 }
 

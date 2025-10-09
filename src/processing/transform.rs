@@ -1,6 +1,8 @@
-use crate::processing::options::{Crop, Resize};
+use crate::constants::*;
+use crate::processing::options::{Crop, Resize, Watermark};
 use exif::{In, Tag};
 use libvips::{ops, VipsImage};
+use std::env;
 use std::io::Cursor;
 use tracing::debug;
 
@@ -218,4 +220,132 @@ pub fn apply_background_color(img: VipsImage, _bg_color: [u8; 4]) -> Result<Vips
         ..Default::default()
     };
     ops::flatten_with_opts(&img, &opts).map_err(|e| format!("Error applying background color: {}", e))
+}
+
+/// Applies min-width and min-height constraints to an image.
+pub fn apply_min_dimensions(
+    img: VipsImage,
+    min_width: Option<u32>,
+    min_height: Option<u32>,
+) -> Result<VipsImage, String> {
+    let mut current_img = img;
+    let (img_w, img_h) = (current_img.get_width() as u32, current_img.get_height() as u32);
+
+    let mut scale_w = 1.0;
+    if let Some(mw) = min_width {
+        if img_w < mw {
+            scale_w = mw as f64 / img_w as f64;
+        }
+    }
+
+    let mut scale_h = 1.0;
+    if let Some(mh) = min_height {
+        if img_h < mh {
+            scale_h = mh as f64 / img_h as f64;
+        }
+    }
+
+    let scale = scale_w.max(scale_h);
+    if scale > 1.0 {
+        current_img = ops::resize(&current_img, scale).map_err(|e| format!("Error applying min dimensions: {}", e))?;
+    }
+
+    Ok(current_img)
+}
+
+/// Applies zoom to an image.
+pub fn apply_zoom(img: VipsImage, zoom: f32) -> Result<VipsImage, String> {
+    ops::resize(&img, zoom as f64).map_err(|e| format!("Error applying zoom: {}", e))
+}
+
+/// Sharpens an image.
+pub fn apply_sharpen(img: VipsImage, sigma: f32) -> Result<VipsImage, String> {
+    let opts = ops::SharpenOptions {
+        sigma: sigma as f64,
+        ..Default::default()
+    };
+    ops::sharpen_with_opts(&img, &opts).map_err(|e| format!("Error applying sharpen: {}", e))
+}
+
+/// Pixelates an image.
+pub fn apply_pixelate(img: VipsImage, amount: u32) -> Result<VipsImage, String> {
+    if amount == 0 {
+        return Ok(img);
+    }
+    let (w, _h) = (img.get_width(), img.get_height());
+    let factor = 1.0 / amount as f64;
+    let pixelated = ops::resize(&img, factor).map_err(|e| format!("Error pixelating (down): {}", e))?;
+    ops::resize(&pixelated, w as f64 / pixelated.get_width() as f64)
+        .map_err(|e| format!("Error pixelating (up): {}", e))
+}
+
+/// Applies a watermark to an image.
+pub fn apply_watermark(img: VipsImage, watermark_opts: &Watermark) -> Result<VipsImage, String> {
+    let watermark_path =
+        env::var(ENV_WATERMARK_PATH).map_err(|_| "WATERMARK_PATH environment variable not set".to_string())?;
+    let watermark_img = VipsImage::new_from_file(&watermark_path)
+        .map_err(|e| format!("Failed to load watermark image from {}: {}", watermark_path, e))?;
+
+    // Resize watermark to be 1/4 of the main image's width, maintaining aspect ratio
+    let factor = (img.get_width() as f64 / 4.0) / watermark_img.get_width() as f64;
+    let watermark_resized =
+        ops::resize(&watermark_img, factor).map_err(|e| format!("Failed to resize watermark: {}", e))?;
+
+    // Add alpha channel to watermark if it doesn't have one
+    let watermark_with_alpha = if watermark_resized.get_bands() == 4 || watermark_resized.get_bands() == 2 {
+        watermark_resized
+    } else {
+        ops::bandjoin_const(&watermark_resized, &mut [255.0])
+            .map_err(|e| format!("Failed to add alpha to watermark: {}", e))?
+    };
+
+    // Apply opacity
+    let multipliers = &mut [1.0, 1.0, 1.0, watermark_opts.opacity as f64];
+    let adders = &mut [0.0, 0.0, 0.0, 0.0];
+    let watermark_with_opacity = ops::linear(&watermark_with_alpha, multipliers, adders)
+        .map_err(|e| format!("Failed to apply opacity to watermark: {}", e))?;
+
+    // Calculate position
+    let (x, y) = calculate_watermark_position(&img, &watermark_with_opacity, &watermark_opts.position);
+
+    // Composite watermark
+    let bg = &mut [0.0, 0.0, 0.0, 0.0]; // transparent
+    let options = ops::EmbedOptions {
+        extend: ops::Extend::Background,
+        background: bg.to_vec(),
+        ..Default::default()
+    };
+
+    let watermark_on_canvas = ops::embed_with_opts(
+        &watermark_with_opacity,
+        x as i32,
+        y as i32,
+        img.get_width(),
+        img.get_height(),
+        &options,
+    )
+    .map_err(|e| format!("Failed to embed watermark on canvas: {}", e))?;
+
+    ops::composite_2(&img, &watermark_on_canvas, ops::BlendMode::Over)
+        .map_err(|e| format!("Failed to composite watermark: {}", e))
+}
+
+fn calculate_watermark_position(main_img: &VipsImage, watermark_img: &VipsImage, position: &str) -> (u32, u32) {
+    let main_w = main_img.get_width() as u32;
+    let main_h = main_img.get_height() as u32;
+    let wm_w = watermark_img.get_width() as u32;
+    let wm_h = watermark_img.get_height() as u32;
+    let margin = (main_w.min(main_h) as f32 * 0.05).round() as u32; // 5% margin
+
+    match position {
+        "north" => ((main_w - wm_w) / 2, margin),
+        "south" => ((main_w - wm_w) / 2, main_h - wm_h - margin),
+        "east" => (main_w - wm_w - margin, (main_h - wm_h) / 2),
+        "west" => (margin, (main_h - wm_h) / 2),
+        "north_west" => (margin, margin),
+        "north_east" => (main_w - wm_w - margin, margin),
+        "south_west" => (margin, main_h - wm_h - margin),
+        "south_east" => (main_w - wm_w - margin, main_h - wm_h - margin),
+        "center" | _ => ((main_w - wm_w) / 2, (main_h - wm_h) / 2),
+    }
 }

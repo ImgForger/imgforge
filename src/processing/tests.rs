@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod test_processing {
-    use crate::processing::options::{parse_all_options, Crop, ProcessingOption, Resize};
+    use crate::constants::ENV_WATERMARK_PATH;
+    use crate::processing::options::{parse_all_options, Crop, ProcessingOption, Resize, Watermark};
     use crate::processing::transform;
     use image::{ImageBuffer, Rgba};
     use lazy_static::lazy_static;
@@ -297,5 +298,127 @@ mod test_processing {
         }];
         let parsed = parse_all_options(options).unwrap();
         assert_eq!(parsed.cache_buster, Some("12345".to_string()));
+    }
+
+    #[test]
+    fn test_parse_min_width_option() {
+        let options = vec![ProcessingOption {
+            name: "min_width".to_string(),
+            args: vec!["500".to_string()],
+        }];
+        let parsed = parse_all_options(options).unwrap();
+        assert_eq!(parsed.min_width, Some(500));
+    }
+
+    #[test]
+    fn test_parse_min_height_option() {
+        let options = vec![ProcessingOption {
+            name: "min_height".to_string(),
+            args: vec!["600".to_string()],
+        }];
+        let parsed = parse_all_options(options).unwrap();
+        assert_eq!(parsed.min_height, Some(600));
+    }
+
+    #[test]
+    fn test_parse_zoom_option() {
+        let options = vec![ProcessingOption {
+            name: "zoom".to_string(),
+            args: vec!["1.5".to_string()],
+        }];
+        let parsed = parse_all_options(options).unwrap();
+        assert_eq!(parsed.zoom, Some(1.5));
+    }
+
+    #[test]
+    fn test_parse_sharpen_option() {
+        let options = vec![ProcessingOption {
+            name: "sharpen".to_string(),
+            args: vec!["0.5".to_string()],
+        }];
+        let parsed = parse_all_options(options).unwrap();
+        assert_eq!(parsed.sharpen, Some(0.5));
+    }
+
+    #[test]
+    fn test_parse_pixelate_option() {
+        let options = vec![ProcessingOption {
+            name: "pixelate".to_string(),
+            args: vec!["10".to_string()],
+        }];
+        let parsed = parse_all_options(options).unwrap();
+        assert_eq!(parsed.pixelate, Some(10));
+    }
+
+    #[test]
+    fn test_apply_min_dimensions() {
+        let _ = &*APP;
+        let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
+        let min_dims_img = transform::apply_min_dimensions(img, Some(200), Some(150)).unwrap();
+        assert_eq!(min_dims_img.get_width(), 200);
+        assert_eq!(min_dims_img.get_height(), 200); // Scales by max(2, 1.5) = 2
+    }
+
+    #[test]
+    fn test_apply_zoom() {
+        let _ = &*APP;
+        let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
+        let zoomed_img = transform::apply_zoom(img, 2.0).unwrap();
+        assert_eq!(zoomed_img.get_width(), 200);
+        assert_eq!(zoomed_img.get_height(), 200);
+    }
+
+    #[test]
+    fn test_apply_sharpen() {
+        let _ = &*APP;
+        let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
+        let sharpened_img = transform::apply_sharpen(img, 0.5).unwrap();
+        assert_eq!(sharpened_img.get_width(), 100);
+        assert_eq!(sharpened_img.get_height(), 100);
+    }
+
+    #[test]
+    fn test_apply_pixelate() {
+        let _ = &*APP;
+        let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
+        let pixelated_img = transform::apply_pixelate(img, 10).unwrap();
+        assert_eq!(pixelated_img.get_width(), 100);
+        assert_eq!(pixelated_img.get_height(), 100);
+    }
+
+    #[test]
+    fn test_parse_watermark_option() {
+        let options = vec![ProcessingOption {
+            name: "watermark".to_string(),
+            args: vec!["0.5".to_string(), "center".to_string()],
+        }];
+        let parsed = parse_all_options(options).unwrap();
+        let watermark = parsed.watermark.unwrap();
+        assert_eq!(watermark.opacity, 0.5);
+        assert_eq!(watermark.position, "center");
+    }
+
+    #[test]
+    fn test_apply_watermark() {
+        let _ = &*APP;
+        // Create a dummy watermark image
+        let watermark_bytes = create_test_image(50, 50);
+        let watermark_path = "/tmp/test_watermark.png";
+        std::fs::write(watermark_path, watermark_bytes).unwrap();
+        std::env::set_var(ENV_WATERMARK_PATH, watermark_path);
+
+        let img = VipsImage::new_from_buffer(&create_test_image(200, 200), "").unwrap();
+        let watermark_opts = Watermark {
+            opacity: 0.5,
+            position: "center".to_string(),
+        };
+        let watermarked_img = transform::apply_watermark(img, &watermark_opts).unwrap();
+
+        assert_eq!(watermarked_img.get_width(), 200);
+        assert_eq!(watermarked_img.get_height(), 200);
+
+        // Cleanup
+        std::fs::remove_file(watermark_path).unwrap();
+        std::env::remove_var("WATERMARK_PATH");
     }
 }

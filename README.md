@@ -56,7 +56,7 @@ http://your-server/{signature}/{processing_options}/{base64_encoded_source_url}.
 
 imgforge uses signed URLs to prevent unauthorized use. The signature is a hex-encoded HMAC-SHA256 hash of the URL path, using a secret key and salt.
 
-To enable unsigned URLs, set the `ALLOW_UNSIGNED` environment variable to `true`.
+To enable unsigned URLs, set the `IMGFORGE_ALLOW_UNSIGNED` environment variable to `true`.
 
 ## Configuration
 
@@ -67,7 +67,7 @@ imgforge is configured using environment variables:
 | `IMGFORGE_KEY` | The secret key for signing URLs. |
 | `IMGFORGE_SALT` | The salt for signing URLs. |
 | `IMGFORGE_AUTH_TOKEN` | An optional authorization token. |
-| `ALLOW_UNSIGNED` | Allow unsigned URLs. |
+| `IMGFORGE_ALLOW_UNSIGNED` | Allow unsigned URLs. |
 | `IMGFORGE_MAX_SRC_FILE_SIZE` | The maximum allowed source image file size. |
 | `IMGFORGE_ALLOWED_MIME_TYPES` | A comma-separated list of allowed MIME types. |
 | `IMGFORGE_MAX_SRC_RESOLUTION` | The maximum allowed source image resolution. |

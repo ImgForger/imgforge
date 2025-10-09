@@ -11,23 +11,33 @@ use axum::{
 };
 use axum_extra::headers::{authorization::Bearer, Authorization};
 use axum_extra::TypedHeader;
+use axum_prometheus::PrometheusMetricLayer;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use governor::state::{InMemoryState, NotKeyed};
+use governor::{Quota, RateLimiter};
 use hmac::{Hmac, Mac};
 use libvips::{VipsApp, VipsImage};
 use percent_encoding::percent_decode_str;
+use prometheus;
 use rand::distr::Alphanumeric;
 use rand::Rng;
 use serde_json::json;
 use sha2::Sha256;
 use std::env;
+use std::num::NonZeroU32;
 use std::sync::{Arc, Once};
+use std::time::Duration;
+use tokio::net::TcpListener;
 use tokio::sync::Semaphore;
+use tower_http::timeout::TimeoutLayer;
 use tower_http::trace::TraceLayer;
 use tracing::{debug, error, info, Span};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
 mod caching;
 mod constants;
+mod middleware;
+mod monitoring;
 mod processing;
 
 use caching::cache::ImgforgeCache as Cache;
@@ -58,6 +68,8 @@ struct AppState {
     semaphore: Semaphore,
     /// The image cache.
     cache: Cache,
+    /// Optional rate limiter for incoming requests.
+    rate_limiter: Option<RateLimiter<NotKeyed, InMemoryState, governor::clock::DefaultClock>>,
 }
 
 /// Information about the source URL, including its type and extension.
@@ -112,11 +124,37 @@ async fn main() {
     let semaphore = Semaphore::new(workers);
     let cache_config = CacheConfig::from_env().expect("Failed to load cache config");
     let cache = Cache::new(cache_config).await.expect("Failed to initialize cache");
-    let state = Arc::new(AppState { semaphore, cache });
+
+    let rate_limiter = match env::var(ENV_RATE_LIMIT_PER_MINUTE) {
+        Ok(s) => {
+            let limit = s
+                .parse::<u32>()
+                .expect("IMGFORGE_RATE_LIMIT_PER_MINUTE must be a valid integer");
+            if limit > 0 {
+                info!("Rate limiting enabled: {} requests per minute", limit);
+                Some(RateLimiter::direct(Quota::per_minute(
+                    NonZeroU32::new(limit).expect("Rate limit must be greater than 0"),
+                )))
+            } else {
+                info!("Rate limiting disabled: IMGFORGE_RATE_LIMIT_PER_MINUTE set to 0");
+                None
+            }
+        }
+        Err(_) => {
+            info!("Rate limiting disabled: IMGFORGE_RATE_LIMIT_PER_MINUTE not set");
+            None
+        }
+    };
+
+    let state = Arc::new(AppState {
+        semaphore,
+        cache,
+        rate_limiter,
+    });
 
     // Initialize tracing
     let subscriber = FmtSubscriber::builder()
-        .with_env_filter(EnvFilter::from_env(ENV_IMGFORGE_LOG_LEVEL))
+        .with_env_filter(EnvFilter::from_env(ENV_LOG_LEVEL))
         .finish();
     tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
 
@@ -125,11 +163,26 @@ async fn main() {
     // Initialize libvips once for the whole process
     init_vips_once();
 
+    let (prometheus_layer, metric_handle) = PrometheusMetricLayer::pair();
+    monitoring::register_metrics(prometheus::default_registry());
+
+    let main_metric_handle = metric_handle.clone();
+
     let app = Router::new()
         .route("/status", get(status_handler))
         .route("/info/{*path}", get(info_handler))
-        .route("/{*path}", get(image_forge_handler))
+        .route(
+            "/{*path}",
+            get(image_forge_handler)
+                .layer(axum::middleware::from_fn_with_state(
+                    state.clone(),
+                    middleware::rate_limit_middleware,
+                ))
+                .layer(axum::middleware::from_fn(middleware::status_code_metric_middleware)),
+        )
+        .route("/metrics", get(move || async move { main_metric_handle.render() }))
         .with_state(state)
+        .layer(prometheus_layer)
         .layer(
             TraceLayer::new_for_http().make_span_with(|request: &Request<axum::body::Body>| {
                 let request_id = generate_request_id();
@@ -140,10 +193,40 @@ async fn main() {
                     uri = %request.uri(),
                 )
             }),
+        )
+        .layer(TimeoutLayer::new(
+            env::var(ENV_TIMEOUT)
+                .ok()
+                .and_then(|s| s.parse::<u64>().ok())
+                .map_or(Duration::from_secs(30), Duration::from_secs),
+        ));
+    let bind_address = env::var(ENV_BIND).unwrap_or_else(|_| "0.0.0.0:3000".to_string());
+    let listener = TcpListener::bind(&bind_address).await.unwrap();
+    info!("Listening on http://{}", bind_address);
+
+    let main_server = axum::serve(listener, app);
+
+    // Conditionally start Prometheus server
+    if let Ok(prometheus_bind_address) = env::var(ENV_PROMETHEUS_BIND) {
+        info!(
+            "Prometheus metrics will be exposed on http://{}",
+            prometheus_bind_address
         );
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
-    info!("Listening on http://0.0.0.0:3000");
-    axum::serve(listener, app).await.unwrap();
+        let prometheus_listener = TcpListener::bind(&prometheus_bind_address)
+            .await
+            .unwrap_or_else(|_| panic!("Failed to bind Prometheus to {}", prometheus_bind_address));
+
+        let prometheus_app = Router::new().route("/metrics", get(move || async move { metric_handle.render() }));
+
+        let prometheus_server = axum::serve(prometheus_listener, prometheus_app);
+
+        tokio::select! {
+            _ = main_server => {},
+            _ = prometheus_server => {},
+        }
+    } else {
+        main_server.await.unwrap();
+    }
 }
 
 fn generate_request_id() -> String {
@@ -390,7 +473,7 @@ async fn common_image_setup(
     auth_header: Option<TypedHeader<Authorization<Bearer>>>,
 ) -> Result<(ImgforgeUrl, String, Bytes, Option<String>), Response> {
     // Authorization Header Check
-    if let Ok(token) = env::var(ENV_IMGFORGE_SECRET) {
+    if let Ok(token) = env::var(ENV_SECRET) {
         if !token.is_empty() {
             if let Some(TypedHeader(auth)) = auth_header {
                 if auth.token() != token {
@@ -405,8 +488,8 @@ async fn common_image_setup(
     }
 
     // Key and Salt Decoding
-    let key_str = env::var(ENV_IMGFORGE_KEY).unwrap_or_default();
-    let salt_str = env::var(ENV_IMGFORGE_SALT).unwrap_or_default();
+    let key_str = env::var(ENV_KEY).unwrap_or_default();
+    let salt_str = env::var(ENV_SALT).unwrap_or_default();
     let allow_unsigned = env::var(ENV_ALLOW_UNSIGNED).unwrap_or_default().to_lowercase() == "true";
 
     let key = match hex::decode(key_str) {
@@ -457,9 +540,43 @@ async fn common_image_setup(
     };
 
     // Image Fetching
-    let response = match reqwest::get(&decoded_url).await {
-        Ok(res) => res,
+    let fetch_start = std::time::Instant::now();
+
+    let download_timeout = env::var(ENV_DOWNLOAD_TIMEOUT)
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .map_or(Duration::from_secs(10), Duration::from_secs);
+
+    let client = reqwest::Client::builder()
+        .timeout(download_timeout)
+        .build()
+        .expect("Failed to build reqwest client");
+
+    let response = match client.get(&decoded_url).send().await {
+        Ok(res) => {
+            let fetch_duration = fetch_start.elapsed().as_secs_f64();
+            crate::monitoring::SOURCE_IMAGE_FETCH_DURATION_SECONDS
+                .with_label_values(&[] as &[&str])
+                .observe(fetch_duration);
+            if res.status().is_success() {
+                crate::monitoring::SOURCE_IMAGES_FETCHED_TOTAL
+                    .with_label_values(&["success"])
+                    .inc();
+            } else {
+                crate::monitoring::SOURCE_IMAGES_FETCHED_TOTAL
+                    .with_label_values(&["error"])
+                    .inc();
+            }
+            res
+        }
         Err(e) => {
+            let fetch_duration = fetch_start.elapsed().as_secs_f64();
+            crate::monitoring::SOURCE_IMAGE_FETCH_DURATION_SECONDS
+                .with_label_values(&[] as &[&str])
+                .observe(fetch_duration);
+            crate::monitoring::SOURCE_IMAGES_FETCHED_TOTAL
+                .with_label_values(&["error"])
+                .inc();
             error!("Error fetching image: {}", e);
             return Err((StatusCode::BAD_REQUEST, format!("Error fetching image: {}", e)).into_response());
         }

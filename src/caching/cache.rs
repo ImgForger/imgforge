@@ -1,7 +1,8 @@
 use crate::caching::config::CacheConfig;
 use crate::caching::error::CacheError;
-use foyer::{DeviceBuilder, RecoverMode};
+use crate::monitoring::{CACHE_HITS_TOTAL, CACHE_MISSES_TOTAL};
 use foyer::{BlockEngineBuilder, Cache, CacheBuilder, FsDeviceBuilder, HybridCache, HybridCacheBuilder};
+use foyer::{DeviceBuilder, RecoverMode};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -64,16 +65,47 @@ impl ImgforgeCache {
 
     /// Retrieve a value from the cache by key.
     pub async fn get(&self, key: &str) -> Option<Vec<u8>> {
-        match self {
+        let result = match self {
             ImgforgeCache::None => None,
-            ImgforgeCache::Memory(cache) => cache.get(key).map(|e| e.value().clone()),
-            ImgforgeCache::Disk(cache) | ImgforgeCache::Hybrid(cache) => cache
-                .get(&key.to_string())
-                .await
-                .ok()
-                .flatten()
-                .map(|e| e.value().clone()),
-        }
+            ImgforgeCache::Memory(cache) => {
+                let res = cache.get(key).map(|e| e.value().clone());
+                if res.is_some() {
+                    CACHE_HITS_TOTAL.with_label_values(&["memory"]).inc();
+                } else {
+                    CACHE_MISSES_TOTAL.with_label_values(&["memory"]).inc();
+                }
+                res
+            }
+            ImgforgeCache::Disk(cache) => {
+                let res = cache
+                    .get(&key.to_string())
+                    .await
+                    .ok()
+                    .flatten()
+                    .map(|e| e.value().clone());
+                if res.is_some() {
+                    CACHE_HITS_TOTAL.with_label_values(&["disk"]).inc();
+                } else {
+                    CACHE_MISSES_TOTAL.with_label_values(&["disk"]).inc();
+                }
+                res
+            }
+            ImgforgeCache::Hybrid(cache) => {
+                let res = cache
+                    .get(&key.to_string())
+                    .await
+                    .ok()
+                    .flatten()
+                    .map(|e| e.value().clone());
+                if res.is_some() {
+                    CACHE_HITS_TOTAL.with_label_values(&["hybrid"]).inc();
+                } else {
+                    CACHE_MISSES_TOTAL.with_label_values(&["hybrid"]).inc();
+                }
+                res
+            }
+        };
+        result
     }
 
     /// Insert a value into the cache.
