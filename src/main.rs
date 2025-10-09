@@ -127,7 +127,9 @@ async fn main() {
 
     let rate_limiter = match env::var(ENV_RATE_LIMIT_PER_MINUTE) {
         Ok(s) => {
-            let limit = s.parse::<u32>().expect("IMGFORGE_RATE_LIMIT_PER_MINUTE must be a valid integer");
+            let limit = s
+                .parse::<u32>()
+                .expect("IMGFORGE_RATE_LIMIT_PER_MINUTE must be a valid integer");
             if limit > 0 {
                 info!("Rate limiting enabled: {} requests per minute", limit);
                 Some(RateLimiter::direct(Quota::per_minute(
