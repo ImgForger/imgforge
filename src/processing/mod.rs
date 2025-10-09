@@ -90,6 +90,18 @@ pub async fn process_image(image_bytes: Vec<u8>, mut parsed_options: ParsedOptio
         }
     }
 
+    // Apply min dimensions if specified
+    if parsed_options.min_width.is_some() || parsed_options.min_height.is_some() {
+        debug!("Applying min dimensions: min_width={:?}, min_height={:?}", parsed_options.min_width, parsed_options.min_height);
+        img = transform::apply_min_dimensions(img, parsed_options.min_width, parsed_options.min_height)?;
+    }
+
+    // Apply zoom if specified
+    if let Some(zoom) = parsed_options.zoom {
+        debug!("Applying zoom: {}", zoom);
+        img = transform::apply_zoom(img, zoom)?;
+    }
+
     // Apply extend if specified
     if parsed_options.extend {
         debug!("Applying extend option");
@@ -117,6 +129,18 @@ pub async fn process_image(image_bytes: Vec<u8>, mut parsed_options: ParsedOptio
     if let Some(sigma) = parsed_options.blur {
         debug!("Applying blur with sigma: {}", sigma);
         img = transform::apply_blur(img, sigma)?;
+    }
+
+    // Apply sharpen if specified
+    if let Some(sigma) = parsed_options.sharpen {
+        debug!("Applying sharpen with sigma: {}", sigma);
+        img = transform::apply_sharpen(img, sigma)?;
+    }
+
+    // Apply pixelate if specified
+    if let Some(amount) = parsed_options.pixelate {
+        debug!("Applying pixelate with amount: {}", amount);
+        img = transform::apply_pixelate(img, amount)?;
     }
 
     // Apply background color for JPEG if needed

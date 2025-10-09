@@ -219,3 +219,60 @@ pub fn apply_background_color(img: VipsImage, _bg_color: [u8; 4]) -> Result<Vips
     };
     ops::flatten_with_opts(&img, &opts).map_err(|e| format!("Error applying background color: {}", e))
 }
+
+/// Applies min-width and min-height constraints to an image.
+pub fn apply_min_dimensions(
+    img: VipsImage,
+    min_width: Option<u32>,
+    min_height: Option<u32>,
+) -> Result<VipsImage, String> {
+    let mut current_img = img;
+    let (img_w, img_h) = (current_img.get_width() as u32, current_img.get_height() as u32);
+
+    let mut scale_w = 1.0;
+    if let Some(mw) = min_width {
+        if img_w < mw {
+            scale_w = mw as f64 / img_w as f64;
+        }
+    }
+
+    let mut scale_h = 1.0;
+    if let Some(mh) = min_height {
+        if img_h < mh {
+            scale_h = mh as f64 / img_h as f64;
+        }
+    }
+
+    let scale = scale_w.max(scale_h);
+    if scale > 1.0 {
+        current_img = ops::resize(&current_img, scale).map_err(|e| format!("Error applying min dimensions: {}", e))?;
+    }
+
+    Ok(current_img)
+}
+
+/// Applies zoom to an image.
+pub fn apply_zoom(img: VipsImage, zoom: f32) -> Result<VipsImage, String> {
+    ops::resize(&img, zoom as f64).map_err(|e| format!("Error applying zoom: {}", e))
+}
+
+/// Sharpens an image.
+pub fn apply_sharpen(img: VipsImage, sigma: f32) -> Result<VipsImage, String> {
+    let opts = ops::SharpenOptions {
+        sigma: sigma as f64,
+        ..Default::default()
+    };
+    ops::sharpen_with_opts(&img, &opts).map_err(|e| format!("Error applying sharpen: {}", e))
+}
+
+/// Pixelates an image.
+pub fn apply_pixelate(img: VipsImage, amount: u32) -> Result<VipsImage, String> {
+    if amount == 0 {
+        return Ok(img);
+    }
+    let (w, _h) = (img.get_width(), img.get_height());
+    let factor = 1.0 / amount as f64;
+    let pixelated = ops::resize(&img, factor).map_err(|e| format!("Error pixelating (down): {}", e))?;
+    ops::resize(&pixelated, w as f64 / pixelated.get_width() as f64)
+        .map_err(|e| format!("Error pixelating (up): {}", e))
+}

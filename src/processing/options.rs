@@ -82,6 +82,26 @@ const MAX_SRC_FILE_SIZE: &str = "max_src_file_size";
 const CACHE_BUSTER: &str = "cache_buster";
 /// Option name for dpr.
 const DPR: &str = "dpr";
+/// Option name for min_width.
+const MIN_WIDTH: &str = "min_width";
+/// Shorthand for min_width.
+const MIN_WIDTH_SHORT: &str = "mw";
+/// Option name for min_height.
+const MIN_HEIGHT: &str = "min_height";
+/// Shorthand for min_height.
+const MIN_HEIGHT_SHORT: &str = "mh";
+/// Option name for zoom.
+const ZOOM: &str = "zoom";
+/// Shorthand for zoom.
+const ZOOM_SHORT: &str = "z";
+/// Option name for sharpen.
+const SHARPEN: &str = "sharpen";
+/// Shorthand for sharpen.
+const SHARPEN_SHORT: &str = "sh";
+/// Option name for pixelate.
+const PIXELATE: &str = "pixelate";
+/// Shorthand for pixelate.
+const PIXELATE_SHORT: &str = "px";
 
 /// Represents the parameters for a resize operation.
 #[derive(Debug, Default)]
@@ -148,6 +168,16 @@ pub struct ParsedOptions {
     pub cache_buster: Option<String>,
     /// Device pixel ratio factor to scale up dimensions.
     pub dpr: Option<f32>,
+    /// Minimum width for the image.
+    pub min_width: Option<u32>,
+    /// Minimum height for the image.
+    pub min_height: Option<u32>,
+    /// Zoom factor for the image.
+    pub zoom: Option<f32>,
+    /// Sharpen factor for the image.
+    pub sharpen: Option<f32>,
+    /// Pixelate factor for the image.
+    pub pixelate: Option<u32>,
 }
 
 impl Default for ParsedOptions {
@@ -172,6 +202,11 @@ impl Default for ParsedOptions {
             max_src_file_size: None,
             cache_buster: None,
             dpr: Some(1.0),
+            min_width: None,
+            min_height: None,
+            zoom: None,
+            sharpen: None,
+            pixelate: None,
         }
     }
 }
@@ -428,6 +463,56 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
                     return Err("dpr value must be between 1.0 and 5.0".to_string());
                 }
                 parsed_options.dpr = Some(dpr);
+            }
+            MIN_WIDTH | MIN_WIDTH_SHORT => {
+                if option.args.is_empty() {
+                    error!("Min_width option requires one argument");
+                    return Err("min_width option requires one argument".to_string());
+                }
+                parsed_options.min_width = Some(option.args[0].parse::<u32>().map_err(|e| {
+                    error!("Invalid min_width: {}", e);
+                    e.to_string()
+                })?);
+            }
+            MIN_HEIGHT | MIN_HEIGHT_SHORT => {
+                if option.args.is_empty() {
+                    error!("Min_height option requires one argument");
+                    return Err("min_height option requires one argument".to_string());
+                }
+                parsed_options.min_height = Some(option.args[0].parse::<u32>().map_err(|e| {
+                    error!("Invalid min_height: {}", e);
+                    e.to_string()
+                })?);
+            }
+            ZOOM | ZOOM_SHORT => {
+                if option.args.is_empty() {
+                    error!("Zoom option requires one argument");
+                    return Err("zoom option requires one argument".to_string());
+                }
+                parsed_options.zoom = Some(option.args[0].parse::<f32>().map_err(|e| {
+                    error!("Invalid zoom: {}", e);
+                    e.to_string()
+                })?);
+            }
+            SHARPEN | SHARPEN_SHORT => {
+                if option.args.is_empty() {
+                    error!("Sharpen option requires one argument");
+                    return Err("sharpen option requires one argument".to_string());
+                }
+                parsed_options.sharpen = Some(option.args[0].parse::<f32>().map_err(|e| {
+                    error!("Invalid sharpen: {}", e);
+                    e.to_string()
+                })?);
+            }
+            PIXELATE | PIXELATE_SHORT => {
+                if option.args.is_empty() {
+                    error!("Pixelate option requires one argument");
+                    return Err("pixelate option requires one argument".to_string());
+                }
+                parsed_options.pixelate = Some(option.args[0].parse::<u32>().map_err(|e| {
+                    error!("Invalid pixelate: {}", e);
+                    e.to_string()
+                })?);
             }
             _ => {
                 debug!("Unknown option: {}", option.name);
