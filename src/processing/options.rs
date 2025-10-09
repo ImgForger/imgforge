@@ -102,6 +102,10 @@ const SHARPEN_SHORT: &str = "sh";
 const PIXELATE: &str = "pixelate";
 /// Shorthand for pixelate.
 const PIXELATE_SHORT: &str = "px";
+/// Option name for watermark.
+const WATERMARK: &str = "watermark";
+/// Shorthand for watermark.
+const WATERMARK_SHORT: &str = "wm";
 
 /// Represents the parameters for a resize operation.
 #[derive(Debug, Default)]
@@ -125,6 +129,15 @@ pub struct Crop {
     pub width: u32,
     /// The height of the crop area.
     pub height: u32,
+}
+
+/// Represents the parameters for a watermark operation.
+#[derive(Debug, Clone)]
+pub struct Watermark {
+    /// The opacity of the watermark.
+    pub opacity: f32,
+    /// The position of the watermark.
+    pub position: String,
 }
 
 /// Holds all parsed image processing options.
@@ -178,6 +191,7 @@ pub struct ParsedOptions {
     pub sharpen: Option<f32>,
     /// Pixelate factor for the image.
     pub pixelate: Option<u32>,
+    pub watermark: Option<Watermark>,
 }
 
 impl Default for ParsedOptions {
@@ -207,6 +221,7 @@ impl Default for ParsedOptions {
             zoom: None,
             sharpen: None,
             pixelate: None,
+            watermark: None,
         }
     }
 }
@@ -513,6 +528,19 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
                     error!("Invalid pixelate: {}", e);
                     e.to_string()
                 })?);
+            }
+            WATERMARK | WATERMARK_SHORT => {
+                if option.args.len() < 2 {
+                    error!("Watermark option requires two arguments: opacity, position");
+                    return Err("watermark option requires two arguments: opacity, position".to_string());
+                }
+                parsed_options.watermark = Some(Watermark {
+                    opacity: option.args[0].parse::<f32>().map_err(|e| {
+                        error!("Invalid opacity for watermark: {}", e);
+                        e.to_string()
+                    })?,
+                    position: option.args[1].clone(),
+                });
             }
             _ => {
                 debug!("Unknown option: {}", option.name);

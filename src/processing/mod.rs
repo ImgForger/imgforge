@@ -143,6 +143,12 @@ pub async fn process_image(image_bytes: Vec<u8>, mut parsed_options: ParsedOptio
         img = transform::apply_pixelate(img, amount)?;
     }
 
+    // Apply watermark if specified
+    if let Some(ref watermark_opts) = parsed_options.watermark {
+        debug!("Applying watermark with options: {:?}", watermark_opts);
+        img = transform::apply_watermark(img, watermark_opts)?;
+    }
+
     // Apply background color for JPEG if needed
     let output_format = parsed_options.format.as_deref().unwrap_or("jpeg");
     if let Some(bg_color) = parsed_options.background {
