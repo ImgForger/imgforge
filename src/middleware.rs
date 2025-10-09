@@ -13,11 +13,16 @@ pub async fn status_code_metric_middleware(req: Request<Body>, next: Next) -> Re
 }
 
 pub async fn rate_limit_middleware(State(state): State<Arc<AppState>>, request: Request<Body>, next: Next) -> Response {
-    match state.rate_limiter.check() {
-        Ok(_) => next.run(request).await,
-        Err(_) => Response::builder()
-            .status(StatusCode::TOO_MANY_REQUESTS)
-            .body(Body::from("Too Many Requests"))
-            .unwrap(),
+    if let Some(rate_limiter) = &state.rate_limiter {
+        match rate_limiter.check() {
+            Ok(_) => next.run(request).await,
+            Err(_) => Response::builder()
+                .status(StatusCode::TOO_MANY_REQUESTS)
+                .body(Body::from("Too Many Requests"))
+                .unwrap(),
+        }
+    } else {
+        // If rate limiter is not configured, just proceed
+        next.run(request).await
     }
 }

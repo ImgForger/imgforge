@@ -68,8 +68,8 @@ struct AppState {
     semaphore: Semaphore,
     /// The image cache.
     cache: Cache,
-    /// Rate limiter for incoming requests.
-    rate_limiter: RateLimiter<NotKeyed, InMemoryState, governor::clock::DefaultClock>,
+    /// Optional rate limiter for incoming requests.
+    rate_limiter: Option<RateLimiter<NotKeyed, InMemoryState, governor::clock::DefaultClock>>,
 }
 
 /// Information about the source URL, including its type and extension.
@@ -125,13 +125,24 @@ async fn main() {
     let cache_config = CacheConfig::from_env().expect("Failed to load cache config");
     let cache = Cache::new(cache_config).await.expect("Failed to initialize cache");
 
-    let rate_limit_per_minute = env::var(ENV_RATE_LIMIT_PER_MINUTE)
-        .unwrap_or_else(|_| "600".to_string())
-        .parse::<u32>()
-        .expect("IMGFORGE_RATE_LIMIT_PER_MINUTE must be a valid integer");
-    let rate_limiter = RateLimiter::direct(Quota::per_minute(
-        NonZeroU32::new(rate_limit_per_minute).expect("Rate limit must be greater than 0"),
-    ));
+    let rate_limiter = match env::var(ENV_RATE_LIMIT_PER_MINUTE) {
+        Ok(s) => {
+            let limit = s.parse::<u32>().expect("IMGFORGE_RATE_LIMIT_PER_MINUTE must be a valid integer");
+            if limit > 0 {
+                info!("Rate limiting enabled: {} requests per minute", limit);
+                Some(RateLimiter::direct(Quota::per_minute(
+                    NonZeroU32::new(limit).expect("Rate limit must be greater than 0"),
+                )))
+            } else {
+                info!("Rate limiting disabled: IMGFORGE_RATE_LIMIT_PER_MINUTE set to 0");
+                None
+            }
+        }
+        Err(_) => {
+            info!("Rate limiting disabled: IMGFORGE_RATE_LIMIT_PER_MINUTE not set");
+            None
+        }
+    };
 
     let state = Arc::new(AppState {
         semaphore,
