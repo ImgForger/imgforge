@@ -11,10 +11,12 @@ use axum::{
 };
 use axum_extra::headers::{authorization::Bearer, Authorization};
 use axum_extra::TypedHeader;
+use axum_prometheus::PrometheusMetricLayer;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use hmac::{Hmac, Mac};
 use libvips::{VipsApp, VipsImage};
 use percent_encoding::percent_decode_str;
+use prometheus;
 use rand::distr::Alphanumeric;
 use rand::Rng;
 use serde_json::json;
@@ -28,6 +30,7 @@ use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
 mod caching;
 mod constants;
+mod monitoring;
 mod processing;
 
 use caching::cache::ImgforgeCache as Cache;
@@ -125,11 +128,16 @@ async fn main() {
     // Initialize libvips once for the whole process
     init_vips_once();
 
+    let (prometheus_layer, metric_handle) = PrometheusMetricLayer::pair();
+    monitoring::register_metrics(prometheus::default_registry());
+
     let app = Router::new()
         .route("/status", get(status_handler))
         .route("/info/{*path}", get(info_handler))
         .route("/{*path}", get(image_forge_handler))
+        .route("/metrics", get(move || async move { metric_handle.render() }))
         .with_state(state)
+        .layer(prometheus_layer)
         .layer(
             TraceLayer::new_for_http().make_span_with(|request: &Request<axum::body::Body>| {
                 let request_id = generate_request_id();
@@ -457,9 +465,32 @@ async fn common_image_setup(
     };
 
     // Image Fetching
+    let fetch_start = std::time::Instant::now();
     let response = match reqwest::get(&decoded_url).await {
-        Ok(res) => res,
+        Ok(res) => {
+            let fetch_duration = fetch_start.elapsed().as_secs_f64();
+            crate::monitoring::SOURCE_IMAGE_FETCH_DURATION_SECONDS
+                .with_label_values(&[] as &[&str])
+                .observe(fetch_duration);
+            if res.status().is_success() {
+                crate::monitoring::SOURCE_IMAGES_FETCHED_TOTAL
+                    .with_label_values(&["success"])
+                    .inc();
+            } else {
+                crate::monitoring::SOURCE_IMAGES_FETCHED_TOTAL
+                    .with_label_values(&["error"])
+                    .inc();
+            }
+            res
+        }
         Err(e) => {
+            let fetch_duration = fetch_start.elapsed().as_secs_f64();
+            crate::monitoring::SOURCE_IMAGE_FETCH_DURATION_SECONDS
+                .with_label_values(&[] as &[&str])
+                .observe(fetch_duration);
+            crate::monitoring::SOURCE_IMAGES_FETCHED_TOTAL
+                .with_label_values(&["error"])
+                .inc();
             error!("Error fetching image: {}", e);
             return Err((StatusCode::BAD_REQUEST, format!("Error fetching image: {}", e)).into_response());
         }
