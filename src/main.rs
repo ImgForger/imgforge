@@ -33,6 +33,7 @@ use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
 mod caching;
 mod constants;
+mod middleware;
 mod monitoring;
 mod processing;
 
@@ -139,7 +140,10 @@ async fn main() {
     let app = Router::new()
         .route("/status", get(status_handler))
         .route("/info/{*path}", get(info_handler))
-        .route("/{*path}", get(image_forge_handler))
+        .route(
+            "/{*path}",
+            get(image_forge_handler).layer(axum::middleware::from_fn(middleware::status_code_metric_middleware)),
+        )
         .route("/metrics", get(move || async move { main_metric_handle.render() }))
         .with_state(state)
         .layer(prometheus_layer)
