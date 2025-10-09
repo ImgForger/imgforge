@@ -313,7 +313,6 @@ pub fn apply_watermark(img: VipsImage, watermark_opts: &Watermark) -> Result<Vip
     let options = ops::EmbedOptions {
         extend: ops::Extend::Background,
         background: bg.to_vec(),
-        ..Default::default()
     };
 
     let watermark_on_canvas = ops::embed_with_opts(
@@ -346,6 +345,7 @@ fn calculate_watermark_position(main_img: &VipsImage, watermark_img: &VipsImage,
         "north_east" => (main_w - wm_w - margin, margin),
         "south_west" => (margin, main_h - wm_h - margin),
         "south_east" => (main_w - wm_w - margin, main_h - wm_h - margin),
-        "center" | _ => ((main_w - wm_w) / 2, (main_h - wm_h) / 2),
+        "center" => ((main_w - wm_w) / 2, (main_h - wm_h) / 2),
+        _ => ((main_w - wm_w) / 2, (main_h - wm_h) / 2),
     }
 }

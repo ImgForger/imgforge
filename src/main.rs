@@ -18,7 +18,6 @@ use governor::{Quota, RateLimiter};
 use hmac::{Hmac, Mac};
 use libvips::{VipsApp, VipsImage};
 use percent_encoding::percent_decode_str;
-use prometheus;
 use rand::distr::Alphanumeric;
 use rand::Rng;
 use serde_json::json;
