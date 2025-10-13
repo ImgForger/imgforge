@@ -1,8 +1,6 @@
-use crate::constants::*;
 use crate::processing::options::{Crop, Resize, Watermark};
 use exif::{In, Tag};
 use libvips::{ops, VipsImage};
-use std::env;
 use std::io::Cursor;
 use tracing::debug;
 
@@ -280,11 +278,13 @@ pub fn apply_pixelate(img: VipsImage, amount: u32) -> Result<VipsImage, String> 
 }
 
 /// Applies a watermark to an image.
-pub fn apply_watermark(img: VipsImage, watermark_opts: &Watermark) -> Result<VipsImage, String> {
-    let watermark_path =
-        env::var(ENV_WATERMARK_PATH).map_err(|_| "WATERMARK_PATH environment variable not set".to_string())?;
-    let watermark_img = VipsImage::new_from_file(&watermark_path)
-        .map_err(|e| format!("Failed to load watermark image from {}: {}", watermark_path, e))?;
+pub fn apply_watermark(
+    img: VipsImage,
+    watermark_bytes: &[u8],
+    watermark_opts: &Watermark,
+) -> Result<VipsImage, String> {
+    let watermark_img = VipsImage::new_from_buffer(watermark_bytes, "")
+        .map_err(|e| format!("Failed to load watermark image from buffer: {}", e))?;
 
     // Resize watermark to be 1/4 of the main image's width, maintaining aspect ratio
     let factor = (img.get_width() as f64 / 4.0) / watermark_img.get_width() as f64;
