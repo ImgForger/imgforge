@@ -406,19 +406,46 @@ async fn image_forge_handler(
         }
     }
 
+    let watermark_bytes = if let Some(url) = &parsed_options.watermark_url {
+        debug!("Fetching watermark from URL: {}", url);
+        match fetch_image(url).await {
+            Ok((bytes, _)) => Some(bytes),
+            Err(e) => {
+                error!("Failed to fetch watermark image: {}", e);
+                return (StatusCode::BAD_REQUEST, "Failed to fetch watermark image".to_string()).into_response();
+            }
+        }
+    } else if let Ok(path) = env::var(ENV_WATERMARK_PATH) {
+        debug!("Loading watermark from path: {}", path);
+        match tokio::fs::read(path).await {
+            Ok(bytes) => Some(Bytes::from(bytes)),
+            Err(e) => {
+                error!("Failed to read watermark image from path: {}", e);
+                return (
+                    StatusCode::BAD_REQUEST,
+                    "Failed to read watermark image from path".to_string(),
+                )
+                    .into_response();
+            }
+        }
+    } else {
+        None
+    };
+
     let _permit = if parsed_options.raw {
         None
     } else {
         Some(state.semaphore.acquire().await.unwrap())
     };
 
-    let processed_image_bytes = match processing::process_image(image_bytes.into(), parsed_options).await {
-        Ok(bytes) => bytes,
-        Err(e) => {
-            error!("Error processing image: {}", e);
-            return (StatusCode::BAD_REQUEST, format!("Error processing image: {}", e)).into_response();
-        }
-    };
+    let processed_image_bytes =
+        match processing::process_image(image_bytes.into(), parsed_options, watermark_bytes.as_ref()).await {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                error!("Error processing image: {}", e);
+                return (StatusCode::BAD_REQUEST, format!("Error processing image: {}", e)).into_response();
+            }
+        };
 
     if !matches!(state.cache, Cache::None) {
         if let Err(e) = state.cache.insert(path.clone(), processed_image_bytes.clone()).await {
@@ -453,6 +480,79 @@ fn validate_signature(key: &[u8], salt: &[u8], signature: &str, path: &str) -> b
         Err(_) => return false,
     };
     mac.verify_slice(&decoded_signature).is_ok()
+}
+
+/// Fetches an image from a given URL.
+///
+/// # Arguments
+///
+/// * `url` - The URL of the image to fetch.
+///
+/// # Returns
+///
+/// A `Result` containing a tuple of `(Bytes, Option<String>)` representing the image data
+/// and content type on success, or an error message as a `String` on failure.
+async fn fetch_image(url: &str) -> Result<(Bytes, Option<String>), String> {
+    let fetch_start = std::time::Instant::now();
+
+    let download_timeout = env::var(ENV_DOWNLOAD_TIMEOUT)
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .map_or(Duration::from_secs(10), Duration::from_secs);
+
+    let client = reqwest::Client::builder()
+        .timeout(download_timeout)
+        .build()
+        .expect("Failed to build reqwest client");
+
+    let response = match client.get(url).send().await {
+        Ok(res) => {
+            let fetch_duration = fetch_start.elapsed().as_secs_f64();
+            crate::monitoring::SOURCE_IMAGE_FETCH_DURATION_SECONDS
+                .with_label_values(&[] as &[&str])
+                .observe(fetch_duration);
+            if res.status().is_success() {
+                crate::monitoring::SOURCE_IMAGES_FETCHED_TOTAL
+                    .with_label_values(&["success"])
+                    .inc();
+            } else {
+                crate::monitoring::SOURCE_IMAGES_FETCHED_TOTAL
+                    .with_label_values(&["error"])
+                    .inc();
+            }
+            res
+        }
+        Err(e) => {
+            let fetch_duration = fetch_start.elapsed().as_secs_f64();
+            crate::monitoring::SOURCE_IMAGE_FETCH_DURATION_SECONDS
+                .with_label_values(&[] as &[&str])
+                .observe(fetch_duration);
+            crate::monitoring::SOURCE_IMAGES_FETCHED_TOTAL
+                .with_label_values(&["error"])
+                .inc();
+            error!("Error fetching image: {}", e);
+            return Err(format!("Error fetching image: {}", e));
+        }
+    };
+
+    let headers = response.headers().clone();
+
+    let image_bytes = match response.bytes().await {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            error!("Error reading image bytes: {}", e);
+            return Err(format!("Error reading image bytes: {}", e));
+        }
+    };
+
+    let mut content_type: Option<String> = None;
+    if let Some(ct) = headers.get(header::CONTENT_TYPE) {
+        if let Ok(ct_str) = ct.to_str() {
+            content_type = Some(ct_str.to_string());
+        }
+    }
+
+    Ok((image_bytes, content_type))
 }
 
 /// Performs common setup steps for image handling, including authorization, URL parsing,
@@ -538,65 +638,13 @@ async fn common_image_setup(
         }
     };
 
-    // Image Fetching
-    let fetch_start = std::time::Instant::now();
-
-    let download_timeout = env::var(ENV_DOWNLOAD_TIMEOUT)
-        .ok()
-        .and_then(|s| s.parse::<u64>().ok())
-        .map_or(Duration::from_secs(10), Duration::from_secs);
-
-    let client = reqwest::Client::builder()
-        .timeout(download_timeout)
-        .build()
-        .expect("Failed to build reqwest client");
-
-    let response = match client.get(&decoded_url).send().await {
-        Ok(res) => {
-            let fetch_duration = fetch_start.elapsed().as_secs_f64();
-            crate::monitoring::SOURCE_IMAGE_FETCH_DURATION_SECONDS
-                .with_label_values(&[] as &[&str])
-                .observe(fetch_duration);
-            if res.status().is_success() {
-                crate::monitoring::SOURCE_IMAGES_FETCHED_TOTAL
-                    .with_label_values(&["success"])
-                    .inc();
-            } else {
-                crate::monitoring::SOURCE_IMAGES_FETCHED_TOTAL
-                    .with_label_values(&["error"])
-                    .inc();
-            }
-            res
-        }
+    let (image_bytes, content_type) = match fetch_image(&decoded_url).await {
+        Ok(data) => data,
         Err(e) => {
-            let fetch_duration = fetch_start.elapsed().as_secs_f64();
-            crate::monitoring::SOURCE_IMAGE_FETCH_DURATION_SECONDS
-                .with_label_values(&[] as &[&str])
-                .observe(fetch_duration);
-            crate::monitoring::SOURCE_IMAGES_FETCHED_TOTAL
-                .with_label_values(&["error"])
-                .inc();
             error!("Error fetching image: {}", e);
             return Err((StatusCode::BAD_REQUEST, format!("Error fetching image: {}", e)).into_response());
         }
     };
-
-    let headers = response.headers().clone();
-
-    let image_bytes = match response.bytes().await {
-        Ok(bytes) => bytes,
-        Err(e) => {
-            error!("Error reading image bytes: {}", e);
-            return Err((StatusCode::BAD_REQUEST, format!("Error reading image bytes: {}", e)).into_response());
-        }
-    };
-
-    let mut content_type: Option<String> = None;
-    if let Some(ct) = headers.get(header::CONTENT_TYPE) {
-        if let Ok(ct_str) = ct.to_str() {
-            content_type = Some(ct_str.to_string());
-        }
-    }
 
     Ok((url_parts, decoded_url, image_bytes, content_type))
 }
