@@ -404,7 +404,7 @@ mod test_processing {
         // Create a dummy watermark image
         let watermark_bytes = create_test_image(50, 50);
         let watermark_path = "/tmp/test_watermark.png";
-        std::fs::write(watermark_path, watermark_bytes).unwrap();
+        std::fs::write(watermark_path, &watermark_bytes).unwrap();
         std::env::set_var(ENV_WATERMARK_PATH, watermark_path);
 
         let img = VipsImage::new_from_buffer(&create_test_image(200, 200), "").unwrap();
@@ -412,7 +412,7 @@ mod test_processing {
             opacity: 0.5,
             position: "center".to_string(),
         };
-        let watermarked_img = transform::apply_watermark(img, &watermark_opts).unwrap();
+        let watermarked_img = transform::apply_watermark(img, &watermark_bytes, &watermark_opts).unwrap();
 
         assert_eq!(watermarked_img.get_width(), 200);
         assert_eq!(watermarked_img.get_height(), 200);
