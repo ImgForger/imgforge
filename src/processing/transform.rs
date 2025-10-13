@@ -2,8 +2,10 @@ use crate::constants::*;
 use crate::processing::options::{Crop, Resize, Watermark};
 use exif::{In, Tag};
 use libvips::{ops, VipsImage};
+use reqwest;
 use std::env;
 use std::io::Cursor;
+use tokio;
 use tracing::debug;
 
 /// Applies EXIF rotation to an image based on orientation data.
@@ -280,11 +282,35 @@ pub fn apply_pixelate(img: VipsImage, amount: u32) -> Result<VipsImage, String> 
 }
 
 /// Applies a watermark to an image.
-pub fn apply_watermark(img: VipsImage, watermark_opts: &Watermark) -> Result<VipsImage, String> {
-    let watermark_path =
-        env::var(ENV_WATERMARK_PATH).map_err(|_| "WATERMARK_PATH environment variable not set".to_string())?;
-    let watermark_img = VipsImage::new_from_file(&watermark_path)
-        .map_err(|e| format!("Failed to load watermark image from {}: {}", watermark_path, e))?;
+pub async fn apply_watermark(
+    img: VipsImage,
+    watermark_url: Option<String>,
+    watermark_opts: Option<Watermark>,
+) -> Result<VipsImage, String> {
+    let watermark_img_bytes = if let Some(url) = watermark_url {
+        debug!("Fetching watermark from URL: {}", url);
+        reqwest::get(&url)
+            .await
+            .map_err(|e| format!("Failed to fetch watermark from URL {}: {}", url, e))?
+            .bytes()
+            .await
+            .map_err(|e| format!("Failed to get watermark bytes from URL {}: {}", url, e))?
+            .to_vec()
+    } else if let Some(_opts) = &watermark_opts {
+        let watermark_path =
+            env::var(ENV_WATERMARK_PATH).map_err(|_| "WATERMARK_PATH environment variable not set".to_string())?;
+        debug!("Loading watermark from local path: {}", watermark_path);
+        tokio::fs::read(&watermark_path)
+            .await
+            .map_err(|e| format!("Failed to read watermark from file {}: {}", watermark_path, e))?
+    } else {
+        return Ok(img);
+    };
+
+    let watermark_img = VipsImage::new_from_buffer(&watermark_img_bytes, "")
+        .map_err(|e| format!("Failed to load watermark image: {}", e))?;
+
+    let watermark_opts = watermark_opts.unwrap_or_default();
 
     // Resize watermark to be 1/4 of the main image's width, maintaining aspect ratio
     let factor = (img.get_width() as f64 / 4.0) / watermark_img.get_width() as f64;

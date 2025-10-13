@@ -150,9 +150,12 @@ pub async fn process_image(image_bytes: Vec<u8>, mut parsed_options: ParsedOptio
     }
 
     // Apply watermark if specified
-    if let Some(ref watermark_opts) = parsed_options.watermark {
-        debug!("Applying watermark with options: {:?}", watermark_opts);
-        img = transform::apply_watermark(img, watermark_opts)?;
+    if parsed_options.watermark.is_some() || parsed_options.watermark_url.is_some() {
+        debug!(
+            "Applying watermark with options: {:?}, url: {:?}",
+            parsed_options.watermark, parsed_options.watermark_url
+        );
+        img = transform::apply_watermark(img, parsed_options.watermark_url, parsed_options.watermark).await?;
     }
 
     // Apply background color for JPEG if needed

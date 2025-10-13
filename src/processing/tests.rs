@@ -3,9 +3,13 @@ mod test_processing {
     use crate::constants::ENV_WATERMARK_PATH;
     use crate::processing::options::{parse_all_options, Crop, ProcessingOption, Resize, Watermark};
     use crate::processing::transform;
+    use axum::{routing::get, Router};
+    use base64::Engine as _;
     use image::{ImageBuffer, Rgba};
     use lazy_static::lazy_static;
     use libvips::{VipsApp, VipsImage};
+    use std::net::SocketAddr;
+    use tokio;
 
     lazy_static! {
         static ref APP: VipsApp = {
@@ -398,6 +402,48 @@ mod test_processing {
         assert_eq!(watermark.position, "center");
     }
 
+    #[tokio::test]
+    async fn test_apply_watermark_from_url() {
+        let _ = &*APP;
+
+        // 1. Create a dummy watermark image
+        let watermark_bytes = create_test_image(50, 50);
+
+        // 2. Serve the dummy watermark image via a local HTTP server
+        let watermark_app = Router::new().route("/watermark.png", get(|| async move { watermark_bytes }));
+        let addr = SocketAddr::from(([127, 0, 0, 1], 0)); // Use port 0 to let OS assign a free port
+        let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+        let watermark_url = format!(
+            "http://127.0.0.1:{}/watermark.png",
+            listener.local_addr().unwrap().port()
+        );
+
+        tokio::spawn(async move { axum::serve(listener, watermark_app).await.unwrap() });
+
+        // 3. Base64 encode the URL of the dummy watermark image.
+        let encoded_watermark_url = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(watermark_url.as_bytes());
+
+        // 4. Create a dummy main image
+        let main_img_bytes = create_test_image(200, 200);
+        let img = VipsImage::new_from_buffer(&main_img_bytes, "").unwrap();
+
+        // 5. Call parse_all_options with the watermark_url option.
+        let options = vec![ProcessingOption {
+            name: "watermark_url".to_string(),
+            args: vec![encoded_watermark_url],
+        }];
+        let parsed_options = parse_all_options(options).unwrap();
+
+        // 6. Call transform::apply_watermark with the main image and the parsed watermark_url option.
+        let watermarked_img = transform::apply_watermark(img, parsed_options.watermark_url, parsed_options.watermark)
+            .await
+            .unwrap();
+
+        // 7. Assert that the output image dimensions are correct.
+        assert_eq!(watermarked_img.get_width(), 200);
+        assert_eq!(watermarked_img.get_height(), 200);
+    }
+
     #[test]
     fn test_apply_watermark() {
         let _ = &*APP;
@@ -412,7 +458,10 @@ mod test_processing {
             opacity: 0.5,
             position: "center".to_string(),
         };
-        let watermarked_img = transform::apply_watermark(img, &watermark_opts).unwrap();
+        let watermarked_img = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async { transform::apply_watermark(img, None, Some(watermark_opts)).await })
+            .unwrap();
 
         assert_eq!(watermarked_img.get_width(), 200);
         assert_eq!(watermarked_img.get_height(), 200);
