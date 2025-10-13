@@ -3,6 +3,14 @@ name = "imgforge"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "imgforge"
+path = "src/lib.rs"
+
+[[bin]]
+name = "imgforge"
+path = "src/main.rs"
+
 [dependencies]
 axum = "0.8.6"
 base64 = "0.22.1"
