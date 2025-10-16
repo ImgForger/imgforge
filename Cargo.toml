@@ -50,3 +50,11 @@ sha2 = "0.10.8"
 tokio = { version = "1.36.0", features = ["full"] }
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+tower = { version = "0.5", features = ["util"] }
+hyper = { version = "1.5", features = ["full"] }
+http-body-util = "0.1"
+wiremock = "0.6"
+base64 = "0.22.1"
+hex = "0.4.3"
+hmac = "0.12.1"
+futures = "0.3"
