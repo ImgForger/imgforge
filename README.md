@@ -102,7 +102,7 @@ To run the application, you will need to have Rust and Cargo installed.
 4. **Test the application**:
 
     ```bash
-    cargo test --verbose -- --test-threads=1
+    cargo test --all -- --test-threads=1
     ```
 
 The server will be available at `http://0.0.0.0:3000`.

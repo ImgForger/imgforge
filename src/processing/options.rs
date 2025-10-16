@@ -352,24 +352,28 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
                 }
             }
             WIDTH | WIDTH_SHORT => {
-                if option.args.is_empty() {
-                    error!("Width option requires one argument");
-                    return Err("width option requires one argument".to_string());
-                }
-                parsed_options.width = Some(option.args[0].parse::<u32>().map_err(|e: std::num::ParseIntError| {
-                    error!("Invalid width: {}", e);
-                    e.to_string()
-                })?);
+                let width_arg = option.args.get(0).map(|s| s.as_str()).unwrap_or("0");
+                let width = if width_arg.is_empty() {
+                    0
+                } else {
+                    width_arg.parse::<u32>().map_err(|e: std::num::ParseIntError| {
+                        error!("Invalid width: {}", e);
+                        e.to_string()
+                    })?
+                };
+                parsed_options.width = Some(width);
             }
             HEIGHT | HEIGHT_SHORT => {
-                if option.args.is_empty() {
-                    error!("Height option requires one argument");
-                    return Err("height option requires one argument".to_string());
-                }
-                parsed_options.height = Some(option.args[0].parse::<u32>().map_err(|e: std::num::ParseIntError| {
-                    error!("Invalid height: {}", e);
-                    e.to_string()
-                })?);
+                let height_arg = option.args.get(0).map(|s| s.as_str()).unwrap_or("0");
+                let height = if height_arg.is_empty() {
+                    0
+                } else {
+                    height_arg.parse::<u32>().map_err(|e: std::num::ParseIntError| {
+                        error!("Invalid height: {}", e);
+                        e.to_string()
+                    })?
+                };
+                parsed_options.height = Some(height);
             }
             GRAVITY | GRAVITY_SHORT => {
                 if option.args.is_empty() {

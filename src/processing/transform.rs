@@ -4,6 +4,8 @@ use libvips::{ops, VipsImage};
 use std::io::Cursor;
 use tracing::debug;
 
+const SCALE_EPSILON: f64 = 1e-6;
+
 /// Applies EXIF rotation to an image based on orientation data.
 pub fn apply_exif_rotation(image_bytes: &[u8], mut img: VipsImage) -> Result<VipsImage, String> {
     let exif_reader = exif::Reader::new();
@@ -55,42 +57,60 @@ pub fn crop_image(img: VipsImage, crop: Crop) -> Result<VipsImage, String> {
     .map_err(|e| format!("Error cropping image: {}", e))
 }
 
+/// Resolves target resize dimensions, filling in zero values according to imgproxy rules.
+pub fn resolve_resize_dimensions(resize: &Resize, src_width: u32, src_height: u32) -> Result<(u32, u32), String> {
+    let mut width = resize.width;
+    let mut height = resize.height;
+
+    if width == 0 && height == 0 {
+        return Err("resize requires at least one non-zero dimension".to_string());
+    }
+
+    let aspect = src_width as f64 / src_height as f64;
+
+    if resize.resizing_type == "force" {
+        if width == 0 {
+            width = src_width;
+        }
+        if height == 0 {
+            height = src_height;
+        }
+    } else {
+        if width == 0 {
+            width = ((height as f64) * aspect).round() as u32;
+        }
+        if height == 0 {
+            height = ((width as f64) / aspect).round() as u32;
+        }
+    }
+
+    if width == 0 || height == 0 {
+        return Err("resize resolved to zero dimension".to_string());
+    }
+
+    Ok((width, height))
+}
+
 /// Applies resize operation based on the resize type.
 pub fn apply_resize(img: VipsImage, resize: &Resize, gravity: &Option<String>) -> Result<VipsImage, String> {
-    let (w, h) = (resize.width, resize.height);
+    let src_width = img.get_width() as u32;
+    let src_height = img.get_height() as u32;
+    let (target_w, target_h) = resolve_resize_dimensions(resize, src_width, src_height)?;
 
     match resize.resizing_type.as_str() {
-        "fill" => {
-            if w == 0 || h == 0 {
-                return Err("resize:fill requires non-zero width and height".to_string());
-            }
-            resize_to_fill(img, w, h, gravity.as_deref().unwrap_or("center"))
-        }
-        "fit" => {
-            if w == 0 && h == 0 {
-                return Err("resize:fit requires non-zero width and height".to_string());
-            }
-            resize_to_fit(img, w, h)
-        }
-        "force" => {
-            if w == 0 || h == 0 {
-                return Err("resize:force requires non-zero width and height".to_string());
-            }
-            ops::resize(&img, w as f64 / img.get_width() as f64).map_err(|e| format!("Error force resizing: {}", e))
-        }
+        "fill" => resize_to_fill(img, target_w, target_h, gravity.as_deref().unwrap_or("center")),
+        "fit" => resize_to_fit(img, target_w, target_h),
+        "force" => resize_to_force(img, target_w, target_h),
         "auto" => {
-            if w == 0 || h == 0 {
-                return Err("resize:auto requires non-zero width and height".to_string());
-            }
-            let src_is_portrait = super::utils::is_portrait(img.get_width() as u32, img.get_height() as u32);
-            let target_is_portrait = super::utils::is_portrait(w, h);
+            let src_is_portrait = super::utils::is_portrait(src_width, src_height);
+            let target_is_portrait = super::utils::is_portrait(target_w, target_h);
 
             if src_is_portrait == target_is_portrait {
                 debug!("Auto resize: orientations match, using fill");
-                resize_to_fill(img, w, h, gravity.as_deref().unwrap_or("center"))
+                resize_to_fill(img, target_w, target_h, gravity.as_deref().unwrap_or("center"))
             } else {
                 debug!("Auto resize: orientations differ, using fit");
-                resize_to_fit(img, w, h)
+                resize_to_fit(img, target_w, target_h)
             }
         }
         _ => Err(format!("Unknown resize type: {}", resize.resizing_type)),
@@ -123,6 +143,21 @@ fn resize_to_fill(img: VipsImage, width: u32, height: u32, gravity: &str) -> Res
 
     ops::extract_area(&resized_img, crop_x as i32, crop_y as i32, width as i32, height as i32)
         .map_err(|e| format!("Error cropping after fill resize: {}", e))
+}
+
+/// Resizes an image to the exact target dimensions, allowing aspect ratio changes.
+fn resize_to_force(img: VipsImage, width: u32, height: u32) -> Result<VipsImage, String> {
+    let (src_w, src_h) = (img.get_width() as f64, img.get_height() as f64);
+    let scale_x = width as f64 / src_w;
+    let scale_y = height as f64 / src_h;
+
+    if (scale_x - 1.0).abs() < SCALE_EPSILON && (scale_y - 1.0).abs() < SCALE_EPSILON {
+        return Ok(img);
+    }
+
+    let mut options = ops::ResizeOptions::default();
+    options.vscale = scale_y;
+    ops::resize_with_opts(&img, scale_x, &options).map_err(|e| format!("Error force resizing: {}", e))
 }
 
 /// Resizes an image to fit within the target dimensions while maintaining aspect ratio.
