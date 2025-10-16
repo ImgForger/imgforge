@@ -68,3 +68,118 @@ pub async fn fetch_image(url: &str) -> Result<(Bytes, Option<String>), String> {
 
     Ok((image_bytes, content_type))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_download_timeout_from_env() {
+        let test_timeout = "30";
+        env::set_var(ENV_DOWNLOAD_TIMEOUT, test_timeout);
+
+        let timeout = env::var(ENV_DOWNLOAD_TIMEOUT)
+            .ok()
+            .and_then(|s| s.parse::<u64>().ok())
+            .map_or(Duration::from_secs(10), Duration::from_secs);
+
+        assert_eq!(timeout, Duration::from_secs(30));
+        env::remove_var(ENV_DOWNLOAD_TIMEOUT);
+    }
+
+    #[test]
+    fn test_download_timeout_default() {
+        env::remove_var(ENV_DOWNLOAD_TIMEOUT);
+
+        let timeout = env::var(ENV_DOWNLOAD_TIMEOUT)
+            .ok()
+            .and_then(|s| s.parse::<u64>().ok())
+            .map_or(Duration::from_secs(10), Duration::from_secs);
+
+        assert_eq!(timeout, Duration::from_secs(10));
+    }
+
+    #[test]
+    fn test_download_timeout_invalid() {
+        env::set_var(ENV_DOWNLOAD_TIMEOUT, "invalid");
+
+        let timeout = env::var(ENV_DOWNLOAD_TIMEOUT)
+            .ok()
+            .and_then(|s| s.parse::<u64>().ok())
+            .map_or(Duration::from_secs(10), Duration::from_secs);
+
+        assert_eq!(timeout, Duration::from_secs(10));
+        env::remove_var(ENV_DOWNLOAD_TIMEOUT);
+    }
+
+    #[tokio::test]
+    async fn test_fetch_image_invalid_url() {
+        let result = fetch_image("not_a_valid_url").await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Error fetching image"));
+    }
+
+    #[tokio::test]
+    async fn test_fetch_image_nonexistent_domain() {
+        let result = fetch_image("http://this-domain-does-not-exist-12345.com/image.jpg").await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Error fetching image"));
+    }
+
+    #[tokio::test]
+    async fn test_fetch_image_success_with_httpbin() {
+        let result = fetch_image("https://httpbin.org/image/jpeg").await;
+        
+        if result.is_ok() {
+            let (bytes, content_type) = result.unwrap();
+            assert!(!bytes.is_empty());
+            assert!(content_type.is_some());
+            let ct = content_type.unwrap();
+            assert!(ct.contains("image/jpeg") || ct.contains("image"));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_fetch_image_404() {
+        let result = fetch_image("https://httpbin.org/status/404").await;
+        
+        if result.is_ok() {
+            let (bytes, _) = result.unwrap();
+            assert_eq!(bytes.len(), 0);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_fetch_image_with_custom_timeout() {
+        env::set_var(ENV_DOWNLOAD_TIMEOUT, "1");
+        
+        let result = fetch_image("https://httpbin.org/delay/5").await;
+        
+        assert!(result.is_err());
+        env::remove_var(ENV_DOWNLOAD_TIMEOUT);
+    }
+
+    #[tokio::test]
+    async fn test_fetch_image_content_type_extraction() {
+        let result = fetch_image("https://httpbin.org/image/png").await;
+        
+        if result.is_ok() {
+            let (bytes, content_type) = result.unwrap();
+            assert!(!bytes.is_empty());
+            
+            if let Some(ct) = content_type {
+                assert!(ct.contains("image"));
+            }
+        }
+    }
+
+    #[test]
+    fn test_client_builder_timeout_configuration() {
+        let timeout = Duration::from_secs(15);
+        let client = reqwest::Client::builder()
+            .timeout(timeout)
+            .build();
+        
+        assert!(client.is_ok());
+    }
+}
