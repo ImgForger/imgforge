@@ -425,12 +425,49 @@ mod test_processing {
 
     // Error handling tests
     #[test]
-    fn test_parse_resize_invalid_args() {
+    fn test_parse_resize_type_only() {
         let options = vec![ProcessingOption {
             name: "resize".to_string(),
             args: vec!["fill".to_string()],
         }];
-        assert!(parse_all_options(options).is_err());
+        let parsed = parse_all_options(options).unwrap();
+        let resize = parsed.resize.unwrap();
+        assert_eq!(resize.resizing_type, "fill");
+        assert_eq!(resize.width, 0);
+        assert_eq!(resize.height, 0);
+    }
+
+    #[test]
+    fn test_parse_resize_meta_enlarge_extend() {
+        let options = vec![ProcessingOption {
+            name: "resize".to_string(),
+            args: vec![
+                "fit".to_string(),
+                "640".to_string(),
+                "480".to_string(),
+                "true".to_string(),
+                "true".to_string(),
+            ],
+        }];
+        let parsed = parse_all_options(options).unwrap();
+        let resize = parsed.resize.unwrap();
+        assert_eq!(resize.resizing_type, "fit");
+        assert_eq!(resize.width, 640);
+        assert_eq!(resize.height, 480);
+        assert!(parsed.enlarge);
+        assert!(parsed.extend);
+    }
+
+    #[test]
+    fn test_parse_resize_meta_enlarge_only() {
+        let options = vec![ProcessingOption {
+            name: "resize".to_string(),
+            args: vec!["".to_string(), "".to_string(), "".to_string(), "true".to_string()],
+        }];
+        let parsed = parse_all_options(options).unwrap();
+        assert!(parsed.resize.is_none());
+        assert!(parsed.enlarge);
+        assert!(!parsed.extend);
     }
 
     #[test]

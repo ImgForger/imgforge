@@ -254,24 +254,47 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
         debug!("Parsing option: {} with args: {:?}", option.name, option.args);
         match option.name.as_str() {
             RESIZE | RESIZE_SHORT => {
-                if option.args.len() < 3 {
-                    error!(
-                        "Resize option requires at least 3 arguments, received: {}",
-                        option.args.len()
-                    );
-                    return Err("resize option requires at least 3 arguments: type, width, height".to_string());
+                let mut store_resize = parsed_options.resize.is_some();
+                let mut resize = parsed_options.resize.take().unwrap_or_default();
+
+                if let Some(arg) = option.args.get(0) {
+                    if !arg.is_empty() {
+                        resize.resizing_type = arg.clone();
+                        store_resize = true;
+                    }
                 }
-                parsed_options.resize = Some(Resize {
-                    resizing_type: option.args[0].clone(),
-                    width: option.args[1].parse::<u32>().map_err(|e: std::num::ParseIntError| {
-                        error!("Invalid width for resize: {}", e);
-                        e.to_string()
-                    })?,
-                    height: option.args[2].parse::<u32>().map_err(|e: std::num::ParseIntError| {
-                        error!("Invalid height for resize: {}", e);
-                        e.to_string()
-                    })?,
-                });
+                if let Some(arg) = option.args.get(1) {
+                    if !arg.is_empty() {
+                        resize.width = arg.parse::<u32>().map_err(|e: std::num::ParseIntError| {
+                            error!("Invalid width for resize: {}", e);
+                            e.to_string()
+                        })?;
+                        store_resize = true;
+                    }
+                }
+                if let Some(arg) = option.args.get(2) {
+                    if !arg.is_empty() {
+                        resize.height = arg.parse::<u32>().map_err(|e: std::num::ParseIntError| {
+                            error!("Invalid height for resize: {}", e);
+                            e.to_string()
+                        })?;
+                        store_resize = true;
+                    }
+                }
+                if let Some(arg) = option.args.get(3) {
+                    if !arg.is_empty() {
+                        parsed_options.enlarge = super::utils::parse_boolean(arg);
+                    }
+                }
+                if let Some(arg) = option.args.get(4) {
+                    if !arg.is_empty() {
+                        parsed_options.extend = super::utils::parse_boolean(arg);
+                    }
+                }
+
+                if store_resize {
+                    parsed_options.resize = Some(resize);
+                }
             }
             RESIZING_TYPE | RESIZING_TYPE_SHORT => {
                 if parsed_options.resize.is_none() {
@@ -572,6 +595,7 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
         }
     }
 
+    // Default resize type is `fit`
     if parsed_options.resize.is_none() && (parsed_options.width.is_some() || parsed_options.height.is_some()) {
         debug!("Applying default 'fit' resize due to width/height options");
         parsed_options.resize = Some(Resize {
