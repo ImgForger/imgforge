@@ -3,6 +3,14 @@ name = "imgforge"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "imgforge"
+path = "src/lib.rs"
+
+[[bin]]
+name = "imgforge"
+path = "src/main.rs"
+
 [dependencies]
 axum = "0.8.6"
 base64 = "0.22.1"
@@ -28,6 +36,7 @@ prometheus = { version = "0.14.0", features = ["process"] }
 axum-prometheus = "0.9.0"
 lazy_static = "1.4.0"
 governor = "0.10.1"
+bytes = "1.10.1"
 
 [dev-dependencies]
 tempfile = "3.10.1"
@@ -41,3 +50,9 @@ sha2 = "0.10.8"
 tokio = { version = "1.36.0", features = ["full"] }
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
+wiremock = "0.6"
+base64 = "0.22.1"
+hmac = "0.12.1"
+futures = "0.3"

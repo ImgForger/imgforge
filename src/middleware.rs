@@ -1,5 +1,5 @@
+use crate::handlers::AppState;
 use crate::monitoring::STATUS_CODES_TOTAL;
-use crate::AppState;
 use axum::body::Body;
 use axum::extract::State;
 use axum::{http::Request, http::StatusCode, middleware::Next, response::Response};

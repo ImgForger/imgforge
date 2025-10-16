@@ -10,6 +10,8 @@ pub struct ProcessingOption {
     /// Arguments for the processing option.
     pub args: Vec<String>,
 }
+use base64::engine::general_purpose;
+use base64::Engine as _;
 use tracing::{debug, error};
 
 /// Option name for resizing.
@@ -106,6 +108,10 @@ const PIXELATE_SHORT: &str = "px";
 const WATERMARK: &str = "watermark";
 /// Shorthand for watermark.
 const WATERMARK_SHORT: &str = "wm";
+/// Option name for watermark_url.
+const WATERMARK_URL: &str = "watermark_url";
+/// Shorthand for watermark_url.
+const WATERMARK_URL_SHORT: &str = "wmu";
 
 /// Represents the parameters for a resize operation.
 #[derive(Debug, Default)]
@@ -132,7 +138,7 @@ pub struct Crop {
 }
 
 /// Represents the parameters for a watermark operation.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Watermark {
     /// The opacity of the watermark.
     pub opacity: f32,
@@ -192,6 +198,8 @@ pub struct ParsedOptions {
     /// Pixelate factor for the image.
     pub pixelate: Option<u32>,
     pub watermark: Option<Watermark>,
+    /// Optional URL for a watermark image.
+    pub watermark_url: Option<String>,
 }
 
 impl Default for ParsedOptions {
@@ -222,6 +230,7 @@ impl Default for ParsedOptions {
             sharpen: None,
             pixelate: None,
             watermark: None,
+            watermark_url: None,
         }
     }
 }
@@ -541,6 +550,21 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
                     })?,
                     position: option.args[1].clone(),
                 });
+            }
+            WATERMARK_URL | WATERMARK_URL_SHORT => {
+                if option.args.is_empty() {
+                    error!("Watermark URL option requires one argument");
+                    return Err("watermark_url option requires one argument".to_string());
+                }
+                let decoded_url = general_purpose::URL_SAFE_NO_PAD.decode(&option.args[0]).map_err(|e| {
+                    error!("Invalid base64 for watermark_url: {}", e);
+                    e.to_string()
+                })?;
+                let url = String::from_utf8(decoded_url).map_err(|e| {
+                    error!("Invalid UTF-8 for watermark_url: {}", e);
+                    e.to_string()
+                })?;
+                parsed_options.watermark_url = Some(url);
             }
             _ => {
                 debug!("Unknown option: {}", option.name);

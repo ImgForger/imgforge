@@ -5,6 +5,7 @@ pub mod utils;
 
 use crate::monitoring::{IMAGE_PROCESSING_DURATION_SECONDS, PROCESSED_IMAGES_TOTAL};
 use crate::processing::options::ParsedOptions;
+use bytes::Bytes;
 use libvips::VipsImage;
 use std::time::Instant;
 use tracing::{debug, error};
@@ -23,7 +24,11 @@ use tracing::{debug, error};
 /// # Returns
 ///
 /// A `Result` containing the processed image bytes on success, or an error message as a `String`.
-pub async fn process_image(image_bytes: Vec<u8>, mut parsed_options: ParsedOptions) -> Result<Vec<u8>, String> {
+pub async fn process_image(
+    image_bytes: Vec<u8>,
+    mut parsed_options: ParsedOptions,
+    watermark_bytes: Option<&Bytes>,
+) -> Result<Vec<u8>, String> {
     let start = Instant::now();
     debug!("Starting image processing with options: {:?}", parsed_options);
 
@@ -151,8 +156,10 @@ pub async fn process_image(image_bytes: Vec<u8>, mut parsed_options: ParsedOptio
 
     // Apply watermark if specified
     if let Some(ref watermark_opts) = parsed_options.watermark {
-        debug!("Applying watermark with options: {:?}", watermark_opts);
-        img = transform::apply_watermark(img, watermark_opts)?;
+        if let Some(watermark_bytes) = watermark_bytes {
+            debug!("Applying watermark with options: {:?}", watermark_opts);
+            img = transform::apply_watermark(img, watermark_bytes, watermark_opts)?;
+        }
     }
 
     // Apply background color for JPEG if needed
