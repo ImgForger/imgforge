@@ -114,6 +114,10 @@ const WATERMARK_SHORT: &str = "wm";
 const WATERMARK_URL: &str = "watermark_url";
 /// Shorthand for watermark_url.
 const WATERMARK_URL_SHORT: &str = "wmu";
+/// Option name for resizing_algorithm.
+const RESIZING_ALGORITHM: &str = "resizing_algorithm";
+/// Shorthand for resizing_algorithm.
+const RESIZING_ALGORITHM_SHORT: &str = "ra";
 
 /// Represents the parameters for a resize operation.
 #[derive(Debug, Default)]
@@ -202,6 +206,8 @@ pub struct ParsedOptions {
     pub watermark: Option<Watermark>,
     /// Optional URL for a watermark image.
     pub watermark_url: Option<String>,
+    /// Resizing algorithm to use (nearest, linear, cubic, lanczos2, lanczos3).
+    pub resizing_algorithm: Option<String>,
 }
 
 impl Default for ParsedOptions {
@@ -233,6 +239,7 @@ impl Default for ParsedOptions {
             pixelate: None,
             watermark: None,
             watermark_url: None,
+            resizing_algorithm: Some("lanczos3".to_string()),
         }
     }
 }
@@ -629,6 +636,27 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
                     e.to_string()
                 })?;
                 parsed_options.watermark_url = Some(url);
+            }
+            RESIZING_ALGORITHM | RESIZING_ALGORITHM_SHORT => {
+                if option.args.is_empty() {
+                    error!("Resizing algorithm option requires one argument");
+                    return Err("resizing_algorithm option requires one argument".to_string());
+                }
+                let algorithm = option.args[0].to_lowercase();
+                if !matches!(
+                    algorithm.as_str(),
+                    "nearest" | "linear" | "cubic" | "lanczos2" | "lanczos3"
+                ) {
+                    error!(
+                        "Invalid resizing algorithm: {}. Must be one of: nearest, linear, cubic, lanczos2, lanczos3",
+                        algorithm
+                    );
+                    return Err(format!(
+                        "Invalid resizing algorithm: {}. Must be one of: nearest, linear, cubic, lanczos2, lanczos3",
+                        algorithm
+                    ));
+                }
+                parsed_options.resizing_algorithm = Some(algorithm);
             }
             _ => {
                 debug!("Unknown option: {}", option.name);
