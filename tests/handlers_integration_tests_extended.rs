@@ -24,11 +24,8 @@ fn create_test_image(width: u32, height: u32, color: [u8; 4]) -> Vec<u8> {
         *pixel = Rgba(color);
     }
     let mut bytes: Vec<u8> = Vec::new();
-    img.write_to(
-        &mut std::io::Cursor::new(&mut bytes),
-        image::ImageFormat::Png,
-    )
-    .unwrap();
+    img.write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
+        .unwrap();
     bytes
 }
 
@@ -62,10 +59,7 @@ async fn create_test_state_with_cache(config: Config, cache: ImgforgeCache) -> A
 }
 
 /// Helper function to make a request and get response
-async fn make_request(
-    app: axum::Router,
-    uri: &str,
-) -> (StatusCode, Vec<u8>) {
+async fn make_request(app: axum::Router, uri: &str) -> (StatusCode, Vec<u8>) {
     let request = Request::builder().uri(uri).body(Body::empty()).unwrap();
     let response = app.oneshot(request).await.unwrap();
     let status = response.status();
@@ -91,9 +85,7 @@ async fn test_image_caching_with_memory_cache() {
         .await;
 
     let config = create_test_config(vec![], vec![], true);
-    let cache_config = CacheConfig::Memory {
-        capacity: 1024 * 1024,
-    };
+    let cache_config = CacheConfig::Memory { capacity: 1024 * 1024 };
     let cache = ImgforgeCache::new(Some(cache_config)).await.unwrap();
     let state = create_test_state_with_cache(config, cache).await;
 

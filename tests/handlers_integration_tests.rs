@@ -28,11 +28,8 @@ fn create_test_image(width: u32, height: u32, color: [u8; 4]) -> Vec<u8> {
         *pixel = Rgba(color);
     }
     let mut bytes: Vec<u8> = Vec::new();
-    img.write_to(
-        &mut std::io::Cursor::new(&mut bytes),
-        image::ImageFormat::Png,
-    )
-    .unwrap();
+    img.write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
+        .unwrap();
     bytes
 }
 
