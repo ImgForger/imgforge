@@ -26,6 +26,8 @@ const RESIZING_TYPE_SHORT: &str = "rt";
 const SIZE: &str = "size";
 /// Shorthand for size.
 const SIZE_SHORT: &str = "sz";
+/// Alternate shorthand for size.
+const SIZE_SHORT_ALT: &str = "s";
 /// Option name for width.
 const WIDTH: &str = "width";
 /// Shorthand for width.
@@ -304,15 +306,50 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
                     resize.resizing_type = option.args[0].clone();
                 }
             }
-            SIZE | SIZE_SHORT => {
-                if option.args.len() < 2 {
-                    return Err("size option requires at least 2 arguments: width, height".to_string());
+            SIZE | SIZE_SHORT | SIZE_SHORT_ALT => {
+                let mut store_resize = parsed_options.resize.is_some();
+                let mut resize = parsed_options.resize.take().unwrap_or_default();
+                let mut width_height_set = false;
+
+                if let Some(arg) = option.args.get(0) {
+                    if !arg.is_empty() {
+                        resize.width = arg.parse::<u32>().map_err(|e: std::num::ParseIntError| {
+                            error!("Invalid width for size: {}", e);
+                            e.to_string()
+                        })?;
+                        store_resize = true;
+                        width_height_set = true;
+                    }
                 }
-                parsed_options.resize = Some(Resize {
-                    resizing_type: "fit".to_string(),
-                    width: option.args[0].parse::<u32>().map_err(|e| e.to_string())?,
-                    height: option.args[1].parse::<u32>().map_err(|e| e.to_string())?,
-                });
+                if let Some(arg) = option.args.get(1) {
+                    if !arg.is_empty() {
+                        resize.height = arg.parse::<u32>().map_err(|e: std::num::ParseIntError| {
+                            error!("Invalid height for size: {}", e);
+                            e.to_string()
+                        })?;
+                        store_resize = true;
+                        width_height_set = true;
+                    }
+                }
+
+                if let Some(arg) = option.args.get(2) {
+                    if !arg.is_empty() {
+                        parsed_options.enlarge = super::utils::parse_boolean(arg);
+                    }
+                }
+                if let Some(arg) = option.args.get(3) {
+                    if !arg.is_empty() {
+                        parsed_options.extend = super::utils::parse_boolean(arg);
+                    }
+                }
+
+                if store_resize && (width_height_set || resize.resizing_type.is_empty()) {
+                    resize.resizing_type = "fit".to_string();
+                }
+
+                if store_resize {
+                    parsed_options.resize = Some(resize);
+                }
             }
             WIDTH | WIDTH_SHORT => {
                 if option.args.is_empty() {

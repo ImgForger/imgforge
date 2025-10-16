@@ -1217,4 +1217,56 @@ mod test_processing {
         let parsed = parse_all_options(options).unwrap();
         assert!(parsed.resize.is_some());
     }
+
+    #[test]
+    fn test_parse_size_meta_full() {
+        let options = vec![ProcessingOption {
+            name: "size".to_string(),
+            args: vec![
+                "320".to_string(),
+                "240".to_string(),
+                "true".to_string(),
+                "true".to_string(),
+            ],
+        }];
+        let parsed = parse_all_options(options).unwrap();
+        let resize = parsed.resize.unwrap();
+        assert_eq!(resize.resizing_type, "fit");
+        assert_eq!(resize.width, 320);
+        assert_eq!(resize.height, 240);
+        assert!(parsed.enlarge);
+        assert!(parsed.extend);
+    }
+
+    #[test]
+    fn test_parse_size_meta_enlarge_only() {
+        let options = vec![ProcessingOption {
+            name: "size".to_string(),
+            args: vec!["".to_string(), "".to_string(), "true".to_string()],
+        }];
+        let parsed = parse_all_options(options).unwrap();
+        assert!(parsed.resize.is_none());
+        assert!(parsed.enlarge);
+        assert!(!parsed.extend);
+    }
+
+    #[test]
+    fn test_parse_size_short_alias_s() {
+        let options = vec![ProcessingOption {
+            name: "s".to_string(),
+            args: vec![
+                "1024".to_string(),
+                "".to_string(),
+                "true".to_string(),
+                "true".to_string(),
+            ],
+        }];
+        let parsed = parse_all_options(options).unwrap();
+        let resize = parsed.resize.unwrap();
+        assert_eq!(resize.resizing_type, "fit");
+        assert_eq!(resize.width, 1024);
+        assert_eq!(resize.height, 0);
+        assert!(parsed.extend);
+        assert!(parsed.enlarge);
+    }
 }
