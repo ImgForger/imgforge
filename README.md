@@ -30,27 +30,27 @@ http://your-server/{signature}/{processing_options}/{base64_encoded_source_url}.
 
 ## Processing Options
 
-| Option | Shorthand | Description |
-| --- | --- | --- |
-| `resize` | `rs` | Resizes the image. |
-| `size` | `sz` | Alias for resize without type (uses `fit`). |
-| `resizing_type` | `rt` | The resizing mode to use. |
-| `width` | `w` | The target width. |
-| `height` | `h` | The target height. |
-| `gravity` | `g` | The crop/resize anchor point. |
-| `quality` | `q` | The compression quality (1-100). |
-| `auto_rotate` | `ar` | Automatically rotate the image based on EXIF data. |
-| `background` | `bg` | The background color to use. |
-| `enlarge` | `el` | Allow enlarging the image. |
-| `extend` | `ex` | Extend the image to the target dimensions. |
-| `padding` | `p` | Add padding to the image. |
-| `rotation` | `or` | Force a specific rotation. |
-| `blur` | `bl` | Apply a Gaussian blur. |
-| `crop` | - | Crop the image. |
-| `format` | - | The output format. |
-| `dpr` | - | The device pixel ratio. |
-| `cache_buster` | - | A value to bypass the cache. |
-| `raw` | - | Bypass processing limits. |
+| Option          | Shorthand | Description                                        |
+|-----------------|-----------|----------------------------------------------------|
+| `resize`        | `rs`      | Resizes the image.                                 |
+| `size`          | `sz`      | Alias for resize without type (uses `fit`).        |
+| `resizing_type` | `rt`      | The resizing mode to use.                          |
+| `width`         | `w`       | The target width.                                  |
+| `height`        | `h`       | The target height.                                 |
+| `gravity`       | `g`       | The crop/resize anchor point.                      |
+| `quality`       | `q`       | The compression quality (1-100).                   |
+| `auto_rotate`   | `ar`      | Automatically rotate the image based on EXIF data. |
+| `background`    | `bg`      | The background color to use.                       |
+| `enlarge`       | `el`      | Allow enlarging the image.                         |
+| `extend`        | `ex`      | Extend the image to the target dimensions.         |
+| `padding`       | `p`       | Add padding to the image.                          |
+| `rotation`      | `or`      | Force a specific rotation.                         |
+| `blur`          | `bl`      | Apply a Gaussian blur.                             |
+| `crop`          | -         | Crop the image.                                    |
+| `format`        | -         | The output format.                                 |
+| `dpr`           | -         | The device pixel ratio.                            |
+| `cache_buster`  | -         | A value to bypass the cache.                       |
+| `raw`           | -         | Bypass processing limits.                          |
 
 ## Security
 
@@ -62,18 +62,18 @@ To enable unsigned URLs, set the `IMGFORGE_ALLOW_UNSIGNED` environment variable 
 
 imgforge is configured using environment variables:
 
-| Variable | Description |
-| --- | --- |
-| `IMGFORGE_KEY` | The secret key for signing URLs. |
-| `IMGFORGE_SALT` | The salt for signing URLs. |
-| `IMGFORGE_AUTH_TOKEN` | An optional authorization token. |
-| `IMGFORGE_ALLOW_UNSIGNED` | Allow unsigned URLs. |
-| `IMGFORGE_MAX_SRC_FILE_SIZE` | The maximum allowed source image file size. |
-| `IMGFORGE_ALLOWED_MIME_TYPES` | A comma-separated list of allowed MIME types. |
-| `IMGFORGE_MAX_SRC_RESOLUTION` | The maximum allowed source image resolution. |
-| `IMGFORGE_ALLOW_SECURITY_OPTIONS` | Allow security options to be set per-request. |
-| `IMGFORGE_WORKERS` | The number of worker threads to use for image processing. |
-| `IMGFORGE_LOG_LEVEL` | The log level to use. |
+| Variable                          | Description                                               |
+|-----------------------------------|-----------------------------------------------------------|
+| `IMGFORGE_KEY`                    | The secret key for signing URLs.                          |
+| `IMGFORGE_SALT`                   | The salt for signing URLs.                                |
+| `IMGFORGE_AUTH_TOKEN`             | An optional authorization token.                          |
+| `IMGFORGE_ALLOW_UNSIGNED`         | Allow unsigned URLs.                                      |
+| `IMGFORGE_MAX_SRC_FILE_SIZE`      | The maximum allowed source image file size.               |
+| `IMGFORGE_ALLOWED_MIME_TYPES`     | A comma-separated list of allowed MIME types.             |
+| `IMGFORGE_MAX_SRC_RESOLUTION`     | The maximum allowed source image resolution.              |
+| `IMGFORGE_ALLOW_SECURITY_OPTIONS` | Allow security options to be set per-request.             |
+| `IMGFORGE_WORKERS`                | The number of worker threads to use for image processing. |
+| `IMGFORGE_LOG_LEVEL`              | The log level to use.                                     |
 
 ## Running the Application
 
@@ -97,6 +97,12 @@ To run the application, you will need to have Rust and Cargo installed.
 
     ```bash
     cargo run
+    ```
+    
+4. **Test the application**:
+
+    ```bash
+    cargo test --verbose -- --test-threads=1
     ```
 
 The server will be available at `http://0.0.0.0:3000`.
