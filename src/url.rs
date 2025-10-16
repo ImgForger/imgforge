@@ -152,9 +152,7 @@ mod tests {
     fn test_source_url_info_decode_base64() {
         let url = "https://example.com/image.jpg";
         let encoded = URL_SAFE_NO_PAD.encode(url.as_bytes());
-        let source = SourceUrlInfo::Base64 {
-            encoded_url: encoded,
-        };
+        let source = SourceUrlInfo::Base64 { encoded_url: encoded };
         let decoded = source.decode().unwrap();
         assert_eq!(decoded, url);
     }
@@ -172,7 +170,7 @@ mod tests {
         let key = b"test_key";
         let salt = b"test_salt";
         let path = "/resize:fill:300:200/plain/https://example.com/image.jpg";
-        
+
         type HmacSha256 = Hmac<Sha256>;
         let mut mac = HmacSha256::new_from_slice(key).unwrap();
         mac.update(salt);
@@ -198,7 +196,7 @@ mod tests {
         let key = b"test_key";
         let salt = b"test_salt";
         let path = "/resize:fill:300:200/plain/https://example.com/image.jpg";
-        
+
         type HmacSha256 = Hmac<Sha256>;
         let mut mac = HmacSha256::new_from_slice(key).unwrap();
         mac.update(salt);

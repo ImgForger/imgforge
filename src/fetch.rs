@@ -129,7 +129,7 @@ mod tests {
     #[tokio::test]
     async fn test_fetch_image_success_with_httpbin() {
         let result = fetch_image("https://httpbin.org/image/jpeg").await;
-        
+
         if result.is_ok() {
             let (bytes, content_type) = result.unwrap();
             assert!(!bytes.is_empty());
@@ -142,7 +142,7 @@ mod tests {
     #[tokio::test]
     async fn test_fetch_image_404() {
         let result = fetch_image("https://httpbin.org/status/404").await;
-        
+
         if result.is_ok() {
             let (bytes, _) = result.unwrap();
             assert_eq!(bytes.len(), 0);
@@ -152,9 +152,9 @@ mod tests {
     #[tokio::test]
     async fn test_fetch_image_with_custom_timeout() {
         env::set_var(ENV_DOWNLOAD_TIMEOUT, "1");
-        
+
         let result = fetch_image("https://httpbin.org/delay/5").await;
-        
+
         assert!(result.is_err());
         env::remove_var(ENV_DOWNLOAD_TIMEOUT);
     }
@@ -162,11 +162,11 @@ mod tests {
     #[tokio::test]
     async fn test_fetch_image_content_type_extraction() {
         let result = fetch_image("https://httpbin.org/image/png").await;
-        
+
         if result.is_ok() {
             let (bytes, content_type) = result.unwrap();
             assert!(!bytes.is_empty());
-            
+
             if let Some(ct) = content_type {
                 assert!(ct.contains("image"));
             }
@@ -176,10 +176,8 @@ mod tests {
     #[test]
     fn test_client_builder_timeout_configuration() {
         let timeout = Duration::from_secs(15);
-        let client = reqwest::Client::builder()
-            .timeout(timeout)
-            .build();
-        
+        let client = reqwest::Client::builder().timeout(timeout).build();
+
         assert!(client.is_ok());
     }
 }
