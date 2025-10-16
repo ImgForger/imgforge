@@ -34,6 +34,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y libvips-dev
+
       - name: Build and upload
         uses: taiki-e/upload-rust-binary-action@v1
         with:
