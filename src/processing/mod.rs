@@ -104,7 +104,7 @@ pub async fn process_image(
                 target_w, target_h, src_width, src_height
             );
         } else {
-            img = transform::apply_resize(img, resize, &parsed_options.gravity)?;
+            img = transform::apply_resize(img, resize, &parsed_options.gravity, &parsed_options.resizing_algorithm)?;
         }
     }
 
@@ -114,13 +114,18 @@ pub async fn process_image(
             "Applying min dimensions: min_width={:?}, min_height={:?}",
             parsed_options.min_width, parsed_options.min_height
         );
-        img = transform::apply_min_dimensions(img, parsed_options.min_width, parsed_options.min_height)?;
+        img = transform::apply_min_dimensions(
+            img,
+            parsed_options.min_width,
+            parsed_options.min_height,
+            &parsed_options.resizing_algorithm,
+        )?;
     }
 
     // Apply zoom if specified
     if let Some(zoom) = parsed_options.zoom {
         debug!("Applying zoom: {}", zoom);
-        img = transform::apply_zoom(img, zoom)?;
+        img = transform::apply_zoom(img, zoom, &parsed_options.resizing_algorithm)?;
     }
 
     // Apply extend if specified
@@ -166,14 +171,14 @@ pub async fn process_image(
     // Apply pixelate if specified
     if let Some(amount) = parsed_options.pixelate {
         debug!("Applying pixelate with amount: {}", amount);
-        img = transform::apply_pixelate(img, amount)?;
+        img = transform::apply_pixelate(img, amount, &parsed_options.resizing_algorithm)?;
     }
 
     // Apply watermark if specified
     if let Some(ref watermark_opts) = parsed_options.watermark {
         if let Some(watermark_bytes) = watermark_bytes {
             debug!("Applying watermark with options: {:?}", watermark_opts);
-            img = transform::apply_watermark(img, watermark_bytes, watermark_opts)?;
+            img = transform::apply_watermark(img, watermark_bytes, watermark_opts, &parsed_options.resizing_algorithm)?;
         }
     }
 

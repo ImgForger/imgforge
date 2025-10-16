@@ -6,6 +6,18 @@ use tracing::debug;
 
 const SCALE_EPSILON: f64 = 1e-6;
 
+/// Converts a resizing algorithm string to a libvips Kernel enum.
+fn get_resize_kernel(algorithm: &Option<String>) -> ops::Kernel {
+    match algorithm.as_deref().unwrap_or("lanczos3") {
+        "nearest" => ops::Kernel::Nearest,
+        "linear" => ops::Kernel::Linear,
+        "cubic" => ops::Kernel::Cubic,
+        "lanczos2" => ops::Kernel::Lanczos2,
+        "lanczos3" => ops::Kernel::Lanczos3,
+        _ => ops::Kernel::Lanczos3, // Default to lanczos3
+    }
+}
+
 /// Applies EXIF rotation to an image based on orientation data.
 pub fn apply_exif_rotation(image_bytes: &[u8], mut img: VipsImage) -> Result<VipsImage, String> {
     let exif_reader = exif::Reader::new();
@@ -92,25 +104,42 @@ pub fn resolve_resize_dimensions(resize: &Resize, src_width: u32, src_height: u3
 }
 
 /// Applies resize operation based on the resize type.
-pub fn apply_resize(img: VipsImage, resize: &Resize, gravity: &Option<String>) -> Result<VipsImage, String> {
+pub fn apply_resize(
+    img: VipsImage,
+    resize: &Resize,
+    gravity: &Option<String>,
+    resizing_algorithm: &Option<String>,
+) -> Result<VipsImage, String> {
     let src_width = img.get_width() as u32;
     let src_height = img.get_height() as u32;
     let (target_w, target_h) = resolve_resize_dimensions(resize, src_width, src_height)?;
 
     match resize.resizing_type.as_str() {
-        "fill" => resize_to_fill(img, target_w, target_h, gravity.as_deref().unwrap_or("center")),
-        "fit" => resize_to_fit(img, target_w, target_h),
-        "force" => resize_to_force(img, target_w, target_h),
+        "fill" => resize_to_fill(
+            img,
+            target_w,
+            target_h,
+            gravity.as_deref().unwrap_or("center"),
+            resizing_algorithm,
+        ),
+        "fit" => resize_to_fit(img, target_w, target_h, resizing_algorithm),
+        "force" => resize_to_force(img, target_w, target_h, resizing_algorithm),
         "auto" => {
             let src_is_portrait = super::utils::is_portrait(src_width, src_height);
             let target_is_portrait = super::utils::is_portrait(target_w, target_h);
 
             if src_is_portrait == target_is_portrait {
                 debug!("Auto resize: orientations match, using fill");
-                resize_to_fill(img, target_w, target_h, gravity.as_deref().unwrap_or("center"))
+                resize_to_fill(
+                    img,
+                    target_w,
+                    target_h,
+                    gravity.as_deref().unwrap_or("center"),
+                    resizing_algorithm,
+                )
             } else {
                 debug!("Auto resize: orientations differ, using fit");
-                resize_to_fit(img, target_w, target_h)
+                resize_to_fit(img, target_w, target_h, resizing_algorithm)
             }
         }
         _ => Err(format!("Unknown resize type: {}", resize.resizing_type)),
@@ -118,7 +147,13 @@ pub fn apply_resize(img: VipsImage, resize: &Resize, gravity: &Option<String>) -
 }
 
 /// Resizes an image to fill the target dimensions, cropping if necessary.
-fn resize_to_fill(img: VipsImage, width: u32, height: u32, gravity: &str) -> Result<VipsImage, String> {
+fn resize_to_fill(
+    img: VipsImage,
+    width: u32,
+    height: u32,
+    gravity: &str,
+    resizing_algorithm: &Option<String>,
+) -> Result<VipsImage, String> {
     let (img_w, img_h) = (img.get_width() as u32, img.get_height() as u32);
     let aspect_ratio = img_w as f32 / img_h as f32;
     let target_aspect_ratio = width as f32 / height as f32;
@@ -129,8 +164,17 @@ fn resize_to_fill(img: VipsImage, width: u32, height: u32, gravity: &str) -> Res
         (width, (width as f32 / aspect_ratio).round() as u32)
     };
 
-    let resized_img =
-        ops::resize(&img, resize_w as f64 / img_w as f64).map_err(|e| format!("Error resizing for fill: {}", e))?;
+    let scale = resize_w as f64 / img_w as f64;
+    let resized_img = if resizing_algorithm.is_some() && resizing_algorithm.as_deref() != Some("lanczos3") {
+        let kernel = get_resize_kernel(resizing_algorithm);
+        let options = ops::ResizeOptions {
+            kernel,
+            ..Default::default()
+        };
+        ops::resize_with_opts(&img, scale, &options).map_err(|e| format!("Error resizing for fill: {}", e))?
+    } else {
+        ops::resize(&img, scale).map_err(|e| format!("Error resizing for fill: {}", e))?
+    };
 
     let (crop_x, crop_y) = match gravity {
         "center" => ((resize_w - width) / 2, (resize_h - height) / 2),
@@ -146,7 +190,12 @@ fn resize_to_fill(img: VipsImage, width: u32, height: u32, gravity: &str) -> Res
 }
 
 /// Resizes an image to the exact target dimensions, allowing aspect ratio changes.
-fn resize_to_force(img: VipsImage, width: u32, height: u32) -> Result<VipsImage, String> {
+fn resize_to_force(
+    img: VipsImage,
+    width: u32,
+    height: u32,
+    resizing_algorithm: &Option<String>,
+) -> Result<VipsImage, String> {
     let (src_w, src_h) = (img.get_width() as f64, img.get_height() as f64);
     let scale_x = width as f64 / src_w;
     let scale_y = height as f64 / src_h;
@@ -155,13 +204,28 @@ fn resize_to_force(img: VipsImage, width: u32, height: u32) -> Result<VipsImage,
         return Ok(img);
     }
 
-    let mut options = ops::ResizeOptions::default();
-    options.vscale = scale_y;
-    ops::resize_with_opts(&img, scale_x, &options).map_err(|e| format!("Error force resizing: {}", e))
+    if resizing_algorithm.is_some() && resizing_algorithm.as_deref() != Some("lanczos3") {
+        let kernel = get_resize_kernel(resizing_algorithm);
+        let options = ops::ResizeOptions {
+            kernel,
+            vscale: scale_y,
+            ..Default::default()
+        };
+        ops::resize_with_opts(&img, scale_x, &options).map_err(|e| format!("Error force resizing: {}", e))
+    } else {
+        let mut options = ops::ResizeOptions::default();
+        options.vscale = scale_y;
+        ops::resize_with_opts(&img, scale_x, &options).map_err(|e| format!("Error force resizing: {}", e))
+    }
 }
 
 /// Resizes an image to fit within the target dimensions while maintaining aspect ratio.
-fn resize_to_fit(img: VipsImage, width: u32, height: u32) -> Result<VipsImage, String> {
+fn resize_to_fit(
+    img: VipsImage,
+    width: u32,
+    height: u32,
+    resizing_algorithm: &Option<String>,
+) -> Result<VipsImage, String> {
     let (img_w, img_h) = (img.get_width() as u32, img.get_height() as u32);
     let aspect_ratio = img_w as f32 / img_h as f32;
 
@@ -174,7 +238,17 @@ fn resize_to_fit(img: VipsImage, width: u32, height: u32) -> Result<VipsImage, S
     };
 
     debug!("Resizing to fit from {}x{} to {}x{}", img_w, img_h, target_w, target_h);
-    ops::resize(&img, target_w as f64 / img_w as f64).map_err(|e| format!("Error fitting resize: {}", e))
+    let scale = target_w as f64 / img_w as f64;
+    if resizing_algorithm.is_some() && resizing_algorithm.as_deref() != Some("lanczos3") {
+        let kernel = get_resize_kernel(resizing_algorithm);
+        let options = ops::ResizeOptions {
+            kernel,
+            ..Default::default()
+        };
+        ops::resize_with_opts(&img, scale, &options).map_err(|e| format!("Error fitting resize: {}", e))
+    } else {
+        ops::resize(&img, scale).map_err(|e| format!("Error fitting resize: {}", e))
+    }
 }
 
 /// Extends an image to the target dimensions with background color.
@@ -260,6 +334,7 @@ pub fn apply_min_dimensions(
     img: VipsImage,
     min_width: Option<u32>,
     min_height: Option<u32>,
+    resizing_algorithm: &Option<String>,
 ) -> Result<VipsImage, String> {
     let mut current_img = img;
     let (img_w, img_h) = (current_img.get_width() as u32, current_img.get_height() as u32);
@@ -280,15 +355,34 @@ pub fn apply_min_dimensions(
 
     let scale = scale_w.max(scale_h);
     if scale > 1.0 {
-        current_img = ops::resize(&current_img, scale).map_err(|e| format!("Error applying min dimensions: {}", e))?;
+        current_img = if resizing_algorithm.is_some() && resizing_algorithm.as_deref() != Some("lanczos3") {
+            let kernel = get_resize_kernel(resizing_algorithm);
+            let options = ops::ResizeOptions {
+                kernel,
+                ..Default::default()
+            };
+            ops::resize_with_opts(&current_img, scale, &options)
+                .map_err(|e| format!("Error applying min dimensions: {}", e))?
+        } else {
+            ops::resize(&current_img, scale).map_err(|e| format!("Error applying min dimensions: {}", e))?
+        };
     }
 
     Ok(current_img)
 }
 
 /// Applies zoom to an image.
-pub fn apply_zoom(img: VipsImage, zoom: f32) -> Result<VipsImage, String> {
-    ops::resize(&img, zoom as f64).map_err(|e| format!("Error applying zoom: {}", e))
+pub fn apply_zoom(img: VipsImage, zoom: f32, resizing_algorithm: &Option<String>) -> Result<VipsImage, String> {
+    if resizing_algorithm.is_some() && resizing_algorithm.as_deref() != Some("lanczos3") {
+        let kernel = get_resize_kernel(resizing_algorithm);
+        let options = ops::ResizeOptions {
+            kernel,
+            ..Default::default()
+        };
+        ops::resize_with_opts(&img, zoom as f64, &options).map_err(|e| format!("Error applying zoom: {}", e))
+    } else {
+        ops::resize(&img, zoom as f64).map_err(|e| format!("Error applying zoom: {}", e))
+    }
 }
 
 /// Sharpens an image.
@@ -301,15 +395,28 @@ pub fn apply_sharpen(img: VipsImage, sigma: f32) -> Result<VipsImage, String> {
 }
 
 /// Pixelates an image.
-pub fn apply_pixelate(img: VipsImage, amount: u32) -> Result<VipsImage, String> {
+pub fn apply_pixelate(img: VipsImage, amount: u32, resizing_algorithm: &Option<String>) -> Result<VipsImage, String> {
     if amount == 0 {
         return Ok(img);
     }
     let (w, _h) = (img.get_width(), img.get_height());
     let factor = 1.0 / amount as f64;
-    let pixelated = ops::resize(&img, factor).map_err(|e| format!("Error pixelating (down): {}", e))?;
-    ops::resize(&pixelated, w as f64 / pixelated.get_width() as f64)
-        .map_err(|e| format!("Error pixelating (up): {}", e))
+
+    if resizing_algorithm.is_some() && resizing_algorithm.as_deref() != Some("lanczos3") {
+        let kernel = get_resize_kernel(resizing_algorithm);
+        let options = ops::ResizeOptions {
+            kernel,
+            ..Default::default()
+        };
+        let pixelated =
+            ops::resize_with_opts(&img, factor, &options).map_err(|e| format!("Error pixelating (down): {}", e))?;
+        ops::resize_with_opts(&pixelated, w as f64 / pixelated.get_width() as f64, &options)
+            .map_err(|e| format!("Error pixelating (up): {}", e))
+    } else {
+        let pixelated = ops::resize(&img, factor).map_err(|e| format!("Error pixelating (down): {}", e))?;
+        ops::resize(&pixelated, w as f64 / pixelated.get_width() as f64)
+            .map_err(|e| format!("Error pixelating (up): {}", e))
+    }
 }
 
 /// Applies a watermark to an image.
@@ -317,14 +424,24 @@ pub fn apply_watermark(
     img: VipsImage,
     watermark_bytes: &[u8],
     watermark_opts: &Watermark,
+    resizing_algorithm: &Option<String>,
 ) -> Result<VipsImage, String> {
     let watermark_img = VipsImage::new_from_buffer(watermark_bytes, "")
         .map_err(|e| format!("Failed to load watermark image from buffer: {}", e))?;
 
     // Resize watermark to be 1/4 of the main image's width, maintaining aspect ratio
     let factor = (img.get_width() as f64 / 4.0) / watermark_img.get_width() as f64;
-    let watermark_resized =
-        ops::resize(&watermark_img, factor).map_err(|e| format!("Failed to resize watermark: {}", e))?;
+    let watermark_resized = if resizing_algorithm.is_some() && resizing_algorithm.as_deref() != Some("lanczos3") {
+        let kernel = get_resize_kernel(resizing_algorithm);
+        let options = ops::ResizeOptions {
+            kernel,
+            ..Default::default()
+        };
+        ops::resize_with_opts(&watermark_img, factor, &options)
+            .map_err(|e| format!("Failed to resize watermark: {}", e))?
+    } else {
+        ops::resize(&watermark_img, factor).map_err(|e| format!("Failed to resize watermark: {}", e))?
+    };
 
     // Add alpha channel to watermark if it doesn't have one
     let watermark_with_alpha = if watermark_resized.get_bands() == 4 || watermark_resized.get_bands() == 2 {
