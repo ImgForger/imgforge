@@ -1462,7 +1462,6 @@ dependencies = [
  "hex",
  "hmac",
  "http-body-util",
- "hyper",
  "image",
  "kamadak-exif",
  "lazy_static",
