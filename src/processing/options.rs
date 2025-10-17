@@ -26,6 +26,8 @@ const RESIZING_TYPE_SHORT: &str = "rt";
 const SIZE: &str = "size";
 /// Shorthand for size.
 const SIZE_SHORT: &str = "sz";
+/// Alternate shorthand for size.
+const SIZE_SHORT_ALT: &str = "s";
 /// Option name for width.
 const WIDTH: &str = "width";
 /// Shorthand for width.
@@ -63,9 +65,9 @@ const PADDING: &str = "padding";
 /// Shorthand for padding.
 const PADDING_SHORT: &str = "pd";
 /// Option name for rotation.
-const ROTATE: &str = "rotation";
+const ROTATE: &str = "rotate";
 /// Shorthand for rotation.
-const ROTATE_SHORT: &str = "or";
+const ROTATE_SHORT: &str = "rot";
 /// Option name for raw.
 const RAW: &str = "raw";
 /// Option name for blur.
@@ -254,24 +256,47 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
         debug!("Parsing option: {} with args: {:?}", option.name, option.args);
         match option.name.as_str() {
             RESIZE | RESIZE_SHORT => {
-                if option.args.len() < 3 {
-                    error!(
-                        "Resize option requires at least 3 arguments, received: {}",
-                        option.args.len()
-                    );
-                    return Err("resize option requires at least 3 arguments: type, width, height".to_string());
+                let mut store_resize = parsed_options.resize.is_some();
+                let mut resize = parsed_options.resize.take().unwrap_or_default();
+
+                if let Some(arg) = option.args.get(0) {
+                    if !arg.is_empty() {
+                        resize.resizing_type = arg.clone();
+                        store_resize = true;
+                    }
                 }
-                parsed_options.resize = Some(Resize {
-                    resizing_type: option.args[0].clone(),
-                    width: option.args[1].parse::<u32>().map_err(|e: std::num::ParseIntError| {
-                        error!("Invalid width for resize: {}", e);
-                        e.to_string()
-                    })?,
-                    height: option.args[2].parse::<u32>().map_err(|e: std::num::ParseIntError| {
-                        error!("Invalid height for resize: {}", e);
-                        e.to_string()
-                    })?,
-                });
+                if let Some(arg) = option.args.get(1) {
+                    if !arg.is_empty() {
+                        resize.width = arg.parse::<u32>().map_err(|e: std::num::ParseIntError| {
+                            error!("Invalid width for resize: {}", e);
+                            e.to_string()
+                        })?;
+                        store_resize = true;
+                    }
+                }
+                if let Some(arg) = option.args.get(2) {
+                    if !arg.is_empty() {
+                        resize.height = arg.parse::<u32>().map_err(|e: std::num::ParseIntError| {
+                            error!("Invalid height for resize: {}", e);
+                            e.to_string()
+                        })?;
+                        store_resize = true;
+                    }
+                }
+                if let Some(arg) = option.args.get(3) {
+                    if !arg.is_empty() {
+                        parsed_options.enlarge = super::utils::parse_boolean(arg);
+                    }
+                }
+                if let Some(arg) = option.args.get(4) {
+                    if !arg.is_empty() {
+                        parsed_options.extend = super::utils::parse_boolean(arg);
+                    }
+                }
+
+                if store_resize {
+                    parsed_options.resize = Some(resize);
+                }
             }
             RESIZING_TYPE | RESIZING_TYPE_SHORT => {
                 if parsed_options.resize.is_none() {
@@ -281,35 +306,74 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
                     resize.resizing_type = option.args[0].clone();
                 }
             }
-            SIZE | SIZE_SHORT => {
-                if option.args.len() < 2 {
-                    return Err("size option requires at least 2 arguments: width, height".to_string());
+            SIZE | SIZE_SHORT | SIZE_SHORT_ALT => {
+                let mut store_resize = parsed_options.resize.is_some();
+                let mut resize = parsed_options.resize.take().unwrap_or_default();
+                let mut width_height_set = false;
+
+                if let Some(arg) = option.args.get(0) {
+                    if !arg.is_empty() {
+                        resize.width = arg.parse::<u32>().map_err(|e: std::num::ParseIntError| {
+                            error!("Invalid width for size: {}", e);
+                            e.to_string()
+                        })?;
+                        store_resize = true;
+                        width_height_set = true;
+                    }
                 }
-                parsed_options.resize = Some(Resize {
-                    resizing_type: "fit".to_string(),
-                    width: option.args[0].parse::<u32>().map_err(|e| e.to_string())?,
-                    height: option.args[1].parse::<u32>().map_err(|e| e.to_string())?,
-                });
+                if let Some(arg) = option.args.get(1) {
+                    if !arg.is_empty() {
+                        resize.height = arg.parse::<u32>().map_err(|e: std::num::ParseIntError| {
+                            error!("Invalid height for size: {}", e);
+                            e.to_string()
+                        })?;
+                        store_resize = true;
+                        width_height_set = true;
+                    }
+                }
+
+                if let Some(arg) = option.args.get(2) {
+                    if !arg.is_empty() {
+                        parsed_options.enlarge = super::utils::parse_boolean(arg);
+                    }
+                }
+                if let Some(arg) = option.args.get(3) {
+                    if !arg.is_empty() {
+                        parsed_options.extend = super::utils::parse_boolean(arg);
+                    }
+                }
+
+                if store_resize && (width_height_set || resize.resizing_type.is_empty()) {
+                    resize.resizing_type = "fit".to_string();
+                }
+
+                if store_resize {
+                    parsed_options.resize = Some(resize);
+                }
             }
             WIDTH | WIDTH_SHORT => {
-                if option.args.is_empty() {
-                    error!("Width option requires one argument");
-                    return Err("width option requires one argument".to_string());
-                }
-                parsed_options.width = Some(option.args[0].parse::<u32>().map_err(|e: std::num::ParseIntError| {
-                    error!("Invalid width: {}", e);
-                    e.to_string()
-                })?);
+                let width_arg = option.args.get(0).map(|s| s.as_str()).unwrap_or("0");
+                let width = if width_arg.is_empty() {
+                    0
+                } else {
+                    width_arg.parse::<u32>().map_err(|e: std::num::ParseIntError| {
+                        error!("Invalid width: {}", e);
+                        e.to_string()
+                    })?
+                };
+                parsed_options.width = Some(width);
             }
             HEIGHT | HEIGHT_SHORT => {
-                if option.args.is_empty() {
-                    error!("Height option requires one argument");
-                    return Err("height option requires one argument".to_string());
-                }
-                parsed_options.height = Some(option.args[0].parse::<u32>().map_err(|e: std::num::ParseIntError| {
-                    error!("Invalid height: {}", e);
-                    e.to_string()
-                })?);
+                let height_arg = option.args.get(0).map(|s| s.as_str()).unwrap_or("0");
+                let height = if height_arg.is_empty() {
+                    0
+                } else {
+                    height_arg.parse::<u32>().map_err(|e: std::num::ParseIntError| {
+                        error!("Invalid height: {}", e);
+                        e.to_string()
+                    })?
+                };
+                parsed_options.height = Some(height);
             }
             GRAVITY | GRAVITY_SHORT => {
                 if option.args.is_empty() {
@@ -572,6 +636,7 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
         }
     }
 
+    // Default resize type is `fit`
     if parsed_options.resize.is_none() && (parsed_options.width.is_some() || parsed_options.height.is_some()) {
         debug!("Applying default 'fit' resize due to width/height options");
         parsed_options.resize = Some(Resize {

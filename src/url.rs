@@ -176,7 +176,7 @@ mod tests {
         mac.update(salt);
         mac.update(path.as_bytes());
         let signature_bytes = mac.finalize().into_bytes();
-        let signature = URL_SAFE_NO_PAD.encode(&signature_bytes);
+        let signature = URL_SAFE_NO_PAD.encode(signature_bytes);
 
         assert!(validate_signature(key, salt, &signature, path));
     }
@@ -202,7 +202,7 @@ mod tests {
         mac.update(salt);
         mac.update(path.as_bytes());
         let signature_bytes = mac.finalize().into_bytes();
-        let signature = URL_SAFE_NO_PAD.encode(&signature_bytes);
+        let signature = URL_SAFE_NO_PAD.encode(signature_bytes);
 
         let wrong_path = "/resize:fill:300:200/plain/https://example.com/other.jpg";
         assert!(!validate_signature(key, salt, &signature, wrong_path));

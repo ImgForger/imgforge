@@ -39,7 +39,7 @@ fn generate_signature(key: &[u8], salt: &[u8], path: &str) -> String {
     mac.update(salt);
     mac.update(path.as_bytes());
     let signature_bytes = mac.finalize().into_bytes();
-    URL_SAFE_NO_PAD.encode(&signature_bytes)
+    URL_SAFE_NO_PAD.encode(signature_bytes)
 }
 
 /// Helper function to create test config
@@ -304,7 +304,7 @@ async fn test_info_handler_invalid_url_format() {
         .route("/info/{*path}", axum::routing::get(info_handler))
         .with_state(state);
 
-    let (status, body, _) = make_request(app, &path, None).await;
+    let (status, body, _) = make_request(app, path, None).await;
 
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert!(body.contains("Invalid URL format"));

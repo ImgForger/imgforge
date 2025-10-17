@@ -72,6 +72,8 @@ pub async fn fetch_image(url: &str) -> Result<(Bytes, Option<String>), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
 
     #[test]
     fn test_download_timeout_from_env() {
@@ -127,50 +129,82 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_fetch_image_success_with_httpbin() {
-        let result = fetch_image("https://httpbin.org/image/jpeg").await;
+    async fn test_fetch_image_success() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/image.jpg"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_bytes(vec![1u8, 2, 3])
+                    .insert_header("Content-Type", "image/jpeg"),
+            )
+            .mount(&server)
+            .await;
 
-        if result.is_ok() {
-            let (bytes, content_type) = result.unwrap();
-            assert!(!bytes.is_empty());
-            assert!(content_type.is_some());
-            let ct = content_type.unwrap();
-            assert!(ct.contains("image/jpeg") || ct.contains("image"));
-        }
+        let (bytes, content_type) = fetch_image(&format!("{}/image.jpg", server.uri()))
+            .await
+            .expect("request should succeed");
+
+        assert_eq!(bytes.len(), 3);
+        assert_eq!(content_type.as_deref(), Some("image/jpeg"));
     }
 
     #[tokio::test]
     async fn test_fetch_image_404() {
-        let result = fetch_image("https://httpbin.org/status/404").await;
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/missing.jpg"))
+            .respond_with(ResponseTemplate::new(404).set_body_bytes(Vec::<u8>::new()))
+            .mount(&server)
+            .await;
 
-        if result.is_ok() {
-            let (bytes, _) = result.unwrap();
-            assert_eq!(bytes.len(), 0);
-        }
+        let (bytes, _) = fetch_image(&format!("{}/missing.jpg", server.uri()))
+            .await
+            .expect("404 responses should still return bytes");
+
+        assert_eq!(bytes.len(), 0);
     }
 
     #[tokio::test]
     async fn test_fetch_image_with_custom_timeout() {
         env::set_var(ENV_DOWNLOAD_TIMEOUT, "1");
 
-        let result = fetch_image("https://httpbin.org/delay/5").await;
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/slow.jpg"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_delay(Duration::from_secs(3))
+                    .set_body_bytes(vec![0u8; 1]),
+            )
+            .mount(&server)
+            .await;
 
-        assert!(result.is_err());
+        let result = fetch_image(&format!("{}/slow.jpg", server.uri())).await;
+
         env::remove_var(ENV_DOWNLOAD_TIMEOUT);
+        assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_fetch_image_content_type_extraction() {
-        let result = fetch_image("https://httpbin.org/image/png").await;
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/image.png"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_bytes(vec![9u8, 8, 7])
+                    .insert_header("Content-Type", "image/png"),
+            )
+            .mount(&server)
+            .await;
 
-        if result.is_ok() {
-            let (bytes, content_type) = result.unwrap();
-            assert!(!bytes.is_empty());
+        let (bytes, content_type) = fetch_image(&format!("{}/image.png", server.uri()))
+            .await
+            .expect("request should succeed");
 
-            if let Some(ct) = content_type {
-                assert!(ct.contains("image"));
-            }
-        }
+        assert_eq!(bytes.len(), 3);
+        assert_eq!(content_type.as_deref(), Some("image/png"));
     }
 
     #[test]

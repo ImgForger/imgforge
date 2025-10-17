@@ -67,6 +67,75 @@ mod test_processing {
     }
 
     #[test]
+    fn test_apply_resize_fill_width_only() {
+        let _ = &*APP;
+        let img = VipsImage::new_from_buffer(&create_test_image(400, 300), "").unwrap();
+        let resize = Resize {
+            resizing_type: "fill".to_string(),
+            width: 200,
+            height: 0,
+        };
+        let resized_img = transform::apply_resize(img, &resize, &Some("center".to_string())).unwrap();
+        assert_eq!(resized_img.get_width(), 200);
+        assert_eq!(resized_img.get_height(), 150);
+    }
+
+    #[test]
+    fn test_apply_resize_fill_height_only() {
+        let _ = &*APP;
+        let img = VipsImage::new_from_buffer(&create_test_image(400, 300), "").unwrap();
+        let resize = Resize {
+            resizing_type: "fill".to_string(),
+            width: 0,
+            height: 150,
+        };
+        let resized_img = transform::apply_resize(img, &resize, &Some("center".to_string())).unwrap();
+        assert_eq!(resized_img.get_width(), 200);
+        assert_eq!(resized_img.get_height(), 150);
+    }
+
+    #[test]
+    fn test_apply_resize_force_width_only() {
+        let _ = &*APP;
+        let img = VipsImage::new_from_buffer(&create_test_image(400, 300), "").unwrap();
+        let resize = Resize {
+            resizing_type: "force".to_string(),
+            width: 200,
+            height: 0,
+        };
+        let resized_img = transform::apply_resize(img, &resize, &None).unwrap();
+        assert_eq!(resized_img.get_width(), 200);
+        assert_eq!(resized_img.get_height(), 300);
+    }
+
+    #[test]
+    fn test_apply_resize_force_height_only() {
+        let _ = &*APP;
+        let img = VipsImage::new_from_buffer(&create_test_image(400, 300), "").unwrap();
+        let resize = Resize {
+            resizing_type: "force".to_string(),
+            width: 0,
+            height: 150,
+        };
+        let resized_img = transform::apply_resize(img, &resize, &None).unwrap();
+        assert_eq!(resized_img.get_width(), 400);
+        assert_eq!(resized_img.get_height(), 150);
+    }
+
+    #[test]
+    fn test_apply_resize_force_zero_dimensions_error() {
+        let _ = &*APP;
+        let img = VipsImage::new_from_buffer(&create_test_image(400, 300), "").unwrap();
+        let resize = Resize {
+            resizing_type: "force".to_string(),
+            width: 0,
+            height: 0,
+        };
+        let result = transform::apply_resize(img, &resize, &None);
+        assert!(result.is_err());
+    }
+
+    #[test]
     fn test_crop_image() {
         let _ = &*APP;
         let img = VipsImage::new_from_buffer(&create_test_image(400, 300), "").unwrap();
@@ -180,7 +249,7 @@ mod test_processing {
     #[test]
     fn test_parse_rotation_option() {
         let options = vec![ProcessingOption {
-            name: "rotation".to_string(),
+            name: "rotate".to_string(),
             args: vec!["90".to_string()],
         }];
         let parsed = parse_all_options(options).unwrap();
@@ -425,12 +494,49 @@ mod test_processing {
 
     // Error handling tests
     #[test]
-    fn test_parse_resize_invalid_args() {
+    fn test_parse_resize_type_only() {
         let options = vec![ProcessingOption {
             name: "resize".to_string(),
             args: vec!["fill".to_string()],
         }];
-        assert!(parse_all_options(options).is_err());
+        let parsed = parse_all_options(options).unwrap();
+        let resize = parsed.resize.unwrap();
+        assert_eq!(resize.resizing_type, "fill");
+        assert_eq!(resize.width, 0);
+        assert_eq!(resize.height, 0);
+    }
+
+    #[test]
+    fn test_parse_resize_meta_enlarge_extend() {
+        let options = vec![ProcessingOption {
+            name: "resize".to_string(),
+            args: vec![
+                "fit".to_string(),
+                "640".to_string(),
+                "480".to_string(),
+                "true".to_string(),
+                "true".to_string(),
+            ],
+        }];
+        let parsed = parse_all_options(options).unwrap();
+        let resize = parsed.resize.unwrap();
+        assert_eq!(resize.resizing_type, "fit");
+        assert_eq!(resize.width, 640);
+        assert_eq!(resize.height, 480);
+        assert!(parsed.enlarge);
+        assert!(parsed.extend);
+    }
+
+    #[test]
+    fn test_parse_resize_meta_enlarge_only() {
+        let options = vec![ProcessingOption {
+            name: "resize".to_string(),
+            args: vec!["".to_string(), "".to_string(), "".to_string(), "true".to_string()],
+        }];
+        let parsed = parse_all_options(options).unwrap();
+        assert!(parsed.resize.is_none());
+        assert!(parsed.enlarge);
+        assert!(!parsed.extend);
     }
 
     #[test]
@@ -1179,5 +1285,111 @@ mod test_processing {
         }];
         let parsed = parse_all_options(options).unwrap();
         assert!(parsed.resize.is_some());
+    }
+
+    #[test]
+    fn test_parse_size_meta_full() {
+        let options = vec![ProcessingOption {
+            name: "size".to_string(),
+            args: vec![
+                "320".to_string(),
+                "240".to_string(),
+                "true".to_string(),
+                "true".to_string(),
+            ],
+        }];
+        let parsed = parse_all_options(options).unwrap();
+        let resize = parsed.resize.unwrap();
+        assert_eq!(resize.resizing_type, "fit");
+        assert_eq!(resize.width, 320);
+        assert_eq!(resize.height, 240);
+        assert!(parsed.enlarge);
+        assert!(parsed.extend);
+    }
+
+    #[test]
+    fn test_parse_size_meta_enlarge_only() {
+        let options = vec![ProcessingOption {
+            name: "size".to_string(),
+            args: vec!["".to_string(), "".to_string(), "true".to_string()],
+        }];
+        let parsed = parse_all_options(options).unwrap();
+        assert!(parsed.resize.is_none());
+        assert!(parsed.enlarge);
+        assert!(!parsed.extend);
+    }
+
+    #[test]
+    fn test_parse_size_short_alias_s() {
+        let options = vec![ProcessingOption {
+            name: "s".to_string(),
+            args: vec![
+                "1024".to_string(),
+                "".to_string(),
+                "true".to_string(),
+                "true".to_string(),
+            ],
+        }];
+        let parsed = parse_all_options(options).unwrap();
+        let resize = parsed.resize.unwrap();
+        assert_eq!(resize.resizing_type, "fit");
+        assert_eq!(resize.width, 1024);
+        assert_eq!(resize.height, 0);
+        assert!(parsed.extend);
+        assert!(parsed.enlarge);
+    }
+
+    #[test]
+    fn test_parse_width_default_zero() {
+        let options = vec![ProcessingOption {
+            name: "width".to_string(),
+            args: vec![],
+        }];
+        let parsed = parse_all_options(options).unwrap();
+        assert_eq!(parsed.width, Some(0));
+        let resize = parsed.resize.unwrap();
+        assert_eq!(resize.resizing_type, "fit");
+        assert_eq!(resize.width, 0);
+        assert_eq!(resize.height, 0);
+    }
+
+    #[test]
+    fn test_parse_width_blank_argument() {
+        let options = vec![ProcessingOption {
+            name: "width".to_string(),
+            args: vec!["".to_string()],
+        }];
+        let parsed = parse_all_options(options).unwrap();
+        assert_eq!(parsed.width, Some(0));
+    }
+
+    #[test]
+    fn test_parse_width_short_blank_defaults() {
+        let options = vec![ProcessingOption {
+            name: "w".to_string(),
+            args: vec![],
+        }];
+        let parsed = parse_all_options(options).unwrap();
+        assert_eq!(parsed.width, Some(0));
+    }
+
+    #[test]
+    fn test_parse_height_default_zero() {
+        let options = vec![ProcessingOption {
+            name: "height".to_string(),
+            args: vec![],
+        }];
+        let parsed = parse_all_options(options).unwrap();
+        assert_eq!(parsed.height, Some(0));
+    }
+
+    #[test]
+    fn test_parse_height_blank_argument() {
+        let options = vec![ProcessingOption {
+            name: "h".to_string(),
+            args: vec!["".to_string()],
+        }];
+        let parsed = parse_all_options(options).unwrap();
+        assert_eq!(parsed.height, Some(0));
     }
 }

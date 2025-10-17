@@ -87,12 +87,22 @@ pub async fn process_image(
     }
 
     // Apply resize if specified
+    let mut resolved_resize_dims: Option<(u32, u32)> = None;
     if let Some(ref resize) = parsed_options.resize {
-        debug!("Applying resize: {:?}", resize);
-        let (w, h) = (resize.width, resize.height);
+        let src_width = img.get_width() as u32;
+        let src_height = img.get_height() as u32;
+        let (target_w, target_h) = transform::resolve_resize_dimensions(resize, src_width, src_height)?;
+        debug!(
+            "Applying resize {:?} resolved to {}x{} from source {}x{}",
+            resize, target_w, target_h, src_width, src_height
+        );
+        resolved_resize_dims = Some((target_w, target_h));
 
-        if !parsed_options.enlarge && (w > img.get_width() as u32 || h > img.get_height() as u32) {
-            debug!("Not enlarging image as enlarge is false and target dimensions are larger than source");
+        if !parsed_options.enlarge && (target_w > src_width || target_h > src_height) {
+            debug!(
+                "Not enlarging image as enlarge is false and target {}x{} exceeds source {}x{}",
+                target_w, target_h, src_width, src_height
+            );
         } else {
             img = transform::apply_resize(img, resize, &parsed_options.gravity)?;
         }
@@ -116,10 +126,15 @@ pub async fn process_image(
     // Apply extend if specified
     if parsed_options.extend {
         debug!("Applying extend option");
-        if let Some(resize) = &parsed_options.resize {
-            let (w, h) = (resize.width, resize.height);
-            if img.get_width() < w as i32 || img.get_height() < h as i32 {
-                img = transform::extend_image(img, w, h, &parsed_options.gravity, &parsed_options.background)?;
+        if let Some((target_w, target_h)) = resolved_resize_dims {
+            if img.get_width() < target_w as i32 || img.get_height() < target_h as i32 {
+                img = transform::extend_image(
+                    img,
+                    target_w,
+                    target_h,
+                    &parsed_options.gravity,
+                    &parsed_options.background,
+                )?;
             }
         }
     }
