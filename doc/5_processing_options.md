@@ -4,36 +4,36 @@ imgforge encodes image transformations directly in the URL path. Each directive 
 
 ## Quick reference
 
-| Option | Aliases | Arguments | Purpose |
-| --- | --- | --- | --- |
-| `resize` | `rs` | `type:width:height[:enlarge][:extend]` | Resize using `fill`, `fit`, `force`, or `auto`. |
-| `size` | `sz`, `s` | `width:height[:enlarge][:extend]` | Convenience wrapper for `resize` with implicit `fit`. |
-| `resizing_type` | `rt` | `type` | Override the resize mode when combined with other directives. |
-| `width` | `w` | `value` | Target width when implicit resizing occurs. |
-| `height` | `h` | `value` | Target height when implicit resizing occurs. |
-| `gravity` | `g` | `anchor` | Anchor for crops, fill resizing, and extending (`center`, `north_east`, etc.). |
-| `enlarge` | `el` | `bool` | Permit upscaling beyond the original size. |
-| `extend` | `ex` | `bool` | Pad the image to match the target after resizing. |
-| `padding` | `pd` | `top[:right][:bottom][:left]` | Add transparent/background padding. Accepts 1, 2, or 4 values. |
-| `min_width` | `mw` | `value` | Ensure the result is at least this wide; scales up if necessary. |
-| `min_height` | `mh` | `value` | Ensure the result is at least this tall. |
-| `zoom` | `z` | `factor` | Multiply dimensions by a floating point factor. |
-| `crop` | — | `x:y:width:height` | Extract a rectangle before further processing. |
-| `rotation` | `or` | `90|180|270` | Rotate the image in 90° increments. |
-| `auto_rotate` | `ar` | `bool` | Respect EXIF orientation metadata (`true` by default). |
-| `blur` | `bl` | `sigma` | Apply Gaussian blur. |
-| `sharpen` | `sh` | `sigma` | Sharpen using libvips’ operator. |
-| `pixelate` | `px` | `amount` | Pixelate by shrinking then scaling back up. |
-| `background` | `bg` | `RRGGBB[AA]` | Background color used for padding/extend/flatten (hex RGBA). |
-| `quality` | `q` | `1-100` | Compression quality for lossy formats (JPEG/WebP/AVIF). |
-| `format` | — | `jpeg|png|webp|avif|...` | Output format override. Equivalent to `@extension`. |
-| `dpr` | — | `1.0-5.0` | Device pixel ratio multiplier for width, height, and padding. |
-| `raw` | — | — | Bypass the concurrency semaphore (unthrottled processing). |
-| `cache_buster` | — | `token` | Alters the cache key; use to bust specific variants. |
-| `max_src_resolution` | — | `megapixels` | Request-level override; requires `IMGFORGE_ALLOW_SECURITY_OPTIONS=true`. |
-| `max_src_file_size` | — | `bytes` | Request-level override for file size limit. |
-| `watermark` | `wm` | `opacity:position` | Apply a watermark (see below). |
-| `watermark_url` | `wmu` | `base64url(url)` | URL for watermark image (Base64 URL-safe, no padding). |
+| Option               | Aliases   | Arguments                              | Purpose                                                                        |
+|----------------------|-----------|----------------------------------------|--------------------------------------------------------------------------------|
+| `resize`             | `rs`      | `type:width:height[:enlarge][:extend]` | Resize using `fill`, `fit`, `force`, or `auto`.                                |
+| `size`               | `sz`, `s` | `width:height[:enlarge][:extend]`      | Convenience wrapper for `resize` with implicit `fit`.                          |
+| `resizing_type`      | `rt`      | `type`                                 | Override the resize mode when combined with other directives.                  |
+| `width`              | `w`       | `value`                                | Target width when implicit resizing occurs.                                    |
+| `height`             | `h`       | `value`                                | Target height when implicit resizing occurs.                                   |
+| `gravity`            | `g`       | `anchor`                               | Anchor for crops, fill resizing, and extending (`center`, `north_east`, etc.). |
+| `enlarge`            | `el`      | `bool`                                 | Permit upscaling beyond the original size.                                     |
+| `extend`             | `ex`      | `bool`                                 | Pad the image to match the target after resizing.                              |
+| `padding`            | `pd`      | `top[:right][:bottom][:left]`          | Add transparent/background padding. Accepts 1, 2, or 4 values.                 |
+| `min_width`          | `mw`      | `value`                                | Ensure the result is at least this wide; scales up if necessary.               |
+| `min_height`         | `mh`      | `value`                                | Ensure the result is at least this tall.                                       |
+| `zoom`               | `z`       | `factor`                               | Multiply dimensions by a floating point factor.                                |
+| `crop`               | —         | `x:y:width:height`                     | Extract a rectangle before further processing.                                 |
+| `rotate`             | `rot`     | `90                                    | 180                                                                            |270` | Rotate the image in 90° increments. |
+| `auto_rotate`        | `ar`      | `bool`                                 | Respect EXIF orientation metadata (`true` by default).                         |
+| `blur`               | `bl`      | `sigma`                                | Apply Gaussian blur.                                                           |
+| `sharpen`            | `sh`      | `sigma`                                | Sharpen using libvips’ operator.                                               |
+| `pixelate`           | `px`      | `amount`                               | Pixelate by shrinking then scaling back up.                                    |
+| `background`         | `bg`      | `RRGGBB[AA]`                           | Background color used for padding/extend/flatten (hex RGBA).                   |
+| `quality`            | `q`       | `1-100`                                | Compression quality for lossy formats (JPEG/WebP/AVIF).                        |
+| `format`             | —         | `jpeg                                  | png                                                                            |webp|avif|...` | Output format override. Equivalent to `@extension`. |
+| `dpr`                | —         | `1.0-5.0`                              | Device pixel ratio multiplier for width, height, and padding.                  |
+| `raw`                | —         | —                                      | Bypass the concurrency semaphore (unthrottled processing).                     |
+| `cache_buster`       | —         | `token`                                | Alters the cache key; use to bust specific variants.                           |
+| `max_src_resolution` | —         | `megapixels`                           | Request-level override; requires `IMGFORGE_ALLOW_SECURITY_OPTIONS=true`.       |
+| `max_src_file_size`  | —         | `bytes`                                | Request-level override for file size limit.                                    |
+| `watermark`          | `wm`      | `opacity:position`                     | Apply a watermark (see below).                                                 |
+| `watermark_url`      | `wmu`     | `base64url(url)`                       | URL for watermark image (Base64 URL-safe, no padding).                         |
 
 ## Geometry & resizing
 

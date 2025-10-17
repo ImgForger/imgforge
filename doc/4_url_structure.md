@@ -9,12 +9,12 @@ http(s)://<host>/<signature>/<processing_options>/plain/<percent-encoded-source>
 http(s)://<host>/<signature>/<processing_options>/<base64url-source>.<extension>
 ```
 
-| Segment | Description |
-| --- | --- |
-| `<signature>` | Base64 URL-safe, unpadded HMAC-SHA256 digest generated from the path. Use `unsafe` when unsigned URLs are permitted. |
+| Segment                | Description                                                                                                                          |
+|------------------------|--------------------------------------------------------------------------------------------------------------------------------------|
+| `<signature>`          | Base64 URL-safe, unpadded HMAC-SHA256 digest generated from the path. Use `unsafe` when unsigned URLs are permitted.                 |
 | `<processing_options>` | Slash-separated list of directives (e.g., `resize:fill:800:600/quality:85`). See [5_processing_options.md](5_processing_options.md). |
-| `plain/...` | Indicates the source URL is percent-encoded and may include `@<extension>` to declare the output format. |
-| `<base64url-source>` | Encodes the source URL using URL-safe Base64 without padding (`=`). The extension, if present, is appended after a dot. |
+| `plain/...`            | Indicates the source URL is percent-encoded and may include `@<extension>` to declare the output format.                             |
+| `<base64url-source>`   | Encodes the source URL using URL-safe Base64 without padding (`=`). The extension, if present, is appended after a dot.              |
 
 ## Choosing between `plain` and Base64
 

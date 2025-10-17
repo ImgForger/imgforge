@@ -1,6 +1,6 @@
 # 1. Installation
 
-imgforge is a Rust 2021 application that wraps Axum, Tokio, and libvips into a standalone image proxy. This document prepares your workstation or build environment to compile and run the service.
+imgforge is a Rust application that wraps Axum, Tokio, and libvips into a standalone image proxy. This document prepares your workstation or build environment to compile and run the service.
 
 ## Supported platforms
 
@@ -8,13 +8,13 @@ imgforge targets Linux and macOS. It also runs inside containers built from Debi
 
 ## Prerequisites
 
-| Requirement | Minimum | Notes |
-| --- | --- | --- |
-| Rust toolchain | 1.90 | Install via [rustup](https://rustup.rs/). Ensure `cargo`, `rustc`, and `rustfmt` are on your `PATH`. |
-| libvips | 8.12+ | Provides the core image processing primitives. Both development headers and runtime libraries are required. |
-| pkg-config | — | Required for cargo to discover libvips. Usually bundled on Linux; install explicitly on macOS. |
-| OpenSSL | 1.1+ | Used by reqwest and HMAC signing utilities. Provided by default on most systems. |
-| Optional: Docker | 24+ | For container builds using the provided multi-stage Dockerfile. |
+| Requirement      | Minimum | Notes                                                                                                       |
+|------------------|---------|-------------------------------------------------------------------------------------------------------------|
+| Rust toolchain   | 1.90    | Install via [rustup](https://rustup.rs/). Ensure `cargo`, `rustc`, and `rustfmt` are on your `PATH`.        |
+| libvips          | 8.12+   | Provides the core image processing primitives. Both development headers and runtime libraries are required. |
+| pkg-config       | —       | Required for cargo to discover libvips. Usually bundled on Linux; install explicitly on macOS.              |
+| OpenSSL          | 1.1+    | Used by reqwest and HMAC signing utilities. Provided by default on most systems.                            |
+| Optional: Docker | 24+     | For container builds using the provided multi-stage Dockerfile.                                             |
 
 ### Installing prerequisites
 

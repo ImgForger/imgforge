@@ -1,6 +1,6 @@
 # 7. Caching
 
-Caching dramatically reduces repeated processing costs and shrinks latency for popular images. imgforge integrates with the [Foyer](https://docs.rs/foyer) cache engine to offer three backends: in-memory, disk, and hybrid. This document explains how to configure each mode and how the cache interacts with the request lifecycle.
+Caching dramatically reduces repeated processing costs and shrinks latency for popular images. imgforge integrates with the [Foyer](https://foyer-rs.github.io/foyer/) cache engine to offer three backends: in-memory, disk, and hybrid. This document explains how to configure each mode and how the cache interacts with the request lifecycle.
 
 ## How caching works
 

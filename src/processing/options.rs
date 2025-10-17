@@ -65,9 +65,9 @@ const PADDING: &str = "padding";
 /// Shorthand for padding.
 const PADDING_SHORT: &str = "pd";
 /// Option name for rotation.
-const ROTATE: &str = "rotation";
+const ROTATE: &str = "rotate";
 /// Shorthand for rotation.
-const ROTATE_SHORT: &str = "or";
+const ROTATE_SHORT: &str = "rot";
 /// Option name for raw.
 const RAW: &str = "raw";
 /// Option name for blur.

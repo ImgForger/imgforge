@@ -4,16 +4,16 @@ imgforge strives to return clear error messages and appropriate HTTP status code
 
 ## Response codes
 
-| Status | When it occurs | Notes |
-| --- | --- | --- |
-| `200 OK` | Successful processing or cache hit. | Response body contains image bytes; `Content-Type` reflects the output format. |
-| `400 Bad Request` | Invalid path structure, malformed processing option, disallowed MIME type, oversize file, failed watermark fetch, etc. | Body contains a short explanatory string (e.g., `"Invalid URL format"`). |
-| `401 Unauthorized` | Missing or invalid `Authorization: Bearer` token when `IMGFORGE_SECRET` is set. | Include the correct secret header. |
-| `403 Forbidden` | Signature mismatch, unsigned URLs when disabled, or bearer token mismatch. | Recompute the signature or re-enable unsigned mode for development. |
-| `404 Not Found` | Only surfaced when a specific endpoint is unknown (e.g., `/metrics` disabled listener). | Ensure you are hitting the correct path. |
-| `408 Request Timeout / 504 Gateway Timeout` | Source fetch exceeded `IMGFORGE_DOWNLOAD_TIMEOUT` or the request exceeded `IMGFORGE_TIMEOUT`. | Increase timeouts or optimize upstream latency. |
-| `429 Too Many Requests` | Global rate limiter rejected the request. | Increase `IMGFORGE_RATE_LIMIT_PER_MINUTE` or add upstream throttling. |
-| `500 Internal Server Error` | Unexpected libvips errors, I/O issues, or cache initialization failures. | Check logs for stack traces and error context. |
+| Status                                      | When it occurs                                                                                                         | Notes                                                                          |
+|---------------------------------------------|------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------|
+| `200 OK`                                    | Successful processing or cache hit.                                                                                    | Response body contains image bytes; `Content-Type` reflects the output format. |
+| `400 Bad Request`                           | Invalid path structure, malformed processing option, disallowed MIME type, oversize file, failed watermark fetch, etc. | Body contains a short explanatory string (e.g., `"Invalid URL format"`).       |
+| `401 Unauthorized`                          | Missing or invalid `Authorization: Bearer` token when `IMGFORGE_SECRET` is set.                                        | Include the correct secret header.                                             |
+| `403 Forbidden`                             | Signature mismatch, unsigned URLs when disabled, or bearer token mismatch.                                             | Recompute the signature or re-enable unsigned mode for development.            |
+| `404 Not Found`                             | Only surfaced when a specific endpoint is unknown (e.g., `/metrics` disabled listener).                                | Ensure you are hitting the correct path.                                       |
+| `408 Request Timeout / 504 Gateway Timeout` | Source fetch exceeded `IMGFORGE_DOWNLOAD_TIMEOUT` or the request exceeded `IMGFORGE_TIMEOUT`.                          | Increase timeouts or optimize upstream latency.                                |
+| `429 Too Many Requests`                     | Global rate limiter rejected the request.                                                                              | Increase `IMGFORGE_RATE_LIMIT_PER_MINUTE` or add upstream throttling.          |
+| `500 Internal Server Error`                 | Unexpected libvips errors, I/O issues, or cache initialization failures.                                               | Check logs for stack traces and error context.                                 |
 
 ## Troubleshooting workflow
 
