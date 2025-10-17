@@ -22,7 +22,7 @@ src/
   url.rs           # Path parsing and signature validation
 ```
 
-Refer to [1_installation.md](doc/1_installation.md) for a comprehensive setup checklist and [6_processing_pipeline.md](doc/6_processing_pipeline.md) for architectural context.
+Refer to [Installation](doc/1_installation.md) for a comprehensive setup checklist and [Processing Pipeline](doc/6_processing_pipeline.md) for architectural context.
 
 ## Coding standards
 
@@ -53,7 +53,7 @@ Integration tests under `tests/` contact external services (e.g., httpbin.org). 
 
 1. Branch from `main` using a descriptive name (e.g., `feat/resize-presets` or `docs/cache-guidelines`).
 2. Keep commits focused and reference relevant issues or tickets in commit messages.
-3. Include tests for new behavior and update documentation where applicable (see [7_caching.md](doc/7_caching.md), [8_error_troubleshooting.md](doc/8_error_troubleshooting.md), etc.).
+3. Include tests for new behavior and update documentation where applicable (see [Caching](doc/7_caching.md), [Error Troubleshooting](doc/8_error_troubleshooting.md), etc.).
 4. Fill out the pull request template with testing evidence and operational considerations.
 5. Expect review feedback; incorporate changes and re-run tests before requesting re-review.
 
@@ -67,6 +67,6 @@ Please provide the following details to help triage quickly:
 - Relevant log excerpts (including `X-Request-ID` values) and metrics snapshots.
 - Configuration values tied to the issue (timeouts, cache mode, security flags).
 
-Review [8_error_troubleshooting.md](doc/8_error_troubleshooting.md) before filing; many common pitfalls and solutions are documented there.
+Review [Error Troubleshooting](doc/8_error_troubleshooting.md) before filing; many common pitfalls and solutions are documented there.
 
 Thank you for investing in imgforge! Your contributions make the project faster, safer, and easier to operate.
