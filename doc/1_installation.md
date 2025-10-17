@@ -34,8 +34,6 @@ sudo dnf install -y gcc gcc-c++ make pkgconf-pkg-config vips-devel openssl-devel
 **macOS (Homebrew)**
 
 ```bash
-brew install rustup-init
-rustup-init          # follow prompts, then restart shell
 brew install vips pkg-config openssl@3
 ```
 
@@ -44,7 +42,7 @@ brew install vips pkg-config openssl@3
 ## Fetching the source
 
 ```bash
-git clone https://github.com/your-org/imgforge.git
+git clone https://github.com/imgforger/imgforge.git
 cd imgforge
 ```
 
