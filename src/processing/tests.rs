@@ -249,7 +249,7 @@ mod test_processing {
     #[test]
     fn test_parse_rotation_option() {
         let options = vec![ProcessingOption {
-            name: "rotation".to_string(),
+            name: "rotate".to_string(),
             args: vec!["90".to_string()],
         }];
         let parsed = parse_all_options(options).unwrap();
