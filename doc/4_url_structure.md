@@ -33,11 +33,26 @@ Use `plain` when the source URL contains only characters legal within a path seg
 
 Generate Base64 URL-safe strings without padding (replace `+` with `-`, `/` with `_`, and remove trailing `=`).
 
-## Generating signatures
+## Signing a URL
 
-imgforge validates signatures by decoding `IMGFORGE_KEY` and `IMGFORGE_SALT` from hex and computing an HMAC-SHA256 digest over `salt || path`. The path starts with the slash preceding the processing options.
+### Why signatures matter
 
-### Rust example
+Signed URLs prevent tampering. Anyone with write access to a CDN, cache, or browser can attempt to modify processing directives to produce oversized images or trigger expensive transformations. The HMAC signature ensures only parties who know `IMGFORGE_KEY` and `IMGFORGE_SALT` can generate valid requests.
+
+### How signing works
+
+1. Convert `IMGFORGE_KEY` and `IMGFORGE_SALT` from hex to raw bytes.
+2. Build the path portion beginning with the slash before the processing options (for example `/resize:fill:800:600/plain/...`).
+3. Concatenate the salt bytes with the path bytes.
+4. Compute an HMAC-SHA256 digest using the key from step 1.
+5. Encode the digest using Base64 URL-safe without padding.
+6. Prefix the signature to the path and send the request.
+
+The same steps apply for both `plain` and Base64 source segments. Rotate keys periodically and store them securely; leaking either value lets attackers craft arbitrary URLs.
+
+### Language examples
+
+**Rust**
 
 ```rust
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
@@ -57,7 +72,7 @@ let signature = URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes());
 println!("{}{}", signature, path);
 ```
 
-### Python example
+**Python**
 
 ```python
 import base64, hmac, hashlib, os
@@ -71,16 +86,9 @@ signature = base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
 print(f"{signature}{path}")
 ```
 
-### CLI helper
+### Validating signatures
 
-For quick experiments, use the official imgproxy helper (compatible with imgforge):
-
-```bash
-IMGFORGE_KEY=... IMGFORGE_SALT=... \
-  imgproxy-url --key-env IMGFORGE_KEY --salt-env IMGFORGE_SALT \
-  --resize fill 800 600 --format webp \
-  https://example.com/cat.jpg
-```
+When building automated tests, compute the expected signature using the same recipe and assert that imgforge accepts the resulting URL. Many teams wrap the logic in a shared helper so application servers, static-site generators, and edge functions share the same implementation.
 
 ## Unsigned URLs (`unsafe`)
 
@@ -100,19 +108,8 @@ Use this mode for development only; it bypasses HMAC validation entirely.
 4. **Salt omission**: Always concatenate the salt bytes before the path.
 5. **URL normalization**: Ensure the source URL is percent-encoded identically in both the signature computation and the request.
 
-## Validating signatures in tests
-
-Use the library’s `imgforge::url::validate_signature` helper:
-
-```rust
-let key = hex::decode(IMGFORGE_KEY).unwrap();
-let salt = hex::decode(IMGFORGE_SALT).unwrap();
-let valid = imgforge::url::validate_signature(&key, &salt, signature, path);
-assert!(valid);
-```
-
 ## Next steps
 
 - Explore available transformations in [5_processing_options.md](5_processing_options.md).
-- Review the request lifecycle in [6_processing_pipeline.md](6_processing_pipeline.md).
+- Review the request lifecycle in [6_request_lifecycle.md](6_request_lifecycle.md).
 - If your application generates many URLs, encapsulate signing logic into a shared helper library to avoid drift.

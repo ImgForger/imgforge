@@ -77,7 +77,7 @@ Ensure the proxy forwards `Authorization` headers when using `IMGFORGE_SECRET` a
 
 ## Observability stack
 
-- Scrape `/metrics` from the main listener or a dedicated `IMGFORGE_PROMETHEUS_BIND` port. Feed the data into Prometheus, Grafana, Datadog, or your preferred monitoring system.
+- Scrape `/metrics` from the main listener or a dedicated `IMGFORGE_PROMETHEUS_BIND` port. Feed the data into Prometheus, Grafana, Datadog, or your preferred monitoring system—see [11_prometheus_monitoring.md](11_prometheus_monitoring.md) for dashboards and alerting patterns.
 - Ship logs to a centralized collector (Fluent Bit, Vector, etc.) with the request ID for correlation.
 - Export tracing spans via OpenTelemetry to integrate with distributed tracing platforms.
 
@@ -98,7 +98,7 @@ Ensure the proxy forwards `Authorization` headers when using `IMGFORGE_SECRET` a
 ## Cloud-native notes
 
 - **Kubernetes**: Deploy as a `Deployment` with replicas > 1, expose via `Service`, mount a `PersistentVolume` for disk caches, and define liveness/readiness probes hitting `/status`. Use `PodDisruptionBudgets` to maintain availability during upgrades.
-- **Serverless containers**: Ensure cold-start budgets allow for libvips initialization (imgforge performs `VipsApp::new` once per process). Configure minimal idle instances to avoid thrash.
+- **Serverless containers**: Ensure cold-start budgets allow for libvips initialization (imgforge performs the libvips bootstrap once per process). Configure minimal idle instances to avoid thrash.
 - **Multi-region**: Deploy regional imgforge clusters to avoid cross-region latency when fetching sources.
 
 ## Post-deploy checklist
