@@ -11,16 +11,9 @@ imgforge is a fast, secure image proxy and transformation server written in Rust
 
 ## Documentation
 
-The detailed documentation suite lives under [`doc/`](doc/):
+A numbered documentation suite lives under [`doc/`](doc/). Start with `1_installation.md` and follow the sequence to move from local setup through production deployment, advanced tuning, and contribution guidelines.
 
-- [`doc/getting-started.md`](doc/getting-started.md) – Install prerequisites, build from source, and run your first request.
-- [`doc/configuration.md`](doc/configuration.md) – Environment variables, cache selection, and production profiles.
-- [`doc/usage.md`](doc/usage.md) – Endpoint overview, URL structure, and signing workflow.
-- [`doc/processing-options.md`](doc/processing-options.md) – Comprehensive reference for every transformation option.
-- [`doc/deployment.md`](doc/deployment.md) – Docker, systemd, observability, and security guidance.
-- [`doc/contributing.md`](doc/contributing.md) – Development workflow and contribution guidelines.
-
-If you are upgrading from imgproxy, most existing URL builders will continue to work. Consult the processing options reference for the few imgforge-specific differences.
+If you are upgrading from imgproxy, most existing URL builders will continue to work. Consult the processing and URL references in the docs for the few imgforge-specific differences.
 
 ## Community
 
