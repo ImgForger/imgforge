@@ -33,8 +33,8 @@ jobs:
         uses: docker/build-push-action@v4
         with:
           context: .
-          file: ./Dockerfile       # path to your Dockerfile
+          file: ./Dockerfile
           push: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/imgforge:latest
-            ghcr.io/${{ github.repository_owner }}/imgforge:${{ github.sha }}
+            ghcr.io/imgforger/imgforge:latest
+            ghcr.io/imgforger/imgforge:${{ github.sha }}
