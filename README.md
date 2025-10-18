@@ -31,8 +31,8 @@ Then follow the [Quick Start guide](doc/2_quick_start.md) to sign URLs and try y
 ## Documentation
 
 - [Introduction](doc/introduction.md)
-- [Quick Start](doc/2_quick_start.md)
 - [Installation](doc/1_installation.md)
+- [Quick Start](doc/2_quick_start.md)
 - [URL structure and signing](doc/4_url_structure.md)
 - [Processing options reference](doc/5_processing_options.md)
 - [Request lifecycle overview](doc/6_request_lifecycle.md)

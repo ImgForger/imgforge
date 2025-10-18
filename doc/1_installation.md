@@ -27,7 +27,12 @@ Docker is the fastest way to evaluate imgforge and mirrors the production deploy
    docker run -d \
      -p 3000:3000 \
      -v imgforge-cache:/var/cache/imgforge \
-     -e IMGFORGE_KEY=... -e IMGFORGE_SALT=... \
+     -e IMGFORGE_KEY=$(openssl rand -hex 32) \
+     -e IMGFORGE_SALT=$(openssl rand -hex 32) \
+     -e IMGFORGE_CACHE_MODE=hybrid \
+     -e IMGFORGE_CACHE_MEMORY_CAPACITY=1000
+     -e IMGFORGE_CACHE_DISK_PATH=/var/cache/imgforge \
+     -e IMGFORGE_CACHE_DISK_CAPACITY=1000 \
      ghcr.io/imgforger/imgforge:latest
    ```
 
