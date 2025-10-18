@@ -12,33 +12,39 @@ permissions:
   id-token: write   # if you need OIDC or advanced features
 
 jobs:
-  build-and-push:
+  build-multiarch:
     runs-on: ubuntu-latest
-
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
     steps:
       - name: Checkout source
         uses: actions/checkout@v5
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
+        uses: docker/setup-buildx-action@v3
 
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v2
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set up builder
+        run: docker buildx create --use
 
-      - name: Build and push image
-        uses: docker/build-push-action@v4
-        with:
-          context: .
-          file: ./Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: |
-            ghcr.io/imgforger/imgforge:latest
-            ghcr.io/imgforger/imgforge:${{ github.sha }}
+      - name: Build for ${{ matrix.arch }}
+        run: |
+          docker buildx build \
+            --platform linux/${{ matrix.arch }} \
+            --output type=registry \
+            --tag ghcr.io/imgforger/imgforge:${{ matrix.arch }} .
+
+  merge-manifest:
+    needs: build-multiarch
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Merge manifests
+        run: |
+          docker buildx imagetools create \
+            -t ghcr.io/imgforger/imgforge:latest \
+            ghcr.io/imgforger/imgforge:amd64 \
+            ghcr.io/imgforger/imgforge:arm64
+
