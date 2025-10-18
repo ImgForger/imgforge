@@ -19,17 +19,11 @@ export IMGFORGE_ALLOW_UNSIGNED=true
 
 > **Production reminder:** Leave `IMGFORGE_ALLOW_UNSIGNED` unset (or `false`) outside of local development. See [4_url_structure.md](4_url_structure.md) for signing guidance.
 
-## Starting the server
+## Starting the server (Docker-first)
 
-### Via Cargo
+### Run the published image
 
-```bash
-cargo run
-```
-
-By default the server listens on `http://0.0.0.0:3000`. Adjust the bind address with `IMGFORGE_BIND`.
-
-### Via Docker
+If you built the Docker image during installation, start it with your freshly created secrets:
 
 ```bash
 docker run \
@@ -41,7 +35,17 @@ docker run \
   imgforge:latest
 ```
 
-Use `--env-file` to load additional configuration. When deploying, replace the development values with secrets from your vault.
+Use `--env-file` to load additional configuration or mount volumes for caching. When deploying, replace the development values with secrets from your vault.
+
+### Run from source (optional)
+
+Prefer a native workflow? Launch imgforge through Cargo:
+
+```bash
+cargo run
+```
+
+By default the server listens on `http://0.0.0.0:3000`. Adjust the bind address with `IMGFORGE_BIND`.
 
 ## Issuing a transformation request
 
@@ -71,17 +75,17 @@ If `IMGFORGE_SECRET` is set, include `Authorization: Bearer <token>` on `/info` 
 
 ## Reviewing logs and metrics
 
-Logs are emitted via the `tracing` subscriber. Set `IMGFORGE_LOG_LEVEL=imgforge=debug` to see detailed request flow. For metrics:
+Logs are emitted via the configured tracing subscriber. Set `IMGFORGE_LOG_LEVEL=imgforge=debug` to see detailed request flow. For metrics:
 
 ```bash
 curl http://localhost:3000/metrics | head
 ```
 
-Look for buckets such as `image_processing_duration_seconds` and counters like `processed_images_total`.
+Look for buckets such as `image_processing_duration_seconds` and counters like `processed_images_total`. Continue to [11_prometheus_monitoring.md](11_prometheus_monitoring.md) for dashboard ideas.
 
 ## Next steps
 
 - Understand configuration knobs in [3_configuration.md](3_configuration.md).
 - Learn how URLs are structured and signed in [4_url_structure.md](4_url_structure.md).
 - Explore the full list of processing directives in [5_processing_options.md](5_processing_options.md).
-- Review the internal request lifecycle in [6_processing_pipeline.md](6_processing_pipeline.md).
+- Review the overall request flow in [6_request_lifecycle.md](6_request_lifecycle.md) and dive deeper into transformations with [12_image_processing_pipeline.md](12_image_processing_pipeline.md).

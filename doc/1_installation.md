@@ -1,12 +1,49 @@
 # 1. Installation
 
-imgforge is a Rust application that wraps Axum, Tokio, and libvips into a standalone image proxy. This document prepares your workstation or build environment to compile and run the service.
+imgforge is a Rust application that wraps Axum, Tokio, and libvips into a standalone image proxy. You can run it entirely inside Docker or install the native toolchain for bespoke builds.
 
-## Supported platforms
+## Container-first setup (recommended)
+
+Docker is the fastest way to evaluate imgforge and mirrors the production deployment model.
+
+1. **Install Docker** – Version 24 or newer is recommended. Podman works as an alternative as long as it supports multi-stage builds.
+2. **Build or pull the image** – Clone the repository (or use your fork) and build locally:
+   ```bash
+   git clone https://github.com/imgforger/imgforge.git
+   cd imgforge
+   docker build -t imgforge:latest .
+   ```
+   If you publish a hardened image to your own registry, replace the tag accordingly.
+3. **Start a container** – Provide HMAC secrets via environment variables or an env file:
+   ```bash
+   docker run \
+     --rm \
+     -p 3000:3000 \
+     -e IMGFORGE_KEY=$(openssl rand -hex 32) \
+     -e IMGFORGE_SALT=$(openssl rand -hex 32) \
+     -e IMGFORGE_ALLOW_UNSIGNED=true \
+     imgforge:latest --help
+   ```
+4. **Persist cache data (optional)** – Mount a volume when using disk or hybrid caching:
+   ```bash
+   docker run -d \
+     -p 3000:3000 \
+     -v imgforge-cache:/var/cache/imgforge \
+     -e IMGFORGE_KEY=... -e IMGFORGE_SALT=... \
+     imgforge:latest
+   ```
+
+Continue to [2_quick_start.md](2_quick_start.md) to run real transformations inside the container.
+
+## Native installation (for custom builds)
+
+If you need to extend imgforge or integrate it directly on a host, install the Rust toolchain and libvips locally.
+
+### Supported platforms
 
 imgforge targets Linux and macOS. It also runs inside containers built from Debian- or Alpine-based images as long as libvips is available. Windows development is possible through WSL2.
 
-## Prerequisites
+### Prerequisites
 
 | Requirement      | Minimum | Notes                                                                                                       |
 |------------------|---------|-------------------------------------------------------------------------------------------------------------|
@@ -14,9 +51,9 @@ imgforge targets Linux and macOS. It also runs inside containers built from Debi
 | libvips          | 8.12+   | Provides the core image processing primitives. Both development headers and runtime libraries are required. |
 | pkg-config       | —       | Required for cargo to discover libvips. Usually bundled on Linux; install explicitly on macOS.              |
 | OpenSSL          | 1.1+    | Used by reqwest and HMAC signing utilities. Provided by default on most systems.                            |
-| Optional: Docker | 24+     | For container builds using the provided multi-stage Dockerfile.                                             |
+| Optional: Docker | 24+     | Useful for running parity tests against the container image.                                                |
 
-### Installing prerequisites
+#### Installing prerequisites
 
 **Debian / Ubuntu**
 
@@ -39,7 +76,7 @@ brew install vips pkg-config openssl@3
 
 > **Tip:** After installing rustup, run `rustup default stable` and `rustup component add rustfmt clippy` to match the repository tooling.
 
-## Fetching the source
+### Fetching the source
 
 ```bash
 git clone https://github.com/imgforger/imgforge.git
@@ -48,7 +85,7 @@ cd imgforge
 
 If you are working from a fork, replace the URL accordingly. The repository uses Git submodules only for documentation assets, so a normal clone is sufficient.
 
-## Toolchain configuration
+### Toolchain configuration
 
 Set the project’s preferred toolchain (optional but recommended):
 
@@ -64,7 +101,7 @@ pkg-config --modversion vips
 
 If the command fails, ensure the libvips development package is installed and `PKG_CONFIG_PATH` includes its `.pc` file directory.
 
-## Building from source
+### Building from source
 
 Compile the debug binary:
 
@@ -82,7 +119,7 @@ cargo build --release
 
 The executable will be placed in `target/release/imgforge`.
 
-## Verifying runtime dependencies
+### Verifying runtime dependencies
 
 Before running the server, confirm that libvips can load dynamic modules:
 
@@ -92,22 +129,6 @@ ldd target/release/imgforge | grep vips
 
 If libvips is marked as “not found,” add its library directory to `LD_LIBRARY_PATH` (Linux) or `DYLD_LIBRARY_PATH` (macOS) or install the runtime package (e.g. `libvips`).
 
-## Docker-based installation
+### Next steps
 
-The repository ships with a multi-stage Dockerfile that installs libvips and compiles the binary in an isolated builder image. Build the container locally:
-
-```bash
-docker build -t imgforge:latest .
-```
-
-Run the container (you will configure secrets in the quick start guide):
-
-```bash
-docker run --rm -it imgforge:latest --help
-```
-
-For production-grade usage, see [10_deployment.md](10_deployment.md).
-
-## Next steps
-
-Continue to [2_quick_start.md](2_quick_start.md) to configure environment variables, start the server, and perform your first image transformation.
+Whether you chose Docker or a native build, proceed to [2_quick_start.md](2_quick_start.md) to configure secrets, start the server, and perform your first image transformation.
