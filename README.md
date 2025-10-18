@@ -1,8 +1,8 @@
 # imgforge
 
-imgforge is a fast, secure image proxy and transformation server written in Rust. Built on top of Axum, Tokio, and libvips, it delivers imgproxy-compatible URL semantics with an async-first architecture and optional, pluggable caching backends.
+imgforge is a fast, secure image proxy and transformation server written in Rust. Built with Rust and libvips, it delivers imgproxy-compatible URL semantics with an async-first architecture and optional, pluggable caching backends.
 
-## Why teams choose imgforge
+## Why choose imgforge
 
 - **Production-ready from day one** – Health checks, structured logging, and Prometheus metrics make imgforge easy to drop into modern platforms.
 - **Container-native** – Ship the provided multi-stage Docker image anywhere, or extend it with your own watermark assets and presets.
