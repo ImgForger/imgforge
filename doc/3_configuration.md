@@ -7,21 +7,21 @@ imgforge reads configuration exclusively from environment variables. This docume
 | Variable                         | Default      | Description & tips                                                                                                                                                                |
 |----------------------------------|--------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `IMGFORGE_WORKERS`               | `0`          | Maximum number of simultaneous image-processing jobs. `0` lets imgforge set `num_cpus * 2`. Increase if libvips operations are lightweight; decrease on memory-constrained hosts. |
-| `IMGFORGE_TIMEOUT`               | `30` seconds | Hard timeout enforced by the request-timeout middleware. Requests exceeding the budget return `504 Gateway Timeout`. Tune alongside upstream proxy timeouts.                   |
+| `IMGFORGE_TIMEOUT`               | `30` seconds | Hard timeout enforced by the request-timeout middleware. Requests exceeding the budget return `504 Gateway Timeout`. Tune alongside upstream proxy timeouts.                      |
 | `IMGFORGE_DOWNLOAD_TIMEOUT`      | `10` seconds | Client-side timeout for fetching the source image. Slow origins trigger an error when exceeded.                                                                                   |
 | `IMGFORGE_RATE_LIMIT_PER_MINUTE` | unset        | Enables a token bucket limiter shared by all requests. Use it to shield downstream origins. Set to `0` or leave unset to disable.                                                 |
 
 ## Networking & binding
 
-| Variable                   | Default        | Description & tips                                                                                                                      |
-|----------------------------|----------------|-----------------------------------------------------------------------------------------------------------------------------------------|
-| `IMGFORGE_BIND`            | `0.0.0.0:3000` | Primary HTTP listener. Bind to `127.0.0.1` when running behind a reverse proxy locally.                                                 |
+| Variable                   | Default        | Description & tips                                                                                                                                                                            |
+|----------------------------|----------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `IMGFORGE_BIND`            | `0.0.0.0:3000` | Primary HTTP listener. Bind to `127.0.0.1` when running behind a reverse proxy locally.                                                                                                       |
 | `IMGFORGE_PROMETHEUS_BIND` | unset          | Optional dedicated metrics listener (e.g., `0.0.0.0:9600`). When unset, metrics remain on the main listener under `/metrics`. See [11_prometheus_monitoring.md](11_prometheus_monitoring.md). |
 
 ## Logging & observability
 
-| Variable             | Default | Description & tips                                                                                                                            |
-|----------------------|---------|-----------------------------------------------------------------------------------------------------------------------------------------------|
+| Variable             | Default | Description & tips                                                                                                                                        |
+|----------------------|---------|-----------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `IMGFORGE_LOG_LEVEL` | `info`  | Consumed by the tracing subscriber’s environment filter. Example: `imgforge=debug,tower_http=info` for detailed request spans without noisy dependencies. |
 
 ## Security & authentication

@@ -10,15 +10,15 @@ imgforge exposes Prometheus-compatible metrics so you can observe throughput, la
 
 ## Core metrics
 
-| Metric name                              | Type      | Labels                | Insight                                                                                 |
-|------------------------------------------|-----------|-----------------------|-----------------------------------------------------------------------------------------|
-| `http_requests_duration_seconds`         | Histogram | `method`, `path`      | Latency across the full request lifecycle, including cache hits and misses.             |
-| `image_processing_duration_seconds`      | Histogram | `format`              | Time spent transforming images, segmented by requested output format.                   |
-| `processed_images_total`                 | Counter   | `format`              | Throughput per encoded format; increments on successful responses.                      |
-| `source_image_fetch_duration_seconds`    | Histogram | _none_                | Download latency from upstream sources.                                                 |
-| `source_images_fetched_total`            | Counter   | `status`              | Counts of successful (`status="success"`) and failed (`status="error"`) source fetches. |
-| `cache_hits_total` / `cache_misses_total`| Counter   | `cache_type`          | Cache effectiveness across memory, disk, or hybrid backends.                            |
-| `status_codes_total`                     | Counter   | `status`              | Aggregated HTTP responses (ideal for alerting on spikes in `4xx`/`5xx`).                |
+| Metric name                               | Type      | Labels           | Insight                                                                                 |
+|-------------------------------------------|-----------|------------------|-----------------------------------------------------------------------------------------|
+| `http_requests_duration_seconds`          | Histogram | `method`, `path` | Latency across the full request lifecycle, including cache hits and misses.             |
+| `image_processing_duration_seconds`       | Histogram | `format`         | Time spent transforming images, segmented by requested output format.                   |
+| `processed_images_total`                  | Counter   | `format`         | Throughput per encoded format; increments on successful responses.                      |
+| `source_image_fetch_duration_seconds`     | Histogram | _none_           | Download latency from upstream sources.                                                 |
+| `source_images_fetched_total`             | Counter   | `status`         | Counts of successful (`status="success"`) and failed (`status="error"`) source fetches. |
+| `cache_hits_total` / `cache_misses_total` | Counter   | `cache_type`     | Cache effectiveness across memory, disk, or hybrid backends.                            |
+| `status_codes_total`                      | Counter   | `status`         | Aggregated HTTP responses (ideal for alerting on spikes in `4xx`/`5xx`).                |
 
 > **Tip:** Combine counters into rates using `rate()` or `irate()` when graphing over time, and apply `histogram_quantile()` to histogram buckets for percentile views.
 

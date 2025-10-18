@@ -10,9 +10,9 @@ Caching dramatically reduces repeated processing costs and shrinks latency for p
 
 Metrics:
 
-| Metric | Description |
-| --- | --- |
-| `cache_hits_total{cache_type="memory|disk|hybrid"}` | Number of successful lookups. |
+| Metric                                 | Description                                   |
+|----------------------------------------|-----------------------------------------------|
+| `cache_hits_total{cache_type="memory   | disk                                          |hybrid"}` | Number of successful lookups. |
 | `cache_misses_total{cache_type="..."}` | Number of misses (including disabled caches). |
 
 ## Enabling a cache backend
