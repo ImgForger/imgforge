@@ -19,20 +19,24 @@ imgforge is a fast, secure image proxy and transformation server written in Rust
 ## Get started in minutes
 
 ```bash
-git clone https://github.com/imgforger/imgforge.git
-cd imgforge
-docker build -t imgforge:latest .
-docker run --rm -p 3000:3000 -e IMGFORGE_KEY=$(openssl rand -hex 32) -e IMGFORGE_SALT=$(openssl rand -hex 32) imgforge:latest
+docker pull ghcr.io/imgforger/imgforge:latest
+docker run --rm -p 3000:3000 \
+  -e IMGFORGE_KEY=$(openssl rand -hex 32) \
+  -e IMGFORGE_SALT=$(openssl rand -hex 32) \
+  ghcr.io/imgforger/imgforge:latest
 ```
 
 Then follow the [Quick Start guide](doc/2_quick_start.md) to sign URLs and try your first transformation. Prefer bare-metal builds or CI integrations? See [Installation](doc/1_installation.md) for native toolchain instructions.
 
 ## Documentation
 
+- [Introduction](doc/introduction.md)
+- [Quick Start](doc/2_quick_start.md)
+- [Installation](doc/1_installation.md)
+- [URL structure and signing](doc/4_url_structure.md)
+- [Processing options reference](doc/5_processing_options.md)
 - [Request lifecycle overview](doc/6_request_lifecycle.md)
 - [Image processing pipeline deep dive](doc/12_image_processing_pipeline.md)
-- [Processing options reference](doc/5_processing_options.md)
-- [URL structure and signing](doc/4_url_structure.md)
 - [Prometheus monitoring playbooks](doc/11_prometheus_monitoring.md)
 
 Browse the full documentation set under [`doc/`](doc/).

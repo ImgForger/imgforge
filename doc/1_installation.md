@@ -7,13 +7,11 @@ imgforge is a Rust application that wraps Axum, Tokio, and libvips into a standa
 Docker is the fastest way to evaluate imgforge and mirrors the production deployment model.
 
 1. **Install Docker** – Version 24 or newer is recommended. Podman works as an alternative as long as it supports multi-stage builds.
-2. **Build or pull the image** – Clone the repository (or use your fork) and build locally:
+2. **Pull the image** – Use the published container from GitHub Container Registry:
    ```bash
-   git clone https://github.com/imgforger/imgforge.git
-   cd imgforge
-   docker build -t imgforge:latest .
+   docker pull ghcr.io/imgforger/imgforge:latest
    ```
-   If you publish a hardened image to your own registry, replace the tag accordingly.
+   If you need a custom image (for example to bundle watermarks or presets), see [10_deployment.md](10_deployment.md) for building a derivative image.
 3. **Start a container** – Provide HMAC secrets via environment variables or an env file:
    ```bash
    docker run \
@@ -22,7 +20,7 @@ Docker is the fastest way to evaluate imgforge and mirrors the production deploy
      -e IMGFORGE_KEY=$(openssl rand -hex 32) \
      -e IMGFORGE_SALT=$(openssl rand -hex 32) \
      -e IMGFORGE_ALLOW_UNSIGNED=true \
-     imgforge:latest --help
+     ghcr.io/imgforger/imgforge:latest --help
    ```
 4. **Persist cache data (optional)** – Mount a volume when using disk or hybrid caching:
    ```bash
@@ -30,7 +28,7 @@ Docker is the fastest way to evaluate imgforge and mirrors the production deploy
      -p 3000:3000 \
      -v imgforge-cache:/var/cache/imgforge \
      -e IMGFORGE_KEY=... -e IMGFORGE_SALT=... \
-     imgforge:latest
+     ghcr.io/imgforger/imgforge:latest
    ```
 
 Continue to [2_quick_start.md](2_quick_start.md) to run real transformations inside the container.

@@ -4,13 +4,13 @@ imgforge packages into a single static binary backed by libvips and Axum. This d
 
 ## Container images
 
-A multi-stage Dockerfile is included at the repository root.
+Use the official image published to GitHub Container Registry.
 
 ```bash
-# Build the image
-docker build -t ghcr.io/your-org/imgforge:latest .
+# Pull the image
+docker pull ghcr.io/imgforger/imgforge:latest
 
-# Run with secrets and persistent cache
+# Run with secrets and a persistent cache volume
 docker run \
   -p 3000:3000 \
   -e IMGFORGE_KEY=<hex-key> \
@@ -18,7 +18,14 @@ docker run \
   -e IMGFORGE_CACHE_TYPE=disk \
   -e IMGFORGE_CACHE_DISK_PATH=/var/cache/imgforge \
   -v imgforge-cache:/var/cache/imgforge \
-  ghcr.io/your-org/imgforge:latest
+  ghcr.io/imgforger/imgforge:latest
+```
+
+If you need to customize the image (for example to bundle watermark assets, presets, or CA bundles), a multi-stage Dockerfile is included at the repository root. You can build a derivative image in CI or use the published image as a base:
+
+```Dockerfile
+FROM ghcr.io/imgforger/imgforge:latest
+# COPY your assets, CA bundles, or config templates
 ```
 
 **Best practices**

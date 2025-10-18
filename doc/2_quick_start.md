@@ -23,7 +23,7 @@ export IMGFORGE_ALLOW_UNSIGNED=true
 
 ### Run the published image
 
-If you built the Docker image during installation, start it with your freshly created secrets:
+Start the official container with your freshly created secrets:
 
 ```bash
 docker run \
@@ -32,7 +32,7 @@ docker run \
   -e IMGFORGE_KEY \
   -e IMGFORGE_SALT \
   -e IMGFORGE_ALLOW_UNSIGNED=true \
-  imgforge:latest
+  ghcr.io/imgforger/imgforge:latest
 ```
 
 Use `--env-file` to load additional configuration or mount volumes for caching. When deploying, replace the development values with secrets from your vault.
