@@ -22,7 +22,7 @@ src/
   url.rs           # Path parsing and signature validation
 ```
 
-Refer to [Installation](doc/1_installation.md) for a comprehensive setup checklist and [Processing Pipeline](doc/6_processing_pipeline.md) for architectural context.
+Refer to [Installation](doc/1_installation.md) for a comprehensive setup checklist and [Request Lifecycle](doc/6_request_lifecycle.md) for architectural context.
 
 ## Coding standards
 

@@ -4,13 +4,13 @@ imgforge packages into a single static binary backed by libvips and Axum. This d
 
 ## Container images
 
-A multi-stage Dockerfile is included at the repository root.
+Use the official image published to GitHub Container Registry.
 
 ```bash
-# Build the image
-docker build -t ghcr.io/your-org/imgforge:latest .
+# Pull the image
+docker pull ghcr.io/imgforger/imgforge:latest
 
-# Run with secrets and persistent cache
+# Run with secrets and a persistent cache volume
 docker run \
   -p 3000:3000 \
   -e IMGFORGE_KEY=<hex-key> \
@@ -18,7 +18,14 @@ docker run \
   -e IMGFORGE_CACHE_TYPE=disk \
   -e IMGFORGE_CACHE_DISK_PATH=/var/cache/imgforge \
   -v imgforge-cache:/var/cache/imgforge \
-  ghcr.io/your-org/imgforge:latest
+  ghcr.io/imgforger/imgforge:latest
+```
+
+If you need to customize the image (for example to bundle watermark assets, presets, or CA bundles), a multi-stage Dockerfile is included at the repository root. You can build a derivative image in CI or use the published image as a base:
+
+```Dockerfile
+FROM ghcr.io/imgforger/imgforge:latest
+# COPY your assets, CA bundles, or config templates
 ```
 
 **Best practices**
@@ -77,7 +84,7 @@ Ensure the proxy forwards `Authorization` headers when using `IMGFORGE_SECRET` a
 
 ## Observability stack
 
-- Scrape `/metrics` from the main listener or a dedicated `IMGFORGE_PROMETHEUS_BIND` port. Feed the data into Prometheus, Grafana, Datadog, or your preferred monitoring system.
+- Scrape `/metrics` from the main listener or a dedicated `IMGFORGE_PROMETHEUS_BIND` port. Feed the data into Prometheus, Grafana, Datadog, or your preferred monitoring system—see [11_prometheus_monitoring.md](11_prometheus_monitoring.md) for dashboards and alerting patterns.
 - Ship logs to a centralized collector (Fluent Bit, Vector, etc.) with the request ID for correlation.
 - Export tracing spans via OpenTelemetry to integrate with distributed tracing platforms.
 
@@ -98,7 +105,7 @@ Ensure the proxy forwards `Authorization` headers when using `IMGFORGE_SECRET` a
 ## Cloud-native notes
 
 - **Kubernetes**: Deploy as a `Deployment` with replicas > 1, expose via `Service`, mount a `PersistentVolume` for disk caches, and define liveness/readiness probes hitting `/status`. Use `PodDisruptionBudgets` to maintain availability during upgrades.
-- **Serverless containers**: Ensure cold-start budgets allow for libvips initialization (imgforge performs `VipsApp::new` once per process). Configure minimal idle instances to avoid thrash.
+- **Serverless containers**: Ensure cold-start budgets allow for libvips initialization (imgforge performs the libvips bootstrap once per process). Configure minimal idle instances to avoid thrash.
 - **Multi-region**: Deploy regional imgforge clusters to avoid cross-region latency when fetching sources.
 
 ## Post-deploy checklist

@@ -26,13 +26,7 @@ imgforge leverages libvips and Tokio to deliver high throughput with modest reso
 
 ## Monitor key metrics
 
-Scrape `/metrics` frequently and build dashboards around:
-
-- `image_processing_duration_seconds` (histogram) – tail latency of libvips operations.
-- `http_requests_duration_seconds` – overall request latency (add your own histogram via middleware if needed).
-- `processed_images_total{format=...}` – format-specific throughput.
-- `cache_hits_total` / `cache_misses_total` – effectiveness of the configured cache.
-- `status_codes_total` – error spikes or throttling events.
+Scrape `/metrics` frequently and build dashboards around the core histograms and counters. Start with `image_processing_duration_seconds`, `http_requests_duration_seconds`, cache hit ratios, and `status_codes_total`, then expand using the playbooks in [11_prometheus_monitoring.md](11_prometheus_monitoring.md).
 
 ## Right-size hardware
 
@@ -60,4 +54,4 @@ Scrape `/metrics` frequently and build dashboards around:
 - Horizontal scaling is straightforward—deploy multiple imgforge instances behind a load balancer. Ensure each replica has its own cache path (or use a shared NAS for disk caches).
 - Combine imgforge with message queues or background jobs when pre-rendering large batches of images.
 
-Pair these tips with the lifecycle overview in [6_processing_pipeline.md](6_processing_pipeline.md) to pinpoint bottlenecks quickly.
+Pair these tips with the lifecycle overview in [6_request_lifecycle.md](6_request_lifecycle.md) to pinpoint bottlenecks quickly.
