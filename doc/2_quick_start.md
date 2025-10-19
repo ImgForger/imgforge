@@ -4,11 +4,15 @@ This walkthrough launches imgforge locally, configures the required secrets, and
 
 ## Minimal configuration
 
-imgforge signs every request with an HMAC computed from `IMGFORGE_KEY` and `IMGFORGE_SALT`. Generate development-only values with OpenSSL:
+imgforge signs every request with an HMAC computed from `IMGFORGE_KEY` and `IMGFORGE_SALT`. Generate development-only values with OpenSSL. It's best to not use the same secret for both `IMGFORGE_KEY` and `IMGFORGE_SALT`.
+
+  ```bash
+  openssl rand -hex 32
+  ```
 
 ```bash
-export IMGFORGE_KEY=$(openssl rand -hex 32)
-export IMGFORGE_SALT=$(openssl rand -hex 32)
+export IMGFORGE_KEY=<generated_key>
+export IMGFORGE_SALT=<generated_salt>
 ```
 
 For early experiments you may also allow unsigned URLs:
@@ -29,8 +33,8 @@ Start the official container with your freshly created secrets:
 docker run \
   --rm \
   -p 3000:3000 \
-  -e IMGFORGE_KEY \
-  -e IMGFORGE_SALT \
+  -e IMGFORGE_KEY=<generated_key> \
+  -e IMGFORGE_SALT=<generated_salt> \
   -e IMGFORGE_ALLOW_UNSIGNED=true \
   ghcr.io/imgforger/imgforge:latest
 ```

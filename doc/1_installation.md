@@ -12,23 +12,28 @@ Docker is the fastest way to evaluate imgforge and mirrors the production deploy
    docker pull ghcr.io/imgforger/imgforge:latest
    ```
    If you need a custom image (for example to bundle watermarks or presets), see [10_deployment.md](10_deployment.md) for building a derivative image.
-3. **Start a container** – Provide HMAC secrets via environment variables or an env file:
+3. **Generate secrets** – Generate random secrets for HMAC signing:
+   ```bash
+   openssl rand -hex 32
+   ```
+   Copy the output and use it for `IMGFORGE_KEY` and `IMGFORGE_SALT`. It's best to not use the same secret for both `IMGFORGE_KEY` and `IMGFORGE_SALT`.
+4. **Start a container** – Provide HMAC secrets via environment variables or an env file:
    ```bash
    docker run \
      --rm \
      -p 3000:3000 \
-     -e IMGFORGE_KEY=$(openssl rand -hex 32) \
-     -e IMGFORGE_SALT=$(openssl rand -hex 32) \
+     -e IMGFORGE_KEY=<generated_key> \
+     -e IMGFORGE_SALT=<generated_salt> \
      -e IMGFORGE_ALLOW_UNSIGNED=true \
      ghcr.io/imgforger/imgforge:latest --help
    ```
-4. **Persist cache data (optional)** – Mount a volume when using disk or hybrid caching:
+5. **Persist cache data (optional)** – Mount a volume when using disk or hybrid caching:
    ```bash
    docker run -d \
      -p 3000:3000 \
      -v imgforge-cache:/var/cache/imgforge \
-     -e IMGFORGE_KEY=$(openssl rand -hex 32) \
-     -e IMGFORGE_SALT=$(openssl rand -hex 32) \
+     -e IMGFORGE_KEY=<generated_key> \
+     -e IMGFORGE_SALT=<generated_salt> \
      -e IMGFORGE_CACHE_MODE=hybrid \
      -e IMGFORGE_CACHE_MEMORY_CAPACITY=1000
      -e IMGFORGE_CACHE_DISK_PATH=/var/cache/imgforge \

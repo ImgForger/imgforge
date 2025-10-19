@@ -18,11 +18,19 @@ imgforge is a fast, secure image proxy and transformation server written in Rust
 
 ## Get started in minutes
 
+Generate development-only values with OpenSSL:
+
+```bash
+openssl rand -hex 32
+```
+
+Copy the output and use it for `IMGFORGE_KEY` and `IMGFORGE_SALT`. It's best to not use the same secret for both `IMGFORGE_KEY` and `IMGFORGE_SALT`.
+
 ```bash
 docker pull ghcr.io/imgforger/imgforge:latest
 docker run --rm -p 3000:3000 \
-  -e IMGFORGE_KEY=$(openssl rand -hex 32) \
-  -e IMGFORGE_SALT=$(openssl rand -hex 32) \
+  -e IMGFORGE_KEY=<generated_key> \
+  -e IMGFORGE_SALT=<generated_salt> \
   ghcr.io/imgforger/imgforge:latest
 ```
 
