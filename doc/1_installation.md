@@ -16,7 +16,6 @@ Docker is the fastest way to evaluate imgforge and mirrors the production deploy
    ```bash
    openssl rand -hex 32
    ```
-   Copy the output and use it for `IMGFORGE_KEY` and `IMGFORGE_SALT`. It's best to not use the same secret for both `IMGFORGE_KEY` and `IMGFORGE_SALT`.
 4. **Start a container** – Provide HMAC secrets via environment variables or an env file:
    ```bash
    docker run \
