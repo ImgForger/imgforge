@@ -2,6 +2,14 @@
 name = "imgforge"
 version = "0.1.0"
 edition = "2021"
+repository = "https://github.com/ImgForger/imgforge"
+description = "Fast and secure image proxy and transformation server"
+authors = ["joker666 <mr.k779@outlook.com>"]
+license = "GPL-3.0 license"
+homepage = "https://imgforge.github.io"
+readme = "README.md"
+keywords = ["image", "proxy", "transform", "server"]
+categories = ["web-servers", "image-processing"]
 
 [lib]
 name = "imgforge"
