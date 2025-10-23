@@ -24,8 +24,6 @@ Generate development-only values with OpenSSL:
 openssl rand -hex 32
 ```
 
-Copy the output and use it for `IMGFORGE_KEY` and `IMGFORGE_SALT`. It's best to not use the same secret for both `IMGFORGE_KEY` and `IMGFORGE_SALT`.
-
 ```bash
 docker pull ghcr.io/imgforger/imgforge:latest
 docker run --rm -p 3000:3000 \

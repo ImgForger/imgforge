@@ -4,7 +4,7 @@ This walkthrough launches imgforge locally, configures the required secrets, and
 
 ## Minimal configuration
 
-imgforge signs every request with an HMAC computed from `IMGFORGE_KEY` and `IMGFORGE_SALT`. Generate development-only values with OpenSSL. It's best to not use the same secret for both `IMGFORGE_KEY` and `IMGFORGE_SALT`.
+imgforge signs every request with an HMAC computed from `IMGFORGE_KEY` and `IMGFORGE_SALT`. Generate development-only values with OpenSSL.
 
   ```bash
   openssl rand -hex 32
