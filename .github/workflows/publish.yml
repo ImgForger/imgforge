@@ -3,7 +3,7 @@ name: Build & Publish Docker Image(s)
 on:
   push:
     tags:
-      - 'v*'  # trigger on version tags like v1.0.0
+      - "v*"  # trigger on version tags like v1.0.0
 
 permissions:
   contents: read
