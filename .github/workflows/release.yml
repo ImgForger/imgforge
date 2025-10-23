@@ -35,7 +35,7 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y libvips-dev
+        run: sudo apt-get update && sudo apt-get install -y ca-certificates libssl3 libvips-tools libvips-dev openssl
 
       - name: Build and upload
         uses: taiki-e/upload-rust-binary-action@v1
