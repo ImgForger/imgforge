@@ -1,5 +1,10 @@
 # imgforge
 
+[![crates.io](https://img.shields.io/crates/v/imgforge.svg)](https://crates.io/crates/imgforge)
+[![Build](https://github.com/ImgForger/imgforge/actions/workflows/build.yml/badge.svg)](https://github.com/ImgForger/imgforge/actions/workflows/build.yml)
+[![Release](https://github.com/ImgForger/imgforge/actions/workflows/release.yml/badge.svg)](https://github.com/ImgForger/imgforge/actions/workflows/release.yml)
+[![dependency status](https://deps.rs/repo/github/ImgForger/imgforge/status.svg)](https://deps.rs/repo/github/ImgForger/imgforge)
+
 imgforge is a fast, secure image proxy and transformation server written in Rust. Built with Rust and libvips, it delivers imgproxy-compatible URL semantics with an async-first architecture and optional, pluggable caching backends.
 
 ## Why choose imgforge
