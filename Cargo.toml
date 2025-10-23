@@ -9,7 +9,7 @@ license = "GPL-3.0-only"
 homepage = "https://imgforge.github.io"
 readme = "README.md"
 keywords = ["image", "proxy", "transform", "server"]
-categories = ["web-servers", "image-processing"]
+categories = ["multimedia", "multimedia::images", "web-programming", "web-programming::http-server"]
 exclude = ["doc/*", "AGENTS.md"]
 
 [lib]
