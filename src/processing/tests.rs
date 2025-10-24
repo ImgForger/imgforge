@@ -1156,6 +1156,15 @@ mod test_processing {
         assert_eq!(sharpened.get_height(), 100);
     }
 
+    #[test]
+    fn test_apply_sharpen_clamps_sigma() {
+        let _ = &*APP;
+        let img = VipsImage::new_from_buffer(&create_test_image(50, 50), "").unwrap();
+        let sharpened = transform::apply_sharpen(img, 100.0).unwrap();
+        assert_eq!(sharpened.get_width(), 50);
+        assert_eq!(sharpened.get_height(), 50);
+    }
+
     // Complex multi-operation scenarios
     #[test]
     fn test_complex_pipeline_crop_resize_blur_rotate() {
