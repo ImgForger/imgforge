@@ -2,7 +2,7 @@ import http from 'k6/http';
 import { check, group, sleep } from 'k6';
 import { Rate, Trend, Counter } from 'k6/metrics';
 import encoding from 'k6/encoding';
-import { crypto } from 'k6/experimental/webcrypto';
+import { generateSignature } from './common.js';
 
 // Custom metrics
 const errorRate = new Rate('errors');
@@ -27,37 +27,8 @@ export const options = {
 
 // Configuration from environment variables
 const BASE_URL = __ENV.IMGFORGE_URL || 'http://localhost:3000';
-const HMAC_KEY = __ENV.IMGFORGE_KEY || '';
-const HMAC_SALT = __ENV.IMGFORGE_SALT || '';
 const USE_UNSIGNED = __ENV.IMGFORGE_ALLOW_UNSIGNED === 'true';
 const TEST_IMAGE_URL = __ENV.TEST_IMAGE_URL || 'https://picsum.photos/800/600';
-
-// Helper function to generate HMAC signature
-async function generateSignature(path) {
-    if (USE_UNSIGNED) {
-        return 'unsafe';
-    }
-
-    const keyBytes = encoding.b64decode(encoding.b64encode(HMAC_KEY), 'rawstd');
-    const saltBytes = encoding.b64decode(encoding.b64encode(HMAC_SALT), 'rawstd');
-
-    const key = await crypto.subtle.importKey(
-        'raw',
-        keyBytes,
-        { name: 'HMAC', hash: 'SHA-256' },
-        false,
-        ['sign']
-    );
-
-    const encoder = new TextEncoder();
-    const dataToSign = new Uint8Array([...saltBytes, ...encoder.encode(path)]);
-
-    const signature = await crypto.subtle.sign('HMAC', key, dataToSign);
-
-    // Convert to base64url (URL-safe base64 without padding)
-    const base64 = encoding.b64encode(new Uint8Array(signature), 'rawurl');
-    return base64;
-}
 
 // Helper function to encode URL to base64url
 function encodeUrlToBase64(url) {
@@ -194,9 +165,6 @@ export default async function () {
     const scenario = scenarios[Math.floor(Math.random() * scenarios.length)];
 
     await group(scenario.name, async function () {
-        // Encode the source URL
-        const encodedUrl = encodeUrlToBase64(TEST_IMAGE_URL);
-
         // Build the processing path with plain URL
         const processingPath = `/${scenario.options}/plain/${TEST_IMAGE_URL}`;
 
