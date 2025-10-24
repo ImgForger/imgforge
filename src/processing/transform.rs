@@ -256,11 +256,15 @@ fn resize_to_fit(
     };
 
     debug!("Resizing to fit from {}x{} to {}x{}", img_w, img_h, target_w, target_h);
-    let scale = target_w as f64 / img_w as f64;
+    let scale_w = target_w as f64 / img_w as f64;
+    let scale_h = target_h as f64 / img_h as f64;
+    let scale = scale_w.min(scale_h);
+
     if resizing_algorithm.is_some() && resizing_algorithm.as_deref() != Some("lanczos3") {
         let kernel = get_resize_kernel(resizing_algorithm);
         let options = ops::ResizeOptions {
             kernel,
+            vscale: scale,
             ..Default::default()
         };
         ops::resize_with_opts(&img, scale, &options).map_err(|e| format!("Error fitting resize: {}", e))
