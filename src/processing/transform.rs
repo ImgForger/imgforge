@@ -18,6 +18,21 @@ fn get_resize_kernel(algorithm: &Option<String>) -> ops::Kernel {
     }
 }
 
+/// Helper to resize using the requested algorithm, defaulting to lanczos3.
+fn resize_with_algorithm(
+    img: &VipsImage,
+    hscale: f64,
+    vscale: Option<f64>,
+    resizing_algorithm: &Option<String>,
+    error_context: &str,
+) -> Result<VipsImage, String> {
+    let mut options = ops::ResizeOptions::default();
+    options.kernel = get_resize_kernel(resizing_algorithm);
+    options.vscale = vscale.unwrap_or(hscale);
+
+    ops::resize_with_opts(img, hscale, &options).map_err(|e| format!("{error_context}: {}", e))
+}
+
 /// Applies EXIF rotation to an image based on orientation data.
 pub fn apply_exif_rotation(image_bytes: &[u8], mut img: VipsImage) -> Result<VipsImage, String> {
     let exif_reader = exif::Reader::new();
@@ -166,17 +181,7 @@ fn resize_to_fill(
     // Bump the scale slightly so kernels that round down still cover the target.
     scale *= 1.0 + SCALE_EPSILON;
 
-    let resized_img = if resizing_algorithm.is_some() && resizing_algorithm.as_deref() != Some("lanczos3") {
-        let kernel = get_resize_kernel(resizing_algorithm);
-        let options = ops::ResizeOptions {
-            kernel,
-            vscale: scale,
-            ..Default::default()
-        };
-        ops::resize_with_opts(&img, scale, &options).map_err(|e| format!("Error resizing for fill: {}", e))?
-    } else {
-        ops::resize(&img, scale).map_err(|e| format!("Error resizing for fill: {}", e))?
-    };
+    let resized_img = resize_with_algorithm(&img, scale, None, resizing_algorithm, "Error resizing for fill")?;
 
     let resized_w = resized_img.get_width() as u32;
     let resized_h = resized_img.get_height() as u32;
@@ -222,19 +227,7 @@ fn resize_to_force(
         return Ok(img);
     }
 
-    if resizing_algorithm.is_some() && resizing_algorithm.as_deref() != Some("lanczos3") {
-        let kernel = get_resize_kernel(resizing_algorithm);
-        let options = ops::ResizeOptions {
-            kernel,
-            vscale: scale_y,
-            ..Default::default()
-        };
-        ops::resize_with_opts(&img, scale_x, &options).map_err(|e| format!("Error force resizing: {}", e))
-    } else {
-        let mut options = ops::ResizeOptions::default();
-        options.vscale = scale_y;
-        ops::resize_with_opts(&img, scale_x, &options).map_err(|e| format!("Error force resizing: {}", e))
-    }
+    resize_with_algorithm(&img, scale_x, Some(scale_y), resizing_algorithm, "Error force resizing")
 }
 
 /// Resizes an image to fit within the target dimensions while maintaining aspect ratio.
@@ -260,17 +253,7 @@ fn resize_to_fit(
     let scale_h = target_h as f64 / img_h as f64;
     let scale = scale_w.min(scale_h);
 
-    if resizing_algorithm.is_some() && resizing_algorithm.as_deref() != Some("lanczos3") {
-        let kernel = get_resize_kernel(resizing_algorithm);
-        let options = ops::ResizeOptions {
-            kernel,
-            vscale: scale,
-            ..Default::default()
-        };
-        ops::resize_with_opts(&img, scale, &options).map_err(|e| format!("Error fitting resize: {}", e))
-    } else {
-        ops::resize(&img, scale).map_err(|e| format!("Error fitting resize: {}", e))
-    }
+    resize_with_algorithm(&img, scale, None, resizing_algorithm, "Error fitting resize")
 }
 
 /// Extends an image to the target dimensions with background color.
@@ -377,17 +360,13 @@ pub fn apply_min_dimensions(
 
     let scale = scale_w.max(scale_h);
     if scale > 1.0 {
-        current_img = if resizing_algorithm.is_some() && resizing_algorithm.as_deref() != Some("lanczos3") {
-            let kernel = get_resize_kernel(resizing_algorithm);
-            let options = ops::ResizeOptions {
-                kernel,
-                ..Default::default()
-            };
-            ops::resize_with_opts(&current_img, scale, &options)
-                .map_err(|e| format!("Error applying min dimensions: {}", e))?
-        } else {
-            ops::resize(&current_img, scale).map_err(|e| format!("Error applying min dimensions: {}", e))?
-        };
+        current_img = resize_with_algorithm(
+            &current_img,
+            scale,
+            None,
+            resizing_algorithm,
+            "Error applying min dimensions",
+        )?;
     }
 
     Ok(current_img)
@@ -395,16 +374,7 @@ pub fn apply_min_dimensions(
 
 /// Applies zoom to an image.
 pub fn apply_zoom(img: VipsImage, zoom: f32, resizing_algorithm: &Option<String>) -> Result<VipsImage, String> {
-    if resizing_algorithm.is_some() && resizing_algorithm.as_deref() != Some("lanczos3") {
-        let kernel = get_resize_kernel(resizing_algorithm);
-        let options = ops::ResizeOptions {
-            kernel,
-            ..Default::default()
-        };
-        ops::resize_with_opts(&img, zoom as f64, &options).map_err(|e| format!("Error applying zoom: {}", e))
-    } else {
-        ops::resize(&img, zoom as f64).map_err(|e| format!("Error applying zoom: {}", e))
-    }
+    resize_with_algorithm(&img, zoom as f64, None, resizing_algorithm, "Error applying zoom")
 }
 
 /// Sharpens an image. The sigma parameter controls the amount of sharpening.
@@ -425,21 +395,14 @@ pub fn apply_pixelate(img: VipsImage, amount: u32, resizing_algorithm: &Option<S
     let (w, _h) = (img.get_width(), img.get_height());
     let factor = 1.0 / amount as f64;
 
-    if resizing_algorithm.is_some() && resizing_algorithm.as_deref() != Some("lanczos3") {
-        let kernel = get_resize_kernel(resizing_algorithm);
-        let options = ops::ResizeOptions {
-            kernel,
-            ..Default::default()
-        };
-        let pixelated =
-            ops::resize_with_opts(&img, factor, &options).map_err(|e| format!("Error pixelating (down): {}", e))?;
-        ops::resize_with_opts(&pixelated, w as f64 / pixelated.get_width() as f64, &options)
-            .map_err(|e| format!("Error pixelating (up): {}", e))
-    } else {
-        let pixelated = ops::resize(&img, factor).map_err(|e| format!("Error pixelating (down): {}", e))?;
-        ops::resize(&pixelated, w as f64 / pixelated.get_width() as f64)
-            .map_err(|e| format!("Error pixelating (up): {}", e))
-    }
+    let pixelated = resize_with_algorithm(&img, factor, None, resizing_algorithm, "Error pixelating (down)")?;
+    resize_with_algorithm(
+        &pixelated,
+        w as f64 / pixelated.get_width() as f64,
+        None,
+        resizing_algorithm,
+        "Error pixelating (up)",
+    )
 }
 
 /// Applies a watermark to an image.
@@ -454,17 +417,13 @@ pub fn apply_watermark(
 
     // Resize watermark to be 1/4 of the main image's width, maintaining aspect ratio
     let factor = (img.get_width() as f64 / 4.0) / watermark_img.get_width() as f64;
-    let watermark_resized = if resizing_algorithm.is_some() && resizing_algorithm.as_deref() != Some("lanczos3") {
-        let kernel = get_resize_kernel(resizing_algorithm);
-        let options = ops::ResizeOptions {
-            kernel,
-            ..Default::default()
-        };
-        ops::resize_with_opts(&watermark_img, factor, &options)
-            .map_err(|e| format!("Failed to resize watermark: {}", e))?
-    } else {
-        ops::resize(&watermark_img, factor).map_err(|e| format!("Failed to resize watermark: {}", e))?
-    };
+    let watermark_resized = resize_with_algorithm(
+        &watermark_img,
+        factor,
+        None,
+        resizing_algorithm,
+        "Failed to resize watermark",
+    )?;
 
     // Add alpha channel to watermark if it doesn't have one
     let watermark_with_alpha = if watermark_resized.get_bands() == 4 || watermark_resized.get_bands() == 2 {

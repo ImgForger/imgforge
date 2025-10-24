@@ -873,13 +873,8 @@ mod test_processing {
             width: 300,
             height: 400,
         };
-        let resized = transform::apply_resize(
-            img,
-            &resize,
-            &Some("center".to_string()),
-            &Some("lanczos2".to_string()),
-        )
-        .unwrap();
+        let resized =
+            transform::apply_resize(img, &resize, &Some("center".to_string()), &Some("lanczos2".to_string())).unwrap();
         assert_eq!(resized.get_width(), 300);
         assert_eq!(resized.get_height(), 400);
     }
@@ -893,8 +888,7 @@ mod test_processing {
             width: 300,
             height: 400,
         };
-        let resized =
-            transform::apply_resize(img, &resize, &None, &Some("nearest".to_string())).unwrap();
+        let resized = transform::apply_resize(img, &resize, &None, &Some("nearest".to_string())).unwrap();
         assert_eq!(resized.get_width(), 300);
         assert_eq!(resized.get_height(), 225);
     }
