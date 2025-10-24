@@ -407,10 +407,11 @@ pub fn apply_zoom(img: VipsImage, zoom: f32, resizing_algorithm: &Option<String>
     }
 }
 
-/// Sharpens an image.
+/// Sharpens an image. The sigma parameter controls the amount of sharpening.
 pub fn apply_sharpen(img: VipsImage, sigma: f32) -> Result<VipsImage, String> {
+    let clamped_sigma = sigma.clamp(0.1, 4.0);
     let opts = ops::SharpenOptions {
-        sigma: sigma as f64,
+        sigma: clamped_sigma as f64,
         ..Default::default()
     };
     ops::sharpen_with_opts(&img, &opts).map_err(|e| format!("Error applying sharpen: {}", e))
