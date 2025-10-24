@@ -37,10 +37,10 @@ async function generateSignature(path) {
     if (USE_UNSIGNED) {
         return 'unsafe';
     }
-    
+
     const keyBytes = encoding.b64decode(encoding.b64encode(HMAC_KEY), 'rawstd');
     const saltBytes = encoding.b64decode(encoding.b64encode(HMAC_SALT), 'rawstd');
-    
+
     const key = await crypto.subtle.importKey(
         'raw',
         keyBytes,
@@ -48,12 +48,12 @@ async function generateSignature(path) {
         false,
         ['sign']
     );
-    
+
     const encoder = new TextEncoder();
     const dataToSign = new Uint8Array([...saltBytes, ...encoder.encode(path)]);
-    
+
     const signature = await crypto.subtle.sign('HMAC', key, dataToSign);
-    
+
     // Convert to base64url (URL-safe base64 without padding)
     const base64 = encoding.b64encode(new Uint8Array(signature), 'rawurl');
     return base64;
@@ -189,50 +189,50 @@ const scenarios = [
 ];
 
 // Main test function
-export default async function() {
+export default async function () {
     // Randomly select a scenario
     const scenario = scenarios[Math.floor(Math.random() * scenarios.length)];
-    
-    await group(scenario.name, async function() {
+
+    await group(scenario.name, async function () {
         // Encode the source URL
         const encodedUrl = encodeUrlToBase64(TEST_IMAGE_URL);
-        
+
         // Build the processing path with plain URL
         const processingPath = `/${scenario.options}/plain/${TEST_IMAGE_URL}`;
-        
+
         // Generate signature
         const signature = await generateSignature(processingPath);
-        
+
         // Build the full URL
         const fullPath = `/${signature}${processingPath}`;
         const url = `${BASE_URL}${fullPath}`;
-        
+
         // Make the request
         const startTime = Date.now();
         const response = http.get(url, {
-            tags: { 
+            tags: {
                 scenario: scenario.name,
-                options: scenario.options 
+                options: scenario.options
             },
         });
         const duration = Date.now() - startTime;
-        
+
         // Track metrics
         processingDuration.add(duration);
-        
+
         // Check response
         const success = check(response, {
             'status is 200': (r) => r.status === 200,
             'has content-type header': (r) => r.headers['Content-Type'] !== undefined,
             'response has body': (r) => r.body && r.body.length > 0,
         });
-        
+
         if (!success) {
             errorRate.add(1);
             console.log(`Error for ${scenario.name}: Status ${response.status}, Body: ${response.body ? response.body.substring(0, 200) : 'empty'}`);
         } else {
             errorRate.add(0);
-            
+
             // Track cache hits/misses if header is present
             const cacheStatus = response.headers['X-Cache-Status'];
             if (cacheStatus === 'HIT') {
@@ -242,7 +242,7 @@ export default async function() {
             }
         }
     });
-    
+
     // Random sleep between 1-3 seconds to simulate real user behavior
     sleep(Math.random() * 2 + 1);
 }
@@ -255,16 +255,16 @@ export function setup() {
     console.log(`Test image URL: ${TEST_IMAGE_URL}`);
     console.log(`Total scenarios: ${scenarios.length}`);
     console.log('===================================');
-    
+
     // Test connection to server
     const statusResponse = http.get(`${BASE_URL}/status`);
     const serverUp = statusResponse.status === 200;
-    
+
     if (!serverUp) {
         console.error('ERROR: Server is not responding at /status endpoint');
         throw new Error('Server not available');
     }
-    
+
     console.log('✓ Server is up and responding');
     return { serverUp };
 }

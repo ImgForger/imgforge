@@ -31,10 +31,10 @@ async function generateSignature(path) {
     if (USE_UNSIGNED) {
         return 'unsafe';
     }
-    
+
     const keyBytes = encoding.b64decode(encoding.b64encode(HMAC_KEY), 'rawstd');
     const saltBytes = encoding.b64decode(encoding.b64encode(HMAC_SALT), 'rawstd');
-    
+
     const key = await crypto.subtle.importKey(
         'raw',
         keyBytes,
@@ -42,10 +42,10 @@ async function generateSignature(path) {
         false,
         ['sign']
     );
-    
+
     const encoder = new TextEncoder();
     const dataToSign = new Uint8Array([...saltBytes, ...encoder.encode(path)]);
-    
+
     const signature = await crypto.subtle.sign('HMAC', key, dataToSign);
     const base64 = encoding.b64encode(new Uint8Array(signature), 'rawurl');
     return base64;
@@ -66,15 +66,15 @@ const cacheableScenarios = [
 let cacheWarmedUp = false;
 let warmupComplete = false;
 
-export default async function() {
+export default async function () {
     // First iteration for each VU: warm up the cache
     if (__ITER === 0 && !warmupComplete) {
-        await group('Cache Warmup', async function() {
+        await group('Cache Warmup', async function () {
             for (const scenario of cacheableScenarios) {
                 const processingPath = `/${scenario.options}/plain/${TEST_IMAGE_URL}`;
                 const signature = await generateSignature(processingPath);
                 const url = `${BASE_URL}/${signature}${processingPath}`;
-                
+
                 const response = http.get(url, { tags: { type: 'warmup' } });
                 check(response, {
                     'warmup successful': (r) => r.status === 200,
@@ -86,25 +86,25 @@ export default async function() {
         sleep(2);  // Let cache settle
         return;
     }
-    
+
     // Select a random scenario from the cacheable set
     const scenario = cacheableScenarios[Math.floor(Math.random() * cacheableScenarios.length)];
-    
-    await group(scenario.name, async function() {
+
+    await group(scenario.name, async function () {
         const processingPath = `/${scenario.options}/plain/${TEST_IMAGE_URL}`;
         const signature = await generateSignature(processingPath);
         const url = `${BASE_URL}/${signature}${processingPath}`;
-        
+
         // Make request
         const startTime = Date.now();
         const response = http.get(url, {
-            tags: { 
+            tags: {
                 scenario: scenario.name,
                 type: 'cached'
             },
         });
         const duration = Date.now() - startTime;
-        
+
         // Track based on whether it was cached
         const xCacheStatus = response.headers['X-Cache-Status'];
         if (xCacheStatus === 'HIT') {
@@ -112,19 +112,19 @@ export default async function() {
         } else {
             firstRequestDuration.add(duration);
         }
-        
+
         // Check response
         check(response, {
             'status is 200': (r) => r.status === 200,
             'has body': (r) => r.body && r.body.length > 0,
         });
-        
+
         // Log cache statistics periodically
         if (__ITER % 100 === 0 && __VU === 1) {
             console.log(`[Iter ${__ITER}] Cache status: ${xCacheStatus || 'UNKNOWN'}, Duration: ${duration}ms`);
         }
     });
-    
+
     sleep(Math.random() * 1 + 0.5);
 }
 
@@ -136,13 +136,13 @@ export function setup() {
     console.log('2. Repeatedly requesting the same transformations');
     console.log('3. Comparing first-request vs cached-request performance');
     console.log('=====================================');
-    
+
     const response = http.get(`${BASE_URL}/status`);
     if (response.status !== 200) {
         throw new Error('Server not available');
     }
     console.log('✓ Server is ready');
-    
+
     console.log('\nNOTE: Ensure imgforge is configured with caching enabled');
     console.log('(IMGFORGE_CACHE_TYPE=memory or hybrid or disk)');
     console.log('=====================================\n');

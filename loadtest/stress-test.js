@@ -37,10 +37,10 @@ async function generateSignature(path) {
     if (USE_UNSIGNED) {
         return 'unsafe';
     }
-    
+
     const keyBytes = encoding.b64decode(encoding.b64encode(HMAC_KEY), 'rawstd');
     const saltBytes = encoding.b64decode(encoding.b64encode(HMAC_SALT), 'rawstd');
-    
+
     const key = await crypto.subtle.importKey(
         'raw',
         keyBytes,
@@ -48,10 +48,10 @@ async function generateSignature(path) {
         false,
         ['sign']
     );
-    
+
     const encoder = new TextEncoder();
     const dataToSign = new Uint8Array([...saltBytes, ...encoder.encode(path)]);
-    
+
     const signature = await crypto.subtle.sign('HMAC', key, dataToSign);
     const base64 = encoding.b64encode(new Uint8Array(signature), 'rawurl');
     return base64;
@@ -105,7 +105,7 @@ const scenarios = [
 function selectScenario() {
     const totalWeight = scenarios.reduce((sum, s) => sum + s.weight, 0);
     let random = Math.random() * totalWeight;
-    
+
     for (const scenario of scenarios) {
         random -= scenario.weight;
         if (random <= 0) {
@@ -115,27 +115,27 @@ function selectScenario() {
     return scenarios[0];
 }
 
-export default async function() {
+export default async function () {
     const scenario = selectScenario();
-    
+
     const processingPath = `/${scenario.options}/plain/${TEST_IMAGE_URL}`;
     const signature = await generateSignature(processingPath);
     const fullPath = `/${signature}${processingPath}`;
     const url = `${BASE_URL}${fullPath}`;
-    
+
     const startTime = Date.now();
     const response = http.get(url, {
         tags: { scenario: scenario.name },
     });
     const duration = Date.now() - startTime;
-    
+
     processingDuration.add(duration);
-    
+
     const success = check(response, {
         'status is 200': (r) => r.status === 200,
         'has body': (r) => r.body && r.body.length > 0,
     });
-    
+
     if (!success) {
         errorRate.add(1);
         if (__ITER % 50 === 0) {  // Log every 50th error to avoid spam
@@ -144,7 +144,7 @@ export default async function() {
     } else {
         errorRate.add(0);
     }
-    
+
     // Minimal sleep to maximize stress
     sleep(Math.random() * 0.5);
 }
@@ -155,7 +155,7 @@ export function setup() {
     console.log('Load Pattern: 0 → 50 → 100 → 150 → 200 users over 24 minutes');
     console.log('WARNING: This test will generate significant load');
     console.log('=====================================');
-    
+
     const response = http.get(`${BASE_URL}/status`);
     if (response.status !== 200) {
         throw new Error('Server not available');

@@ -1,7 +1,6 @@
 import http from 'k6/http';
 import { check, sleep } from 'k6';
 import encoding from 'k6/encoding';
-import { crypto } from 'k6/experimental/webcrypto';
 
 // Smoke test configuration - quick validation with minimal load
 export const options = {
@@ -23,10 +22,10 @@ async function generateSignature(path) {
     if (USE_UNSIGNED) {
         return 'unsafe';
     }
-    
+
     const keyBytes = encoding.b64decode(encoding.b64encode(HMAC_KEY), 'rawstd');
     const saltBytes = encoding.b64decode(encoding.b64encode(HMAC_SALT), 'rawstd');
-    
+
     const key = await crypto.subtle.importKey(
         'raw',
         keyBytes,
@@ -34,10 +33,10 @@ async function generateSignature(path) {
         false,
         ['sign']
     );
-    
+
     const encoder = new TextEncoder();
     const dataToSign = new Uint8Array([...saltBytes, ...encoder.encode(path)]);
-    
+
     const signature = await crypto.subtle.sign('HMAC', key, dataToSign);
     const base64 = encoding.b64encode(new Uint8Array(signature), 'rawurl');
     return base64;
@@ -51,7 +50,7 @@ const smokeTests = [
     { name: 'With Effect', options: 'resize:fit:300:300/blur:1' },
 ];
 
-export default async function() {
+export default async function () {
     for (const test of smokeTests) {
         if (test.needsSignature === false) {
             // Direct endpoint test
@@ -65,7 +64,7 @@ export default async function() {
             const signature = await generateSignature(processingPath);
             const fullPath = `/${signature}${processingPath}`;
             const url = `${BASE_URL}${fullPath}`;
-            
+
             const response = http.get(url);
             check(response, {
                 [`${test.name}: status is 200`]: (r) => r.status === 200,
@@ -79,7 +78,7 @@ export default async function() {
 export function setup() {
     console.log('=== Smoke Test Starting ===');
     console.log(`Testing: ${BASE_URL}`);
-    
+
     const response = http.get(`${BASE_URL}/status`);
     if (response.status !== 200) {
         throw new Error('Server not available');
