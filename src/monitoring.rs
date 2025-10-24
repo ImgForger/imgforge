@@ -1,5 +1,5 @@
 use lazy_static::lazy_static;
-use prometheus::{HistogramVec, IntCounterVec, Opts, Registry};
+use prometheus::{HistogramVec, IntCounterVec, IntGauge, Opts, Registry};
 
 lazy_static! {
     pub static ref HTTP_REQUESTS_DURATION_SECONDS: HistogramVec = HistogramVec::new(
@@ -48,6 +48,18 @@ lazy_static! {
         &["status"]
     )
     .unwrap();
+    pub static ref VIPS_TRACKED_MEM_BYTES: IntGauge = IntGauge::new(
+        "vips_tracked_mem_bytes",
+        "Current libvips tracked memory usage in bytes"
+    )
+    .unwrap();
+    pub static ref VIPS_TRACKED_MEM_HIGHWATER_BYTES: IntGauge = IntGauge::new(
+        "vips_tracked_mem_highwater_bytes",
+        "Peak libvips tracked memory usage in bytes"
+    )
+    .unwrap();
+    pub static ref VIPS_TRACKED_ALLOCS: IntGauge =
+        IntGauge::new("vips_tracked_allocs", "Number of active libvips tracked allocations").unwrap();
 }
 
 pub fn register_metrics(registry: &Registry) {
@@ -67,4 +79,15 @@ pub fn register_metrics(registry: &Registry) {
     registry.register(Box::new(CACHE_HITS_TOTAL.clone())).unwrap();
     registry.register(Box::new(CACHE_MISSES_TOTAL.clone())).unwrap();
     registry.register(Box::new(STATUS_CODES_TOTAL.clone())).unwrap();
+    registry.register(Box::new(VIPS_TRACKED_MEM_BYTES.clone())).unwrap();
+    registry
+        .register(Box::new(VIPS_TRACKED_MEM_HIGHWATER_BYTES.clone()))
+        .unwrap();
+    registry.register(Box::new(VIPS_TRACKED_ALLOCS.clone())).unwrap();
+}
+
+pub fn update_vips_metrics(vips_app: &std::sync::Arc<libvips::VipsApp>) {
+    VIPS_TRACKED_MEM_BYTES.set(vips_app.tracked_get_mem() as i64);
+    VIPS_TRACKED_MEM_HIGHWATER_BYTES.set(vips_app.tracked_get_mem_highwater() as i64);
+    VIPS_TRACKED_ALLOCS.set(vips_app.tracked_get_allocs() as i64);
 }

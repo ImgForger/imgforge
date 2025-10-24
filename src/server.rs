@@ -14,7 +14,7 @@ use rand::distr::Alphanumeric;
 use rand::Rng;
 use std::env;
 use std::num::NonZeroU32;
-use std::sync::{Arc, Once};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::sync::Semaphore;
@@ -23,21 +23,13 @@ use tower_http::trace::TraceLayer;
 use tracing::{info, info_span};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
-// Initialize libvips exactly once for the entire process lifetime.
-static VIPS_INIT: Once = Once::new();
-
-fn init_vips_once() {
-    VIPS_INIT.call_once(|| {
-        // Keep the VipsApp guard alive for the process lifetime by leaking it.
-        match VipsApp::new("imgforge", false) {
-            Ok(app) => {
-                std::mem::forget(app);
-            }
-            Err(e) => {
-                panic!("Failed to initialize libvips: {}", e);
-            }
+fn init_vips() -> VipsApp {
+    match VipsApp::new("imgforge", false) {
+        Ok(app) => app,
+        Err(e) => {
+            panic!("Failed to initialize libvips: {}", e);
         }
-    });
+    }
 }
 
 fn generate_request_id() -> String {
@@ -75,28 +67,30 @@ pub async fn start() {
         }
     };
 
-    let state = Arc::new(AppState {
-        semaphore,
-        cache,
-        rate_limiter,
-        config,
-    });
-
     // Initialize tracing
     let subscriber = FmtSubscriber::builder()
         .with_env_filter(EnvFilter::from_env(ENV_LOG_LEVEL))
         .finish();
     tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
 
-    info!("Starting imgforge server with {} workers...", state.config.workers);
+    info!("Starting imgforge server with {} workers...", config.workers);
 
     // Initialize libvips once for the whole process
-    init_vips_once();
+    let vips_app = Arc::new(init_vips());
+
+    let state = Arc::new(AppState {
+        semaphore,
+        cache,
+        rate_limiter,
+        config,
+        vips_app,
+    });
 
     let (prometheus_layer, metric_handle) = PrometheusMetricLayer::pair();
     monitoring::register_metrics(prometheus::default_registry());
 
     let main_metric_handle = metric_handle.clone();
+    let main_state = state.clone();
 
     let app = Router::new()
         .route("/status", get(status_handler))
@@ -110,7 +104,13 @@ pub async fn start() {
                 ))
                 .layer(axum::middleware::from_fn(middleware::status_code_metric_middleware)),
         )
-        .route("/metrics", get(move || async move { main_metric_handle.render() }))
+        .route(
+            "/metrics",
+            get(move || async move {
+                monitoring::update_vips_metrics(&main_state.vips_app);
+                main_metric_handle.render()
+            }),
+        )
         .with_state(state.clone())
         .layer(prometheus_layer)
         .layer(
@@ -140,7 +140,14 @@ pub async fn start() {
             .await
             .unwrap_or_else(|_| panic!("Failed to bind Prometheus to {}", prometheus_bind_address));
 
-        let prometheus_app = Router::new().route("/metrics", get(move || async move { metric_handle.render() }));
+        let prometheus_state = state.clone();
+        let prometheus_app = Router::new().route(
+            "/metrics",
+            get(move || async move {
+                monitoring::update_vips_metrics(&prometheus_state.vips_app);
+                metric_handle.render()
+            }),
+        );
 
         let prometheus_server = axum::serve(prometheus_listener, prometheus_app);
 
