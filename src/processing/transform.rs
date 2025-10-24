@@ -154,9 +154,10 @@ fn resize_to_force(img: VipsImage, width: u32, height: u32) -> Result<VipsImage,
     if (scale_x - 1.0).abs() < SCALE_EPSILON && (scale_y - 1.0).abs() < SCALE_EPSILON {
         return Ok(img);
     }
-
-    let mut options = ops::ResizeOptions::default();
-    options.vscale = scale_y;
+    let options = ops::ResizeOptions {
+        vscale: scale_y,
+        ..Default::default()
+    };
     ops::resize_with_opts(&img, scale_x, &options).map_err(|e| format!("Error force resizing: {}", e))
 }
 

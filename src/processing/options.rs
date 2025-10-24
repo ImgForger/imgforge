@@ -259,7 +259,7 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
                 let mut store_resize = parsed_options.resize.is_some();
                 let mut resize = parsed_options.resize.take().unwrap_or_default();
 
-                if let Some(arg) = option.args.get(0) {
+                if let Some(arg) = option.args.first() {
                     if !arg.is_empty() {
                         resize.resizing_type = arg.clone();
                         store_resize = true;
@@ -311,7 +311,7 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
                 let mut resize = parsed_options.resize.take().unwrap_or_default();
                 let mut width_height_set = false;
 
-                if let Some(arg) = option.args.get(0) {
+                if let Some(arg) = option.args.first() {
                     if !arg.is_empty() {
                         resize.width = arg.parse::<u32>().map_err(|e: std::num::ParseIntError| {
                             error!("Invalid width for size: {}", e);
@@ -352,7 +352,7 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
                 }
             }
             WIDTH | WIDTH_SHORT => {
-                let width_arg = option.args.get(0).map(|s| s.as_str()).unwrap_or("0");
+                let width_arg = option.args.first().map(|s| s.as_str()).unwrap_or("0");
                 let width = if width_arg.is_empty() {
                     0
                 } else {
@@ -364,7 +364,7 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
                 parsed_options.width = Some(width);
             }
             HEIGHT | HEIGHT_SHORT => {
-                let height_arg = option.args.get(0).map(|s| s.as_str()).unwrap_or("0");
+                let height_arg = option.args.first().map(|s| s.as_str()).unwrap_or("0");
                 let height = if height_arg.is_empty() {
                     0
                 } else {
