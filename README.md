@@ -49,6 +49,7 @@ Then follow the [Quick Start guide](doc/2_quick_start.md) to sign URLs and try y
 - [Request lifecycle overview](doc/6_request_lifecycle.md)
 - [Image processing pipeline deep dive](doc/12_image_processing_pipeline.md)
 - [Prometheus monitoring playbooks](doc/11_prometheus_monitoring.md)
+- [K6 load testing suite](loadtest/README.md)
 
 Browse the full documentation set under [`doc/`](doc/).
 
