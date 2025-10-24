@@ -1022,9 +1022,9 @@ mod test_processing {
             height: 100,
         };
         let resized = transform::apply_resize(img, &resize, &None, &None).unwrap();
-        // Uses fit mode when orientations differ, which scales based on width (100x200 -> 150x300)
-        assert_eq!(resized.get_width(), 150);
-        assert_eq!(resized.get_height(), 300);
+        // Uses fit mode when orientations differ, fitting within 150x100 while keeping aspect.
+        assert_eq!(resized.get_width(), 50);
+        assert_eq!(resized.get_height(), 100);
     }
 
     // Utils tests
