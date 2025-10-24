@@ -9,6 +9,8 @@ use image::{ImageBuffer, Rgba};
 use imgforge::caching::cache::ImgforgeCache;
 use imgforge::config::Config;
 use imgforge::handlers::{image_forge_handler, info_handler, status_handler, AppState};
+use lazy_static::lazy_static;
+use libvips::VipsApp;
 use serde_json::Value;
 use sha2::Sha256;
 use std::sync::Arc;
@@ -20,6 +22,11 @@ use wiremock::{
 };
 
 type HmacSha256 = Hmac<Sha256>;
+
+lazy_static! {
+    static ref VIPS_APP: Arc<VipsApp> =
+        Arc::new(VipsApp::new("imgforge-test", false).expect("Failed to initialize libvips"));
+}
 
 /// Helper function to create a test PNG image
 fn create_test_image(width: u32, height: u32, color: [u8; 4]) -> Vec<u8> {
@@ -69,6 +76,7 @@ async fn create_test_state(config: Config) -> Arc<AppState> {
         cache,
         rate_limiter: None,
         config,
+        vips_app: VIPS_APP.clone(),
     })
 }
 

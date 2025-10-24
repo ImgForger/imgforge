@@ -13,7 +13,7 @@ use axum_extra::headers::{authorization::Bearer, Authorization};
 use axum_extra::TypedHeader;
 use governor::state::{InMemoryState, NotKeyed};
 use governor::RateLimiter;
-use libvips::VipsImage;
+use libvips::{VipsApp, VipsImage};
 use serde_json::json;
 use std::env;
 use std::sync::Arc;
@@ -30,6 +30,8 @@ pub struct AppState {
     pub rate_limiter: Option<RateLimiter<NotKeyed, InMemoryState, governor::clock::DefaultClock>>,
     /// The application config
     pub config: Config,
+    /// The VipsApp instance for accessing libvips memory metrics
+    pub vips_app: Arc<VipsApp>,
 }
 
 /// Handles the /status endpoint, returning a simple JSON status.
