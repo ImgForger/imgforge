@@ -865,6 +865,26 @@ mod test_processing {
     }
 
     #[test]
+    fn test_resize_fill_with_lanczos2_kernel() {
+        let _ = &*APP;
+        let img = VipsImage::new_from_buffer(&create_test_image(800, 600), "").unwrap();
+        let resize = Resize {
+            resizing_type: "fill".to_string(),
+            width: 300,
+            height: 400,
+        };
+        let resized = transform::apply_resize(
+            img,
+            &resize,
+            &Some("center".to_string()),
+            &Some("lanczos2".to_string()),
+        )
+        .unwrap();
+        assert_eq!(resized.get_width(), 300);
+        assert_eq!(resized.get_height(), 400);
+    }
+
+    #[test]
     fn test_watermark_all_positions() {
         let _ = &*APP;
         let watermark_bytes = create_test_image(50, 50);

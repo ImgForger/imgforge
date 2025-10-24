@@ -158,17 +158,19 @@ fn resize_to_fill(
     let aspect_ratio = img_w as f32 / img_h as f32;
     let target_aspect_ratio = width as f32 / height as f32;
 
-    let (resize_w, resize_h) = if aspect_ratio > target_aspect_ratio {
-        ((height as f32 * aspect_ratio).round() as u32, height)
+    let mut scale = if aspect_ratio > target_aspect_ratio {
+        height as f64 / img_h as f64
     } else {
-        (width, (width as f32 / aspect_ratio).round() as u32)
+        width as f64 / img_w as f64
     };
+    // Bump the scale slightly so kernels that round down still cover the target.
+    scale *= 1.0 + SCALE_EPSILON;
 
-    let scale = resize_w as f64 / img_w as f64;
     let resized_img = if resizing_algorithm.is_some() && resizing_algorithm.as_deref() != Some("lanczos3") {
         let kernel = get_resize_kernel(resizing_algorithm);
         let options = ops::ResizeOptions {
             kernel,
+            vscale: scale,
             ..Default::default()
         };
         ops::resize_with_opts(&img, scale, &options).map_err(|e| format!("Error resizing for fill: {}", e))?
@@ -176,13 +178,29 @@ fn resize_to_fill(
         ops::resize(&img, scale).map_err(|e| format!("Error resizing for fill: {}", e))?
     };
 
-    let (crop_x, crop_y) = match gravity {
-        "center" => ((resize_w - width) / 2, (resize_h - height) / 2),
-        "north" => ((resize_w - width) / 2, 0),
-        "south" => ((resize_w - width) / 2, resize_h - height),
-        "west" => (0, (resize_h - height) / 2),
-        "east" => (resize_w - width, (resize_h - height) / 2),
-        _ => ((resize_w - width) / 2, (resize_h - height) / 2), // Default to center
+    let resized_w = resized_img.get_width() as u32;
+    let resized_h = resized_img.get_height() as u32;
+
+    if resized_w < width || resized_h < height {
+        return Err(format!(
+            "Resized image {}x{} is smaller than fill target {}x{}",
+            resized_w, resized_h, width, height
+        ));
+    }
+
+    let extra_w = resized_w - width;
+    let extra_h = resized_h - height;
+
+    let crop_x = match gravity {
+        "west" => 0,
+        "east" => extra_w,
+        _ => extra_w / 2,
+    };
+
+    let crop_y = match gravity {
+        "north" => 0,
+        "south" => extra_h,
+        _ => extra_h / 2,
     };
 
     ops::extract_area(&resized_img, crop_x as i32, crop_y as i32, width as i32, height as i32)
