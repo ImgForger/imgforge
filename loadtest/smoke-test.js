@@ -23,7 +23,7 @@ const smokeTests = [
     { name: 'With Effect', options: 'resize:fit:300:300/blur:1' },
 ];
 
-export default async function () {
+export default function () {
     for (const test of smokeTests) {
         if (test.needsSignature === false) {
             // Direct endpoint test
@@ -34,7 +34,7 @@ export default async function () {
         } else {
             // Processing endpoint test
             const processingPath = `/${test.options}/plain/${TEST_IMAGE_URL}`;
-            const signature = await generateSignature(processingPath);
+            const signature = generateSignature(processingPath);
             const fullPath = `/${signature}${processingPath}`;
             const url = `${BASE_URL}${fullPath}`;
 

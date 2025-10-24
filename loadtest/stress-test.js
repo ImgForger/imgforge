@@ -87,11 +87,11 @@ function selectScenario() {
     return scenarios[0];
 }
 
-export default async function () {
+export default function () {
     const scenario = selectScenario();
 
     const processingPath = `/${scenario.options}/plain/${TEST_IMAGE_URL}`;
-    const signature = await generateSignature(processingPath);
+    const signature = generateSignature(processingPath);
     const fullPath = `/${signature}${processingPath}`;
     const url = `${BASE_URL}${fullPath}`;
 

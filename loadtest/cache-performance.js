@@ -38,13 +38,13 @@ const cacheableScenarios = [
 let cacheWarmedUp = false;
 let warmupComplete = false;
 
-export default async function () {
+export default function () {
     // First iteration for each VU: warm up the cache
     if (__ITER === 0 && !warmupComplete) {
-        await group('Cache Warmup', async function () {
+        group('Cache Warmup', function () {
             for (const scenario of cacheableScenarios) {
                 const processingPath = `/${scenario.options}/plain/${TEST_IMAGE_URL}`;
-                const signature = await generateSignature(processingPath);
+                const signature = generateSignature(processingPath);
                 const url = `${BASE_URL}/${signature}${processingPath}`;
 
                 const response = http.get(url, { tags: { type: 'warmup' } });
@@ -62,9 +62,9 @@ export default async function () {
     // Select a random scenario from the cacheable set
     const scenario = cacheableScenarios[Math.floor(Math.random() * cacheableScenarios.length)];
 
-    await group(scenario.name, async function () {
+    group(scenario.name, function () {
         const processingPath = `/${scenario.options}/plain/${TEST_IMAGE_URL}`;
-        const signature = await generateSignature(processingPath);
+        const signature = generateSignature(processingPath);
         const url = `${BASE_URL}/${signature}${processingPath}`;
 
         // Make request

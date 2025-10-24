@@ -1,4 +1,5 @@
 import encoding from 'k6/encoding';
+import crypto from 'k6/crypto';
 import { TextEncoder } from 'https://raw.githubusercontent.com/inexorabletash/text-encoding/master/index.js';
 
 const HMAC_KEY = __ENV.IMGFORGE_KEY || '';
@@ -28,32 +29,23 @@ export function hexToBytes(hexString) {
     return bytes;
 }
 
-export async function generateSignature(path) {
+export function generateSignature(path) {
     if (USE_UNSIGNED) {
         return 'unsafe';
-    }
-
-    const subtle = globalThis.crypto && globalThis.crypto.subtle;
-    if (!subtle) {
-        throw new Error('Web Crypto API is not available in this environment.');
     }
 
     const keyBytes = hexToBytes(HMAC_KEY);
     const saltBytes = hexToBytes(HMAC_SALT);
     const pathBytes = new TextEncoder().encode(path);
 
+    // Combine salt + path
     const payload = new Uint8Array(saltBytes.length + pathBytes.length);
     payload.set(saltBytes);
     payload.set(pathBytes, saltBytes.length);
 
-    const cryptoKey = await subtle.importKey(
-        'raw',
-        keyBytes.buffer,
-        { name: 'HMAC', hash: 'SHA-256' },
-        false,
-        ['sign']
-    );
+    // Synchronous HMAC-SHA256 using k6/crypto
+    const digest = crypto.hmac('sha256', keyBytes, payload, 'binary');
 
-    const digest = await subtle.sign('HMAC', cryptoKey, payload.buffer);
-    return encoding.b64encode(new Uint8Array(digest), 'rawurl');
+    // Base64-url encode result
+    return encoding.b64encode(digest, 'rawurl');
 }

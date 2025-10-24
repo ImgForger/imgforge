@@ -160,16 +160,16 @@ const scenarios = [
 ];
 
 // Main test function
-export default async function () {
+export default function () {
     // Randomly select a scenario
     const scenario = scenarios[Math.floor(Math.random() * scenarios.length)];
 
-    await group(scenario.name, async function () {
+    group(scenario.name, function () {
         // Build the processing path with plain URL
         const processingPath = `/${scenario.options}/plain/${TEST_IMAGE_URL}`;
 
         // Generate signature
-        const signature = await generateSignature(processingPath);
+        const signature = generateSignature(processingPath);
 
         // Build the full URL
         const fullPath = `/${signature}${processingPath}`;
