@@ -1,7 +1,16 @@
 [package]
 name = "imgforge"
-version = "0.1.0"
+version = "0.4.0"
 edition = "2021"
+repository = "https://github.com/ImgForger/imgforge"
+description = "Fast and secure image proxy and transformation server"
+authors = ["joker666 <mr.k779@outlook.com>"]
+license = "GPL-3.0-only"
+homepage = "https://imgforger.github.io"
+readme = "README.md"
+keywords = ["image", "proxy", "transform", "server"]
+categories = ["multimedia", "multimedia::images", "web-programming", "web-programming::http-server"]
+exclude = ["doc/*", "AGENTS.md"]
 
 [lib]
 name = "imgforge"
@@ -19,9 +28,9 @@ hmac = "0.12.1"
 libvips = "1.7.1"
 kamadak-exif = "0.6.1"
 percent-encoding = "2.3.2"
-reqwest = { version = "0.12.23", features = ["json"] }
+reqwest = { version = "0.12.24", features = ["json"] }
 sha2 = "0.10.9"
-tokio = { version = "1.47.1", features = ["full"] }
+tokio = { version = "1.48.0", features = ["full"] }
 axum-extra = { version = "0.10.3", features = ["typed-header"] }
 num_cpus = "1.17.0"
 serde = { version = "1.0", features = ["derive"] }
@@ -34,22 +43,22 @@ thiserror = "2.0.17"
 foyer = "0.20.0"
 prometheus = { version = "0.14.0", features = ["process"] }
 axum-prometheus = "0.9.0"
-lazy_static = "1.4.0"
+lazy_static = "1.5.0"
 governor = "0.10.1"
 bytes = "1.10.1"
 
 [dev-dependencies]
-tempfile = "3.10.1"
-image = "0.25.1"
-lazy_static = "1.4.0"
-percent-encoding = "2.3.1"
-reqwest = "0.12.4"
-serde = { version = "1.0.197", features = ["derive"] }
-serde_json = "1.0.115"
-sha2 = "0.10.8"
-tokio = { version = "1.36.0", features = ["full"] }
-tracing = "0.1.40"
-tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+tempfile = "3.23.0"
+image = "0.25.8"
+lazy_static = "1.5.0"
+percent-encoding = "2.3.2"
+reqwest = "0.12.24"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
+sha2 = "0.10.9"
+tokio = { version = "1.48.0", features = ["full"] }
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
 tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
 wiremock = "0.6"

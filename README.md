@@ -1,114 +1,57 @@
 # imgforge
 
-imgforge is a fast and secure standalone server for resizing, processing, and converting remote images on the fly. It is a lightweight HTTP server that processes images based on URL parameters, emphasizing security, speed, and simplicity.
+[![crates.io](https://img.shields.io/crates/v/imgforge.svg)](https://crates.io/crates/imgforge)
+[![Build](https://github.com/ImgForger/imgforge/actions/workflows/build.yml/badge.svg)](https://github.com/ImgForger/imgforge/actions/workflows/build.yml)
+[![Release](https://github.com/ImgForger/imgforge/actions/workflows/release.yml/badge.svg)](https://github.com/ImgForger/imgforge/actions/workflows/release.yml)
+[![dependency status](https://deps.rs/repo/github/ImgForger/imgforge/status.svg)](https://deps.rs/repo/github/ImgForger/imgforge)
 
-## Features
+imgforge is a fast, secure image proxy and transformation server written in Rust. Built with Rust and libvips, it delivers imgproxy-compatible URL semantics with an async-first architecture and optional, pluggable caching backends.
 
-- **Image Processing**: Resize, crop, blur, and more.
-- **Format Conversion**: Convert images between various formats (JPEG, PNG, WebP, AVIF, etc.).
-- **Security**: Signed URLs to prevent abuse.
-- **Configurable**: All options are configurable via environment variables.
+## Why choose imgforge
 
-## URL Structure
+- **Production-ready from day one** – Health checks, structured logging, and Prometheus metrics make imgforge easy to drop into modern platforms.
+- **Container-native** – Ship the provided multi-stage Docker image anywhere, or extend it with your own watermark assets and presets.
+- **High-fidelity transforms** – Resize, crop, format-convert, blur, sharpen, watermark, and more—powered by libvips for incredible performance.
+- **Defense in depth** – Signed URLs, bearer tokens, per-request safeguards, and global rate limiting protect your origins from abuse.
 
-All requests follow this format:
+## Feature highlights
 
+- On-the-fly resizing, cropping, format conversion, watermarking, and other libvips-backed transforms.
+- Signed URL enforcement with optional bearer authentication and rate limiting.
+- Memory, disk, and hybrid caches powered by [Foyer](https://foyer-rs.github.io/foyer/) for efficient content reuse.
+- Prometheus metrics, structured tracing, and health endpoints suitable for production observability.
+
+## Get started in minutes
+
+Generate development-only values with OpenSSL:
+
+```bash
+openssl rand -hex 32
 ```
-http://your-server/{signature}/{processing_options}/plain/{encoded_source_url}@{extension}
+
+```bash
+docker pull ghcr.io/imgforger/imgforge:latest
+docker run --rm -p 3000:3000 \
+  -e IMGFORGE_KEY=<generated_key> \
+  -e IMGFORGE_SALT=<generated_salt> \
+  ghcr.io/imgforger/imgforge:latest
 ```
 
-or
+Then follow the [Quick Start guide](doc/2_quick_start.md) to sign URLs and try your first transformation. Prefer bare-metal builds or CI integrations? See [Installation](doc/1_installation.md) for native toolchain instructions.
 
-```
-http://your-server/{signature}/{processing_options}/{base64_encoded_source_url}.{extension}
-```
+## Documentation
 
-- **Signature**: A hex-encoded HMAC-SHA256 signature of the URL path.
-- **Processing Options**: A slash-separated list of processing options.
-- **Source URL**: The URL of the source image, either plain (percent-encoded) or Base64-encoded.
-- **Extension**: The desired output format.
+- [Introduction](doc/introduction.md)
+- [Installation](doc/1_installation.md)
+- [Quick Start](doc/2_quick_start.md)
+- [URL structure and signing](doc/4_url_structure.md)
+- [Processing options reference](doc/5_processing_options.md)
+- [Request lifecycle overview](doc/6_request_lifecycle.md)
+- [Image processing pipeline deep dive](doc/12_image_processing_pipeline.md)
+- [Prometheus monitoring playbooks](doc/11_prometheus_monitoring.md)
 
-## Processing Options
+Browse the full documentation set under [`doc/`](doc/).
 
-| Option          | Shorthand | Description                                        |
-|-----------------|-----------|----------------------------------------------------|
-| `resize`        | `rs`      | Resizes the image.                                 |
-| `size`          | `sz`      | Alias for resize without type (uses `fit`).        |
-| `resizing_type` | `rt`      | The resizing mode to use.                          |
-| `width`         | `w`       | The target width.                                  |
-| `height`        | `h`       | The target height.                                 |
-| `gravity`       | `g`       | The crop/resize anchor point.                      |
-| `quality`       | `q`       | The compression quality (1-100).                   |
-| `auto_rotate`   | `ar`      | Automatically rotate the image based on EXIF data. |
-| `background`    | `bg`      | The background color to use.                       |
-| `enlarge`       | `el`      | Allow enlarging the image.                         |
-| `extend`        | `ex`      | Extend the image to the target dimensions.         |
-| `padding`       | `p`       | Add padding to the image.                          |
-| `rotation`      | `or`      | Force a specific rotation.                         |
-| `blur`          | `bl`      | Apply a Gaussian blur.                             |
-| `crop`          | -         | Crop the image.                                    |
-| `format`        | -         | The output format.                                 |
-| `dpr`           | -         | The device pixel ratio.                            |
-| `cache_buster`  | -         | A value to bypass the cache.                       |
-| `raw`           | -         | Bypass processing limits.                          |
+## Community
 
-## Security
-
-imgforge uses signed URLs to prevent unauthorized use. The signature is a hex-encoded HMAC-SHA256 hash of the URL path, using a secret key and salt.
-
-To enable unsigned URLs, set the `IMGFORGE_ALLOW_UNSIGNED` environment variable to `true`.
-
-## Configuration
-
-imgforge is configured using environment variables:
-
-| Variable                          | Description                                               |
-|-----------------------------------|-----------------------------------------------------------|
-| `IMGFORGE_KEY`                    | The secret key for signing URLs.                          |
-| `IMGFORGE_SALT`                   | The salt for signing URLs.                                |
-| `IMGFORGE_AUTH_TOKEN`             | An optional authorization token.                          |
-| `IMGFORGE_ALLOW_UNSIGNED`         | Allow unsigned URLs.                                      |
-| `IMGFORGE_MAX_SRC_FILE_SIZE`      | The maximum allowed source image file size.               |
-| `IMGFORGE_ALLOWED_MIME_TYPES`     | A comma-separated list of allowed MIME types.             |
-| `IMGFORGE_MAX_SRC_RESOLUTION`     | The maximum allowed source image resolution.              |
-| `IMGFORGE_ALLOW_SECURITY_OPTIONS` | Allow security options to be set per-request.             |
-| `IMGFORGE_WORKERS`                | The number of worker threads to use for image processing. |
-| `IMGFORGE_LOG_LEVEL`              | The log level to use.                                     |
-
-## Running the Application
-
-To run the application, you will need to have Rust and Cargo installed.
-
-1.  **Clone the repository**:
-
-    ```bash
-    git clone https://github.com/your-username/imgforge.git
-    cd imgforge
-    ```
-
-2.  **Set the environment variables**:
-
-    ```bash
-    export IMGFORGE_KEY="your-secret-key"
-    export IMGFORGE_SALT="your-secret-salt"
-    ```
-
-3.  **Run the application**:
-
-    ```bash
-    cargo run
-    ```
-    
-4. **Test the application**:
-
-    ```bash
-    cargo test --all -- --test-threads=1
-    ```
-
-The server will be available at `http://0.0.0.0:3000`.
-
-## Endpoints
-
-- **`/status`**: Returns a JSON object with the status of the server.
-- **`/info/{*path}`**: Returns a JSON object with information about the source image.
-- **`/{*path}`**: The main image processing endpoint.
+Issues and pull requests are welcome. Please review the [contributing guide](CONTRIBUTING.md) before submitting significant changes. If you are upgrading from imgproxy, most existing URL builders will continue to work—consult the processing and URL references for the few imgforge-specific differences.
