@@ -87,7 +87,7 @@ pub async fn start() {
     });
 
     let (prometheus_layer, metric_handle) = PrometheusMetricLayer::pair();
-    monitoring::register_metrics(prometheus::default_registry());
+    monitoring::register_metrics();
 
     let main_metric_handle = metric_handle.clone();
     let main_state = state.clone();

@@ -1,5 +1,5 @@
 use crate::handlers::AppState;
-use crate::monitoring::STATUS_CODES_TOTAL;
+use crate::monitoring::increment_status_code;
 use axum::body::Body;
 use axum::extract::State;
 use axum::{http::Request, http::StatusCode, middleware::Next, response::Response};
@@ -8,7 +8,7 @@ use std::sync::Arc;
 pub async fn status_code_metric_middleware(req: Request<Body>, next: Next) -> Response {
     let response = next.run(req).await;
     let status = response.status();
-    STATUS_CODES_TOTAL.with_label_values(&[status.as_str()]).inc();
+    increment_status_code(status.as_str());
     response
 }
 
