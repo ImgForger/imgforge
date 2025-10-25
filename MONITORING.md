@@ -62,19 +62,19 @@ The ImgForge dashboard is automatically provisioned and includes the following p
 
 ImgForge exposes the following Prometheus metrics at `/metrics`:
 
-| Metric | Type | Labels | Description |
-|--------|------|--------|-------------|
-| `http_requests_duration_seconds` | Histogram | `method`, `path` | HTTP request duration |
-| `image_processing_duration_seconds` | Histogram | `format` | Image processing duration |
-| `source_image_fetch_duration_seconds` | Histogram | - | Source image fetch duration |
-| `processed_images_total` | Counter | `format` | Total processed images |
-| `source_images_fetched_total` | Counter | `status` | Total source images fetched |
-| `cache_hits_total` | Counter | `cache_type` | Total cache hits |
-| `cache_misses_total` | Counter | `cache_type` | Total cache misses |
-| `status_codes_total` | Counter | `status` | Total HTTP response codes |
-| `vips_tracked_mem_bytes` | Gauge | - | Current libvips memory usage |
-| `vips_tracked_mem_highwater_bytes` | Gauge | - | Peak libvips memory usage |
-| `vips_tracked_allocs` | Gauge | - | Active libvips allocations |
+| Metric                                | Type      | Labels           | Description                  |
+|---------------------------------------|-----------|------------------|------------------------------|
+| `http_requests_duration_seconds`      | Histogram | `method`, `path` | HTTP request duration        |
+| `image_processing_duration_seconds`   | Histogram | `format`         | Image processing duration    |
+| `source_image_fetch_duration_seconds` | Histogram | -                | Source image fetch duration  |
+| `processed_images_total`              | Counter   | `format`         | Total processed images       |
+| `source_images_fetched_total`         | Counter   | `status`         | Total source images fetched  |
+| `cache_hits_total`                    | Counter   | `cache_type`     | Total cache hits             |
+| `cache_misses_total`                  | Counter   | `cache_type`     | Total cache misses           |
+| `status_codes_total`                  | Counter   | `status`         | Total HTTP response codes    |
+| `vips_tracked_mem_bytes`              | Gauge     | -                | Current libvips memory usage |
+| `vips_tracked_mem_highwater_bytes`    | Gauge     | -                | Peak libvips memory usage    |
+| `vips_tracked_allocs`                 | Gauge     | -                | Active libvips allocations   |
 
 ## Configuration
 
