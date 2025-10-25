@@ -22,7 +22,7 @@ pub async fn rate_limit_middleware(State(state): State<Arc<AppState>>, request: 
                 .unwrap(),
         }
     } else {
-        // If rate limiter is not configured, just proceed
+        // If the rate limiter is not configured, just proceed
         next.run(request).await
     }
 }

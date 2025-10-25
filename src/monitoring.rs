@@ -2,11 +2,6 @@ use lazy_static::lazy_static;
 use prometheus::{HistogramVec, IntCounterVec, IntGauge, Opts, Registry};
 
 lazy_static! {
-    pub static ref HTTP_REQUESTS_DURATION_SECONDS: HistogramVec = HistogramVec::new(
-        prometheus::HistogramOpts::new("http_requests_duration_seconds", "HTTP request duration in seconds"),
-        &["method", "path"]
-    )
-    .unwrap();
     pub static ref IMAGE_PROCESSING_DURATION_SECONDS: HistogramVec = HistogramVec::new(
         prometheus::HistogramOpts::new(
             "image_processing_duration_seconds",
@@ -63,9 +58,6 @@ lazy_static! {
 }
 
 pub fn register_metrics(registry: &Registry) {
-    registry
-        .register(Box::new(HTTP_REQUESTS_DURATION_SECONDS.clone()))
-        .unwrap();
     registry
         .register(Box::new(IMAGE_PROCESSING_DURATION_SECONDS.clone()))
         .unwrap();
