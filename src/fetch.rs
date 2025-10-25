@@ -1,4 +1,5 @@
 use crate::constants::*;
+use crate::monitoring::{increment_source_images_fetched, observe_source_image_fetch_duration};
 use axum::body::Bytes;
 use axum::http::header;
 use std::env;
@@ -22,28 +23,18 @@ pub async fn fetch_image(url: &str) -> Result<(Bytes, Option<String>), String> {
     let response = match client.get(url).send().await {
         Ok(res) => {
             let fetch_duration = fetch_start.elapsed().as_secs_f64();
-            crate::monitoring::SOURCE_IMAGE_FETCH_DURATION_SECONDS
-                .with_label_values(&[] as &[&str])
-                .observe(fetch_duration);
+            observe_source_image_fetch_duration(fetch_duration);
             if res.status().is_success() {
-                crate::monitoring::SOURCE_IMAGES_FETCHED_TOTAL
-                    .with_label_values(&["success"])
-                    .inc();
+                increment_source_images_fetched("success");
             } else {
-                crate::monitoring::SOURCE_IMAGES_FETCHED_TOTAL
-                    .with_label_values(&["error"])
-                    .inc();
+                increment_source_images_fetched("error");
             }
             res
         }
         Err(e) => {
             let fetch_duration = fetch_start.elapsed().as_secs_f64();
-            crate::monitoring::SOURCE_IMAGE_FETCH_DURATION_SECONDS
-                .with_label_values(&[] as &[&str])
-                .observe(fetch_duration);
-            crate::monitoring::SOURCE_IMAGES_FETCHED_TOTAL
-                .with_label_values(&["error"])
-                .inc();
+            observe_source_image_fetch_duration(fetch_duration);
+            increment_source_images_fetched("error");
             error!("Error fetching image: {}", e);
             return Err(format!("Error fetching image: {}", e));
         }

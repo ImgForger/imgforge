@@ -1,6 +1,6 @@
 use crate::caching::config::CacheConfig;
 use crate::caching::error::CacheError;
-use crate::monitoring::{CACHE_HITS_TOTAL, CACHE_MISSES_TOTAL};
+use crate::monitoring::{increment_cache_hit, increment_cache_miss};
 use foyer::{BlockEngineBuilder, Cache, CacheBuilder, FsDeviceBuilder, HybridCache, HybridCacheBuilder};
 use foyer::{DeviceBuilder, RecoverMode};
 use std::path::Path;
@@ -69,11 +69,7 @@ impl ImgforgeCache {
             ImgforgeCache::None => None,
             ImgforgeCache::Memory(cache) => {
                 let res = cache.get(key).map(|e| e.value().clone());
-                if res.is_some() {
-                    CACHE_HITS_TOTAL.with_label_values(&["memory"]).inc();
-                } else {
-                    CACHE_MISSES_TOTAL.with_label_values(&["memory"]).inc();
-                }
+                record_cache_metric(res.is_some(), "memory");
                 res
             }
             ImgforgeCache::Disk(cache) => {
@@ -83,11 +79,7 @@ impl ImgforgeCache {
                     .ok()
                     .flatten()
                     .map(|e| e.value().clone());
-                if res.is_some() {
-                    CACHE_HITS_TOTAL.with_label_values(&["disk"]).inc();
-                } else {
-                    CACHE_MISSES_TOTAL.with_label_values(&["disk"]).inc();
-                }
+                record_cache_metric(res.is_some(), "disk");
                 res
             }
             ImgforgeCache::Hybrid(cache) => {
@@ -97,11 +89,7 @@ impl ImgforgeCache {
                     .ok()
                     .flatten()
                     .map(|e| e.value().clone());
-                if res.is_some() {
-                    CACHE_HITS_TOTAL.with_label_values(&["hybrid"]).inc();
-                } else {
-                    CACHE_MISSES_TOTAL.with_label_values(&["hybrid"]).inc();
-                }
+                record_cache_metric(res.is_some(), "hybrid");
                 res
             }
         };
@@ -121,6 +109,14 @@ impl ImgforgeCache {
                 Ok(())
             }
         }
+    }
+}
+
+fn record_cache_metric(hit: bool, cache_type: &str) {
+    if hit {
+        increment_cache_hit(cache_type);
+    } else {
+        increment_cache_miss(cache_type);
     }
 }
 

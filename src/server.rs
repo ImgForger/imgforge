@@ -20,7 +20,7 @@ use tokio::net::TcpListener;
 use tokio::sync::Semaphore;
 use tower_http::timeout::TimeoutLayer;
 use tower_http::trace::TraceLayer;
-use tracing::{info, info_span};
+use tracing::{info, info_span, warn};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
 fn init_vips() -> VipsApp {
@@ -87,7 +87,7 @@ pub async fn start() {
     });
 
     let (prometheus_layer, metric_handle) = PrometheusMetricLayer::pair();
-    monitoring::register_metrics(prometheus::default_registry());
+    monitoring::register_metrics();
 
     let main_metric_handle = metric_handle.clone();
     let main_state = state.clone();
@@ -132,28 +132,36 @@ pub async fn start() {
 
     // Conditionally start Prometheus server
     if let Some(prometheus_bind_address) = &state.config.prometheus_bind_address {
-        info!(
-            "Prometheus metrics will be exposed on http://{}",
-            prometheus_bind_address
-        );
-        let prometheus_listener = TcpListener::bind(&prometheus_bind_address)
-            .await
-            .unwrap_or_else(|_| panic!("Failed to bind Prometheus to {}", prometheus_bind_address));
+        match TcpListener::bind(prometheus_bind_address).await {
+            Ok(prometheus_listener) => {
+                info!(
+                    "Prometheus metrics will be exposed on http://{}",
+                    prometheus_bind_address
+                );
 
-        let prometheus_state = state.clone();
-        let prometheus_app = Router::new().route(
-            "/metrics",
-            get(move || async move {
-                monitoring::update_vips_metrics(&prometheus_state.vips_app);
-                metric_handle.render()
-            }),
-        );
+                let prometheus_state = state.clone();
+                let prometheus_app = Router::new().route(
+                    "/metrics",
+                    get(move || async move {
+                        monitoring::update_vips_metrics(&prometheus_state.vips_app);
+                        metric_handle.render()
+                    }),
+                );
 
-        let prometheus_server = axum::serve(prometheus_listener, prometheus_app);
+                let prometheus_server = axum::serve(prometheus_listener, prometheus_app);
 
-        tokio::select! {
-            _ = main_server => {},
-            _ = prometheus_server => {},
+                tokio::select! {
+                    _ = main_server => {},
+                    _ = prometheus_server => {},
+                }
+            }
+            Err(e) => {
+                warn!(
+                    "Failed to bind Prometheus to {}: {}. Prometheus metrics will not be available.",
+                    prometheus_bind_address, e
+                );
+                main_server.await.unwrap();
+            }
         }
     } else {
         main_server.await.unwrap();

@@ -1,3 +1,7 @@
 [env]
 LIBRARY_PATH = "/opt/homebrew/lib"
 PKG_CONFIG_PATH = "/opt/homebrew/lib/pkgconfig"
+AXUM_HTTP_REQUESTS_TOTAL = "http_requests_total"
+AXUM_HTTP_REQUESTS_DURATION_SECONDS = "http_requests_duration_seconds"
+AXUM_HTTP_REQUESTS_PENDING = "http_requests_pending"
+AXUM_HTTP_RESPONSE_BODY_SIZE = "http_response_body_size"
