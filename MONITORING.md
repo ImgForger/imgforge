@@ -83,7 +83,7 @@ ImgForge exposes the following Prometheus metrics at `/metrics`:
 The Prometheus configuration is in `prometheus.yml`:
 - Scrape interval: 15 seconds
 - ImgForge scrape interval: 10 seconds
-- Target: `imgforge:3000/metrics`
+- Target: `imgforge:9000/metrics`
 
 ### Grafana Configuration
 
@@ -119,7 +119,7 @@ To add new metrics to ImgForge:
 
 ### Metrics Not Appearing
 
-1. Check that ImgForge is running: `curl http://localhost:3000/metrics`
+1. Check that ImgForge is running: `curl http://localhost:9000/metrics`
 2. Verify Prometheus can reach ImgForge: Check Prometheus targets at http://localhost:9090/targets
 3. Check Prometheus logs: `docker-compose logs prometheus`
 
