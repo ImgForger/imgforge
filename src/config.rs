@@ -17,6 +17,15 @@ pub struct Config {
     pub secret: Option<String>,
 }
 
+fn normalize_bind_address(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed.parse::<u16>().is_ok() {
+        format!("0.0.0.0:{}", trimmed)
+    } else {
+        trimmed.to_string()
+    }
+}
+
 impl Config {
     pub fn from_env() -> Result<Self, String> {
         let workers = env::var(ENV_WORKERS)
@@ -25,8 +34,11 @@ impl Config {
             .unwrap_or(0);
         let workers = if workers == 0 { num_cpus::get() * 2 } else { workers };
 
-        let bind_address = env::var(ENV_BIND).unwrap_or_else(|_| "0.0.0.0:3000".to_string());
-        let prometheus_bind_address = env::var(ENV_PROMETHEUS_BIND).ok();
+        let bind_address_raw = env::var(ENV_BIND).unwrap_or_else(|_| "0.0.0.0:3000".to_string());
+        let bind_address = normalize_bind_address(&bind_address_raw);
+        let prometheus_bind_address = env::var(ENV_PROMETHEUS_BIND)
+            .ok()
+            .map(|value| normalize_bind_address(&value));
         let timeout = env::var(ENV_TIMEOUT)
             .ok()
             .and_then(|s| s.parse::<u64>().ok())
@@ -66,5 +78,55 @@ impl Config {
             download_timeout,
             secret,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::env;
+    use std::sync::Mutex;
+
+    lazy_static::lazy_static! {
+        static ref ENV_LOCK: Mutex<()> = Mutex::new(());
+    }
+
+    fn restore_env_var(key: &str, original: Option<String>) {
+        if let Some(value) = original {
+            env::set_var(key, value);
+        } else {
+            env::remove_var(key);
+        }
+    }
+
+    #[test]
+    fn prometheus_numeric_port_maps_to_default_host() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let original_prometheus = env::var(ENV_PROMETHEUS_BIND).ok();
+
+        env::set_var(ENV_PROMETHEUS_BIND, "3005");
+        let config = Config::from_env().expect("config loads");
+
+        assert_eq!(config.prometheus_bind_address.as_deref(), Some("0.0.0.0:3005"));
+
+        restore_env_var(ENV_PROMETHEUS_BIND, original_prometheus);
+    }
+
+    #[test]
+    fn bind_numeric_port_maps_to_default_host() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let original_bind = env::var(ENV_BIND).ok();
+        let original_prometheus = env::var(ENV_PROMETHEUS_BIND).ok();
+
+        env::set_var(ENV_BIND, "3456");
+        env::remove_var(ENV_PROMETHEUS_BIND);
+
+        let config = Config::from_env().expect("config loads");
+
+        assert_eq!(config.bind_address, "0.0.0.0:3456");
+        assert_eq!(config.prometheus_bind_address, None);
+
+        restore_env_var(ENV_BIND, original_bind);
+        restore_env_var(ENV_PROMETHEUS_BIND, original_prometheus);
     }
 }
