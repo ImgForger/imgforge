@@ -105,6 +105,7 @@ pub async fn image_forge_handler(
             let content_type = format_to_content_type(output_format);
             let mut headers = header::HeaderMap::new();
             headers.insert(header::CONTENT_TYPE, content_type.parse().unwrap());
+            headers.insert(header::CACHE_STATUS, "HIT".parse().unwrap());
 
             return (StatusCode::OK, headers, cached_image).into_response();
         }
