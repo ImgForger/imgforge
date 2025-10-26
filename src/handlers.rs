@@ -2,12 +2,12 @@ use crate::caching::cache::ImgforgeCache as Cache;
 use crate::config::Config;
 use crate::constants::*;
 use crate::fetch::fetch_image;
-use crate::middleware::RequestId;
+use crate::middleware::format_to_content_type;
 use crate::url::{parse_path, validate_signature, ImgforgeUrl};
 use axum::{
     body::Bytes,
     extract::{Path, State},
-    http::{header, Request, StatusCode},
+    http::{header, StatusCode},
     response::{IntoResponse, Json, Response},
 };
 use axum_extra::headers::{authorization::Bearer, Authorization};
@@ -36,15 +36,8 @@ pub struct AppState {
 }
 
 /// Handles the /status endpoint, returning a simple JSON status.
-pub async fn status_handler(req: Request<axum::body::Body>) -> impl IntoResponse {
-    let request_id = req
-        .extensions()
-        .get::<RequestId>()
-        .map(|id| id.0.clone())
-        .unwrap_or_else(|| "unknown".to_string());
-    let mut headers = header::HeaderMap::new();
-    headers.insert("X-Request-ID", request_id.parse().unwrap());
-    (StatusCode::OK, headers, Json(json!({"status": "ok"})))
+pub async fn status_handler() -> impl IntoResponse {
+    (StatusCode::OK, Json(json!({"status": "ok"})))
 }
 
 /// Handles the /info/{*path} endpoint, returning metadata about the source image.
@@ -52,15 +45,7 @@ pub async fn info_handler(
     State(_state): State<Arc<AppState>>,
     Path(path): Path<String>,
     auth_header: Option<TypedHeader<Authorization<Bearer>>>,
-    req: Request<axum::body::Body>,
 ) -> impl IntoResponse {
-    let request_id = req
-        .extensions()
-        .get::<RequestId>()
-        .map(|id| id.0.clone())
-        .unwrap_or_else(|| "unknown".to_string());
-    let mut headers = header::HeaderMap::new();
-    headers.insert("X-Request-ID", request_id.parse().unwrap());
     info!("Info path captured: {}", path);
 
     let (_url_parts, _decoded_url, image_bytes, _content_type) =
@@ -84,7 +69,7 @@ pub async fn info_handler(
         "format": format_str,
     });
 
-    (StatusCode::OK, headers, Json(json_response)).into_response()
+    (StatusCode::OK, Json(json_response)).into_response()
 }
 
 /// Handles the main image processing endpoint.
@@ -92,15 +77,7 @@ pub async fn image_forge_handler(
     State(state): State<Arc<AppState>>,
     Path(path): Path<String>,
     auth_header: Option<TypedHeader<Authorization<Bearer>>>,
-    req: Request<axum::body::Body>,
 ) -> impl IntoResponse {
-    let request_id = req
-        .extensions()
-        .get::<RequestId>()
-        .map(|id| id.0.clone())
-        .unwrap_or_else(|| "unknown".to_string());
-    let mut headers = header::HeaderMap::new();
-    headers.insert("X-Request-ID", request_id.parse().unwrap());
     info!("Full path captured: {}", path);
 
     if !matches!(state.cache, Cache::None) {
@@ -118,28 +95,22 @@ pub async fn image_forge_handler(
             let parsed_options = match crate::processing::options::parse_all_options(url_parts.processing_options) {
                 Ok(options) => options,
                 Err(_) => {
+                    let mut headers = header::HeaderMap::new();
                     headers.insert(header::CONTENT_TYPE, "application/octet-stream".parse().unwrap());
                     return (StatusCode::OK, headers, cached_image).into_response();
                 }
             };
 
             let output_format = parsed_options.format.as_deref().unwrap_or("jpeg");
-            let content_type = match output_format {
-                "png" => "image/png",
-                "webp" => "image/webp",
-                "gif" => "image/gif",
-                "tiff" => "image/tiff",
-                "avif" => "image/avif",
-                "heif" => "image/heif",
-                _ => "image/jpeg",
-            };
+            let content_type = format_to_content_type(output_format);
+            let mut headers = header::HeaderMap::new();
             headers.insert(header::CONTENT_TYPE, content_type.parse().unwrap());
 
             return (StatusCode::OK, headers, cached_image).into_response();
         }
     }
 
-    let (url_parts, _decoded_url, image_bytes, content_type) =
+    let (url_parts, _decoded_url, image_bytes, source_content_type) =
         match common_image_setup(&path, auth_header, &state.config).await {
             Ok(data) => data,
             Err(response) => return response,
@@ -155,10 +126,7 @@ pub async fn image_forge_handler(
     };
     debug!("Parsed options: {:?}", parsed_options);
 
-    if let Some(ct) = content_type {
-        headers.insert(header::CONTENT_TYPE, ct.parse().unwrap());
-    }
-    debug!("Image MIME type: {:?}", headers.get(header::CONTENT_TYPE));
+    debug!("Source image MIME type: {:?}", source_content_type);
 
     let max_src_file_size = if state.config.allow_security_options {
         parsed_options.max_src_file_size.or(state.config.max_src_file_size)
@@ -179,10 +147,9 @@ pub async fn image_forge_handler(
     }
 
     if let Some(allowed_types) = &state.config.allowed_mime_types {
-        if let Some(content_type) = headers.get(header::CONTENT_TYPE) {
-            let content_type_str = content_type.to_str().unwrap_or("");
-            if !allowed_types.contains(&content_type_str.to_string()) {
-                error!("Source image MIME type is not allowed: {}", content_type_str);
+        if let Some(ref content_type) = source_content_type {
+            if !allowed_types.contains(&content_type.to_string()) {
+                error!("Source image MIME type is not allowed: {}", content_type);
                 return (
                     StatusCode::BAD_REQUEST,
                     "Source image MIME type is not allowed".to_string(),
@@ -256,6 +223,9 @@ pub async fn image_forge_handler(
         Some(state.semaphore.acquire().await.unwrap())
     };
 
+    // Get the output format before processing
+    let output_format = parsed_options.format.clone().unwrap_or_else(|| "jpeg".to_string());
+
     let processed_image_bytes =
         match crate::processing::process_image(image_bytes.into(), parsed_options, watermark_bytes.as_ref()).await {
             Ok(bytes) => bytes,
@@ -270,6 +240,11 @@ pub async fn image_forge_handler(
             error!("Failed to cache image: {}", e);
         }
     }
+
+    // Set the content-type header based on the output format
+    let content_type = format_to_content_type(&output_format);
+    let mut headers = header::HeaderMap::new();
+    headers.insert(header::CONTENT_TYPE, content_type.parse().unwrap());
 
     (StatusCode::OK, headers, processed_image_bytes).into_response()
 }

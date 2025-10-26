@@ -103,7 +103,6 @@ pub async fn start() {
         )
         .with_state(state.clone())
         .layer(prometheus_layer)
-        .layer(axum::middleware::from_fn(middleware::request_id_middleware))
         .layer(
             TraceLayer::new_for_http().make_span_with(|request: &Request<axum::body::Body>| {
                 let request_id = request
@@ -119,6 +118,7 @@ pub async fn start() {
                 )
             }),
         )
+        .layer(axum::middleware::from_fn(middleware::request_id_middleware))
         .layer(TimeoutLayer::new(Duration::from_secs(state.config.timeout)));
     let listener = TcpListener::bind(&state.config.bind_address).await.unwrap();
     info!("Listening on http://{}", &state.config.bind_address);
