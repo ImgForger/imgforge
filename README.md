@@ -23,6 +23,25 @@ imgforge is a fast, secure image proxy and transformation server written in Rust
 
 ## Get started in minutes
 
+### One-line deployment (Recommended)
+
+Deploy imgforge on any Linux machine with a single command:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ImgForger/imgforge/main/deployment/deploy.sh | bash
+```
+
+The interactive script will:
+- Install Docker (if needed)
+- Let you choose a caching strategy (Memory, Disk, Hybrid, or None)
+- Optionally enable Prometheus + Grafana monitoring
+- Generate secure keys automatically
+- Start imgforge on port 3000
+
+See the [deployment guide](deployment/README.md) for more options.
+
+### Manual Docker setup
+
 Generate development-only values with OpenSSL:
 
 ```bash
