@@ -376,7 +376,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.50, sum(rate(image_processing_duration_seconds_bucket[5m])) by (le, format))",
+          "expr": "image_processing_duration_seconds{quantile=\"0.5\"}",
           "legendFormat": "p50 - {{format}}",
           "refId": "A"
         },
@@ -385,7 +385,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.95, sum(rate(image_processing_duration_seconds_bucket[5m])) by (le, format))",
+          "expr": "image_processing_duration_seconds{quantile=\"0.95\"}",
           "legendFormat": "p95 - {{format}}",
           "refId": "B"
         },
@@ -394,7 +394,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.99, sum(rate(image_processing_duration_seconds_bucket[5m])) by (le, format))",
+          "expr": "image_processing_duration_seconds{quantile=\"0.99\"}",
           "legendFormat": "p99 - {{format}}",
           "refId": "C"
         }
@@ -1079,7 +1079,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.50, sum(rate(source_image_fetch_duration_seconds_bucket[5m])) by (le))",
+          "expr": "source_image_fetch_duration_seconds{quantile=\"0.5\"}",
           "legendFormat": "p50",
           "refId": "A"
         },
@@ -1088,7 +1088,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.95, sum(rate(source_image_fetch_duration_seconds_bucket[5m])) by (le))",
+          "expr": "source_image_fetch_duration_seconds{quantile=\"0.95\"}",
           "legendFormat": "p95",
           "refId": "B"
         },
@@ -1097,7 +1097,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.99, sum(rate(source_image_fetch_duration_seconds_bucket[5m])) by (le))",
+          "expr": "source_image_fetch_duration_seconds{quantile=\"0.99\"}",
           "legendFormat": "p99",
           "refId": "C"
         }
