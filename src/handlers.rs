@@ -2,11 +2,12 @@ use crate::caching::cache::ImgforgeCache as Cache;
 use crate::config::Config;
 use crate::constants::*;
 use crate::fetch::fetch_image;
+use crate::middleware::RequestId;
 use crate::url::{parse_path, validate_signature, ImgforgeUrl};
 use axum::{
     body::Bytes,
     extract::{Path, State},
-    http::{header, StatusCode},
+    http::{header, Request, StatusCode},
     response::{IntoResponse, Json, Response},
 };
 use axum_extra::headers::{authorization::Bearer, Authorization};
@@ -18,7 +19,7 @@ use serde_json::json;
 use std::env;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
-use tracing::{debug, error, info, Span};
+use tracing::{debug, error, info};
 
 /// Application state shared across handlers.
 pub struct AppState {
@@ -35,11 +36,12 @@ pub struct AppState {
 }
 
 /// Handles the /status endpoint, returning a simple JSON status.
-pub async fn status_handler() -> impl IntoResponse {
-    let request_id = match Span::current().metadata() {
-        Some(metadata) => metadata.name().to_string(),
-        None => "unknown".to_string(),
-    };
+pub async fn status_handler(req: Request<axum::body::Body>) -> impl IntoResponse {
+    let request_id = req
+        .extensions()
+        .get::<RequestId>()
+        .map(|id| id.0.clone())
+        .unwrap_or_else(|| "unknown".to_string());
     let mut headers = header::HeaderMap::new();
     headers.insert("X-Request-ID", request_id.parse().unwrap());
     (StatusCode::OK, headers, Json(json!({"status": "ok"})))
@@ -50,11 +52,13 @@ pub async fn info_handler(
     State(_state): State<Arc<AppState>>,
     Path(path): Path<String>,
     auth_header: Option<TypedHeader<Authorization<Bearer>>>,
+    req: Request<axum::body::Body>,
 ) -> impl IntoResponse {
-    let request_id = match Span::current().metadata() {
-        Some(metadata) => metadata.name().to_string(),
-        None => "unknown".to_string(),
-    };
+    let request_id = req
+        .extensions()
+        .get::<RequestId>()
+        .map(|id| id.0.clone())
+        .unwrap_or_else(|| "unknown".to_string());
     let mut headers = header::HeaderMap::new();
     headers.insert("X-Request-ID", request_id.parse().unwrap());
     info!("Info path captured: {}", path);
@@ -88,11 +92,13 @@ pub async fn image_forge_handler(
     State(state): State<Arc<AppState>>,
     Path(path): Path<String>,
     auth_header: Option<TypedHeader<Authorization<Bearer>>>,
+    req: Request<axum::body::Body>,
 ) -> impl IntoResponse {
-    let request_id = match Span::current().metadata() {
-        Some(metadata) => metadata.name().to_string(),
-        None => "unknown".to_string(),
-    };
+    let request_id = req
+        .extensions()
+        .get::<RequestId>()
+        .map(|id| id.0.clone())
+        .unwrap_or_else(|| "unknown".to_string());
     let mut headers = header::HeaderMap::new();
     headers.insert("X-Request-ID", request_id.parse().unwrap());
     info!("Full path captured: {}", path);
@@ -100,6 +106,35 @@ pub async fn image_forge_handler(
     if !matches!(state.cache, Cache::None) {
         if let Some(cached_image) = state.cache.get(&path).await {
             debug!("Image found in cache for path: {}", path);
+
+            let url_parts = match parse_path(&path) {
+                Some(parts) => parts,
+                None => {
+                    error!("Invalid URL format: {}", path);
+                    return (StatusCode::BAD_REQUEST, "Invalid URL format".to_string()).into_response();
+                }
+            };
+
+            let parsed_options = match crate::processing::options::parse_all_options(url_parts.processing_options) {
+                Ok(options) => options,
+                Err(_) => {
+                    headers.insert(header::CONTENT_TYPE, "application/octet-stream".parse().unwrap());
+                    return (StatusCode::OK, headers, cached_image).into_response();
+                }
+            };
+
+            let output_format = parsed_options.format.as_deref().unwrap_or("jpeg");
+            let content_type = match output_format {
+                "png" => "image/png",
+                "webp" => "image/webp",
+                "gif" => "image/gif",
+                "tiff" => "image/tiff",
+                "avif" => "image/avif",
+                "heif" => "image/heif",
+                _ => "image/jpeg",
+            };
+            headers.insert(header::CONTENT_TYPE, content_type.parse().unwrap());
+
             return (StatusCode::OK, headers, cached_image).into_response();
         }
     }

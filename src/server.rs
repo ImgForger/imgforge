@@ -10,8 +10,6 @@ use axum_prometheus::PrometheusMetricLayer;
 
 use governor::{Quota, RateLimiter};
 use libvips::VipsApp;
-use rand::distr::Alphanumeric;
-use rand::Rng;
 use std::env;
 use std::num::NonZeroU32;
 use std::sync::Arc;
@@ -30,14 +28,6 @@ fn init_vips() -> VipsApp {
             panic!("Failed to initialize libvips: {}", e);
         }
     }
-}
-
-fn generate_request_id() -> String {
-    rand::rng()
-        .sample_iter(&Alphanumeric)
-        .take(10)
-        .map(char::from)
-        .collect()
 }
 
 pub async fn start() {
@@ -113,9 +103,14 @@ pub async fn start() {
         )
         .with_state(state.clone())
         .layer(prometheus_layer)
+        .layer(axum::middleware::from_fn(middleware::request_id_middleware))
         .layer(
             TraceLayer::new_for_http().make_span_with(|request: &Request<axum::body::Body>| {
-                let request_id = generate_request_id();
+                let request_id = request
+                    .extensions()
+                    .get::<middleware::RequestId>()
+                    .map(|id| id.0.clone())
+                    .unwrap_or_else(|| "unknown".to_string());
                 info_span!(
                     "request",
                     id = %request_id,
