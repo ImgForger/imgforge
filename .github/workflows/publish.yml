@@ -30,6 +30,7 @@ jobs:
           echo "Using tag: $TAG"
 
   build-and-push:
+    needs: get-latest-tag
     runs-on: ubuntu-latest
 
     steps:
