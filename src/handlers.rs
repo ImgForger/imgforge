@@ -57,7 +57,6 @@ pub async fn info_handler(
     };
     let mut headers = header::HeaderMap::new();
     headers.insert("X-Request-ID", request_id.parse().unwrap());
-
     info!("Info path captured: {}", path);
 
     let (_url_parts, _decoded_url, image_bytes, _content_type) =
