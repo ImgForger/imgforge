@@ -6,7 +6,7 @@ repository = "https://github.com/ImgForger/imgforge"
 description = "Fast and secure image proxy and transformation server"
 authors = ["joker666 <mr.k779@outlook.com>"]
 license = "GPL-3.0-only"
-homepage = "https://imgforge.github.io"
+homepage = "https://imgforger.github.io"
 readme = "README.md"
 keywords = ["image", "proxy", "transform", "server"]
 categories = ["multimedia", "multimedia::images", "web-programming", "web-programming::http-server"]
@@ -41,11 +41,11 @@ rand = "0.9.2"
 tower-http = { version = "0.6.6", features = ["trace", "timeout"] }
 thiserror = "2.0.17"
 foyer = "0.20.0"
-prometheus = { version = "0.14.0", features = ["process"] }
 axum-prometheus = "0.9.0"
 lazy_static = "1.5.0"
 governor = "0.10.1"
 bytes = "1.10.1"
+metrics = "0.24.2"
 
 [dev-dependencies]
 tempfile = "3.23.0"

@@ -9,6 +9,9 @@ use imgforge::caching::cache::ImgforgeCache;
 use imgforge::caching::config::CacheConfig;
 use imgforge::config::Config;
 use imgforge::handlers::{image_forge_handler, AppState};
+use imgforge::middleware::request_id_middleware;
+use lazy_static::lazy_static;
+use libvips::VipsApp;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
 use tower::ServiceExt;
@@ -16,6 +19,11 @@ use wiremock::{
     matchers::{method, path},
     Mock, MockServer, ResponseTemplate,
 };
+
+lazy_static! {
+    static ref VIPS_APP: Arc<VipsApp> =
+        Arc::new(VipsApp::new("imgforge-test", false).expect("Failed to initialize libvips"));
+}
 
 /// Helper function to create a test PNG image
 fn create_test_image(width: u32, height: u32, color: [u8; 4]) -> Vec<u8> {
@@ -55,6 +63,7 @@ async fn create_test_state_with_cache(config: Config, cache: ImgforgeCache) -> A
         cache,
         rate_limiter: None,
         config,
+        vips_app: VIPS_APP.clone(),
     })
 }
 
@@ -104,7 +113,8 @@ async fn test_image_caching_with_memory_cache() {
     // Second request - should hit the cache (but mock will still verify it's called only once if we want)
     let app2 = axum::Router::new()
         .route("/{*path}", axum::routing::get(image_forge_handler))
-        .with_state(state);
+        .with_state(state)
+        .layer(axum::middleware::from_fn(request_id_middleware));
     let (status2, _body2) = make_request(app2, &path).await;
     assert_eq!(status2, StatusCode::OK);
 }
@@ -181,7 +191,8 @@ async fn test_image_forge_handler_with_all_options() {
 
     let app = axum::Router::new()
         .route("/{*path}", axum::routing::get(image_forge_handler))
-        .with_state(state);
+        .with_state(state)
+        .layer(axum::middleware::from_fn(request_id_middleware));
 
     let (status, _) = make_request(app, &path).await;
     assert_eq!(status, StatusCode::OK);
@@ -215,7 +226,8 @@ async fn test_security_options_not_allowed() {
 
     let app = axum::Router::new()
         .route("/{*path}", axum::routing::get(image_forge_handler))
-        .with_state(state);
+        .with_state(state)
+        .layer(axum::middleware::from_fn(request_id_middleware));
 
     let (status, _) = make_request(app, &path).await;
     // Should still work since the actual file size is within the server limit
@@ -247,7 +259,8 @@ async fn test_large_image_processing() {
 
     let app = axum::Router::new()
         .route("/{*path}", axum::routing::get(image_forge_handler))
-        .with_state(state);
+        .with_state(state)
+        .layer(axum::middleware::from_fn(request_id_middleware));
 
     let (status, body) = make_request(app, &path).await;
     assert_eq!(status, StatusCode::OK);
@@ -279,7 +292,8 @@ async fn test_format_conversion_webp() {
 
     let app = axum::Router::new()
         .route("/{*path}", axum::routing::get(image_forge_handler))
-        .with_state(state);
+        .with_state(state)
+        .layer(axum::middleware::from_fn(request_id_middleware));
 
     let (status, _) = make_request(app, &path).await;
     assert_eq!(status, StatusCode::OK);
@@ -310,7 +324,8 @@ async fn test_image_with_transparency() {
 
     let app = axum::Router::new()
         .route("/{*path}", axum::routing::get(image_forge_handler))
-        .with_state(state);
+        .with_state(state)
+        .layer(axum::middleware::from_fn(request_id_middleware));
 
     let (status, _) = make_request(app, &path).await;
     assert_eq!(status, StatusCode::OK);
@@ -341,7 +356,8 @@ async fn test_complex_path_with_special_characters() {
 
     let app = axum::Router::new()
         .route("/{*path}", axum::routing::get(image_forge_handler))
-        .with_state(state);
+        .with_state(state)
+        .layer(axum::middleware::from_fn(request_id_middleware));
 
     let (status, _) = make_request(app, &path).await;
     assert_eq!(status, StatusCode::OK);
@@ -407,7 +423,8 @@ async fn test_pixelate_effect() {
 
     let app = axum::Router::new()
         .route("/{*path}", axum::routing::get(image_forge_handler))
-        .with_state(state);
+        .with_state(state)
+        .layer(axum::middleware::from_fn(request_id_middleware));
 
     let (status, _) = make_request(app, &path).await;
     assert_eq!(status, StatusCode::OK);

@@ -154,9 +154,10 @@ fn resize_to_force(img: VipsImage, width: u32, height: u32) -> Result<VipsImage,
     if (scale_x - 1.0).abs() < SCALE_EPSILON && (scale_y - 1.0).abs() < SCALE_EPSILON {
         return Ok(img);
     }
-
-    let mut options = ops::ResizeOptions::default();
-    options.vscale = scale_y;
+    let options = ops::ResizeOptions {
+        vscale: scale_y,
+        ..Default::default()
+    };
     ops::resize_with_opts(&img, scale_x, &options).map_err(|e| format!("Error force resizing: {}", e))
 }
 
@@ -245,6 +246,13 @@ pub fn apply_blur(img: VipsImage, sigma: f32) -> Result<VipsImage, String> {
 
 /// Applies background color to an image (useful for JPEG output).
 pub fn apply_background_color(img: VipsImage, _bg_color: [u8; 4]) -> Result<VipsImage, String> {
+    // Only flatten if the image has an alpha channel (bands == 4 for RGBA or bands == 2 for grayscale+alpha)
+    let bands = img.get_bands();
+    if bands != 4 && bands != 2 {
+        // No alpha channel, nothing to flatten - return as-is
+        return Ok(img);
+    }
+
     // Use libvips flatten to composite over a solid background, dropping alpha.
     // Only RGB is used; input alpha is ignored for the background color itself.
     let bg = vec![_bg_color[0] as f64, _bg_color[1] as f64, _bg_color[2] as f64];

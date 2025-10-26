@@ -1,0 +1,18 @@
+# K6 Load Test artifacts
+*.json
+*.csv
+*.har
+*.log
+
+# Environment files with secrets
+.env
+
+# Test results and reports
+results/
+reports/
+*.html
+
+# Temporary files
+*.tmp
+*.swp
+*~

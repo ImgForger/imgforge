@@ -3,3 +3,7 @@
 .vscode
 .DS_Store
 GEMINI.md
+
+# Docker volumes data
+prometheus-data/
+grafana-data/

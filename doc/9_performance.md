@@ -47,6 +47,7 @@ Scrape `/metrics` frequently and build dashboards around the core histograms and
 ## Profile periodically
 
 - Benchmark with tools like [`wrk`](https://github.com/wg/wrk) or [`vegeta`](https://github.com/tsenart/vegeta`) using realistic URLs and sizes.
+- Use the included [K6 load testing suite](../loadtest/README.md) to test processing endpoints with various parameter combinations and find performance limits.
 - Use `cargo flamegraph` or `perf` to identify hotspots in transformations if CPU-bound.
 
 ## Plan for scale
