@@ -40,6 +40,18 @@ fn create_test_image(width: u32, height: u32, color: [u8; 4]) -> Vec<u8> {
     bytes
 }
 
+/// Helper function to create a test JPEG image without alpha channel
+fn create_test_jpeg_image(width: u32, height: u32, color: [u8; 3]) -> Vec<u8> {
+    let mut img: ImageBuffer<image::Rgb<u8>, Vec<u8>> = ImageBuffer::new(width, height);
+    for (_x, _y, pixel) in img.enumerate_pixels_mut() {
+        *pixel = image::Rgb(color);
+    }
+    let mut bytes: Vec<u8> = Vec::new();
+    img.write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Jpeg)
+        .unwrap();
+    bytes
+}
+
 /// Helper function to generate HMAC signature
 fn generate_signature(key: &[u8], salt: &[u8], path: &str) -> String {
     let mut mac = HmacSha256::new_from_slice(key).expect("HMAC can take key of any size");
@@ -959,6 +971,40 @@ async fn test_image_forge_handler_with_background_color() {
     let source_url = format!("{}/bg.png", mock_server.uri());
     let encoded_url = URL_SAFE_NO_PAD.encode(source_url.as_bytes());
     let path = format!("/unsafe/background:ffffff/{}", encoded_url);
+
+    let app = axum::Router::new()
+        .route("/{*path}", axum::routing::get(image_forge_handler))
+        .with_state(state);
+
+    let (status, _body, _) = make_request(app, &path, None).await;
+
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_image_forge_handler_with_background_color_jpeg_source() {
+    let mock_server = MockServer::start().await;
+    let test_image = create_test_jpeg_image(800, 600, [200, 100, 50]);
+
+    Mock::given(method("GET"))
+        .and(path("/bg.jpg"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_bytes(test_image)
+                .insert_header("Content-Type", "image/jpeg"),
+        )
+        .mount(&mock_server)
+        .await;
+
+    let config = create_test_config(vec![], vec![], true);
+    let state = create_test_state(config).await;
+
+    let source_url = format!("{}/bg.jpg", mock_server.uri());
+    let encoded_url = URL_SAFE_NO_PAD.encode(source_url.as_bytes());
+    let path = format!(
+        "/unsafe/resize:fill:800:600/gravity:center/quality:88/sharpen:1/background:FFFFFF/{}",
+        encoded_url
+    );
 
     let app = axum::Router::new()
         .route("/{*path}", axum::routing::get(image_forge_handler))
