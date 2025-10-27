@@ -2,7 +2,8 @@ name: Release
 
 on:
   push:
-    branches: ["dev"]
+    tags:
+      - "v*" # trigger on version tags like v1.0.0
 
 permissions: write-all
 
