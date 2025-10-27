@@ -2,8 +2,7 @@ name: Release
 
 on:
   push:
-    tags:
-      - "v*"
+    branches: ["dev"]
 
 permissions: write-all
 
@@ -34,8 +33,16 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
-      - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y ca-certificates libvips-tools libvips-dev openssl pkg-config libssl-dev
+      - name: Setup cross toolchain
+        uses: taiki-e/setup-cross-toolchain-action@v1
+        with:
+          target: ${{ matrix.target }}
+
+      - name: Enable arm64 architecture
+        run: |
+          sudo dpkg --add-architecture arm64
+          sudo apt-get update
+          sudo apt-get install -y libssl-dev:arm64
 
       - name: Build and upload
         uses: taiki-e/upload-rust-binary-action@v1
