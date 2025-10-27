@@ -42,7 +42,7 @@ jobs:
       - name: Install build deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential pkg-config libssl-dev
+          sudo apt-get install -y build-essential pkg-config libssl-dev ca-certificates libvips-tools libvips-dev
 
       - name: Build and upload
         uses: taiki-e/upload-rust-binary-action@v1
