@@ -40,6 +40,7 @@ jobs:
           target: ${{ matrix.target }}
 
       - name: Enable arm64 architecture
+        if: matrix.name == 'linux-arm64'
         run: |
           sudo dpkg --add-architecture arm64
           sudo apt-get update
