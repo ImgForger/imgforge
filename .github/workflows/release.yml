@@ -26,7 +26,7 @@ jobs:
             os: ubuntu-latest
           - name: linux-arm64
             target: aarch64-unknown-linux-gnu
-            os: ubuntu-latest
+            os: ubuntu-24.04-arm
 
     runs-on: ${{ matrix.os }}
 
@@ -39,12 +39,10 @@ jobs:
         with:
           target: ${{ matrix.target }}
 
-      - name: Enable arm64 architecture
-        if: matrix.name == 'linux-arm64'
+      - name: Install build deps
         run: |
-          sudo dpkg --add-architecture arm64
           sudo apt-get update
-          sudo apt-get install -y libssl-dev:arm64
+          sudo apt-get install -y build-essential pkg-config libssl-dev
 
       - name: Build and upload
         uses: taiki-e/upload-rust-binary-action@v1
