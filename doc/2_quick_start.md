@@ -36,6 +36,7 @@ docker run \
   -e IMGFORGE_KEY=<generated_key> \
   -e IMGFORGE_SALT=<generated_salt> \
   -e IMGFORGE_ALLOW_UNSIGNED=true \
+  -e IMGFORGE_LOG_LEVEL=imgforge=info \
   ghcr.io/imgforger/imgforge:latest
 ```
 
@@ -46,6 +47,8 @@ Use `--env-file` to load additional configuration or mount volumes for caching. 
 Prefer a native workflow? Launch imgforge through Cargo:
 
 ```bash
+git clone https://github.com/imgforger/imgforge.git
+cd imgforge
 cargo run
 ```
 
@@ -64,27 +67,7 @@ curl "http://localhost:3000/unsafe/resize:fill:600:400/plain/https://images.unsp
 - `resize:fill:600:400` resizes and crops the source to match the target aspect ratio.
 - `@webp` triggers format conversion.
 
-Open `portrait.webp` in your image viewer to confirm the result.
-
-### Using different resizing algorithms
-
-Control the interpolation quality and speed with the `resizing_algorithm` parameter:
-
-```bash
-# Fast thumbnail with nearest-neighbor (fastest)
-curl "http://localhost:3000/unsafe/ra:nearest/resize:fit:200:200/plain/https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e" \
-  --output thumbnail.jpg
-
-# Balanced quality with cubic interpolation
-curl "http://localhost:3000/unsafe/ra:cubic/resize:fit:800:600/quality:85/plain/https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e" \
-  --output balanced.jpg
-
-# Highest quality with lanczos3 (default)
-curl "http://localhost:3000/unsafe/ra:lanczos3/resize:fit:1200:900/quality:92/plain/https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e" \
-  --output high-quality.jpg
-```
-
-See [13_resizing_algorithms.md](13_resizing_algorithms.md) for detailed guidance on choosing the right algorithm.
+Open `portrait.webp` in your image viewer to confirm the result. After this, check out [4_url_structure.md](4_url_structure.md) for more information on how to sign URLs.
 
 ## Inspecting available endpoints
 
@@ -99,7 +82,7 @@ If `IMGFORGE_SECRET` is set, include `Authorization: Bearer <token>` on `/info` 
 
 ## Reviewing logs and metrics
 
-Logs are emitted via the configured tracing subscriber. Set `IMGFORGE_LOG_LEVEL=imgforge=debug` to see detailed request flow. For metrics:
+Logs are emitted via the configured tracing subscriber. Set `IMGFORGE_LOG_LEVEL=imgforge=debug` to see detailed request flow. We suggest setting `IMGFORGE_LOG_LEVEL=imgforge=info` in production. For metrics:
 
 ```bash
 curl http://localhost:3000/metrics | head

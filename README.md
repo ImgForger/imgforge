@@ -17,7 +17,6 @@ imgforge is a fast, secure image proxy and transformation server written in Rust
 ## Feature highlights
 
 - On-the-fly resizing, cropping, format conversion, watermarking, and other libvips-backed transforms.
-- **Five interpolation algorithms** (nearest, linear, cubic, lanczos2, lanczos3) for fine-tuned quality vs. performance control.
 - Signed URL enforcement with optional bearer authentication and rate limiting.
 - Memory, disk, and hybrid caches powered by [Foyer](https://foyer-rs.github.io/foyer/) for efficient content reuse.
 - Prometheus metrics, structured tracing, and health endpoints suitable for production observability.
@@ -35,6 +34,7 @@ docker pull ghcr.io/imgforger/imgforge:latest
 docker run --rm -p 3000:3000 \
   -e IMGFORGE_KEY=<generated_key> \
   -e IMGFORGE_SALT=<generated_salt> \
+  -e IMGFORGE_LOG_LEVEL=imgforge=info \
   ghcr.io/imgforger/imgforge:latest
 ```
 
@@ -42,18 +42,7 @@ Then follow the [Quick Start guide](doc/2_quick_start.md) to sign URLs and try y
 
 ## Documentation
 
-- [Introduction](doc/introduction.md)
-- [Installation](doc/1_installation.md)
-- [Quick Start](doc/2_quick_start.md)
-- [URL structure and signing](doc/4_url_structure.md)
-- [Processing options reference](doc/5_processing_options.md)
-- [Resizing algorithms guide](doc/13_resizing_algorithms.md)
-- [Request lifecycle overview](doc/6_request_lifecycle.md)
-- [Image processing pipeline deep dive](doc/12_image_processing_pipeline.md)
-- [Prometheus monitoring playbooks](doc/11_prometheus_monitoring.md)
-- [K6 load testing suite](loadtest/README.md)
-
-Browse the full documentation set under [`doc/`](doc/).
+The documentation is live on the [docs site](https://imgforger.github.io/).
 
 ## Community
 

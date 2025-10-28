@@ -119,26 +119,26 @@ Lanczos3 uses a 3-lobe sinc function and is considered the gold standard for ima
 
 ### By Use Case
 
-| Use Case | Recommended Algorithm | Rationale |
-|----------|----------------------|-----------|
-| Thumbnails (< 200px) | `linear` | Speed matters, small size hides artifacts |
-| Preview images | `linear` or `cubic` | Balance of speed and acceptable quality |
-| Web images (standard) | `cubic` | Good quality, reasonable performance |
-| Hero/featured images | `lanczos3` | Maximum quality for prominent placement |
-| Pixel art / sprites | `nearest` | Preserves crisp edges and original pixels |
-| High-res photography | `lanczos2` or `lanczos3` | Professional quality output |
-| Real-time processing | `nearest` or `linear` | Minimize latency |
-| Batch processing | `cubic` | Balance throughput and quality |
-| CDN/cached content | `lanczos3` | One-time cost, served many times |
+| Use Case              | Recommended Algorithm    | Rationale                                 |
+|-----------------------|--------------------------|-------------------------------------------|
+| Thumbnails (< 200px)  | `linear`                 | Speed matters, small size hides artifacts |
+| Preview images        | `linear` or `cubic`      | Balance of speed and acceptable quality   |
+| Web images (standard) | `cubic`                  | Good quality, reasonable performance      |
+| Hero/featured images  | `lanczos3`               | Maximum quality for prominent placement   |
+| Pixel art / sprites   | `nearest`                | Preserves crisp edges and original pixels |
+| High-res photography  | `lanczos2` or `lanczos3` | Professional quality output               |
+| Real-time processing  | `nearest` or `linear`    | Minimize latency                          |
+| Batch processing      | `cubic`                  | Balance throughput and quality            |
+| CDN/cached content    | `lanczos3`               | One-time cost, served many times          |
 
 ### By Image Size
 
-| Source → Target | Recommended | Alternative |
-|-----------------|-------------|-------------|
-| Large → Thumbnail (> 8x reduction) | `cubic` | `linear` for speed |
-| Medium → Web (2-4x reduction) | `cubic` or `lanczos2` | `lanczos3` for best quality |
-| Small → Smaller (< 2x reduction) | `lanczos2` | Any algorithm works well |
-| Any → Upscale | `lanczos3` | `lanczos2` if speed critical |
+| Source → Target                    | Recommended           | Alternative                  |
+|------------------------------------|-----------------------|------------------------------|
+| Large → Thumbnail (> 8x reduction) | `cubic`               | `linear` for speed           |
+| Medium → Web (2-4x reduction)      | `cubic` or `lanczos2` | `lanczos3` for best quality  |
+| Small → Smaller (< 2x reduction)   | `lanczos2`            | Any algorithm works well     |
+| Any → Upscale                      | `lanczos3`            | `lanczos2` if speed critical |
 
 ### Performance vs Quality Matrix
 
@@ -252,8 +252,7 @@ Serve fast initial renders, then swap to higher quality:
 
 ```javascript
 // Initial load
-<img src="/ra:linear/size:400:300/.../image.jpg" 
-     data-hq="/ra:lanczos3/size:800:600/.../image.jpg">
+<img src="/ra:linear/size:400:300/.../image.jpg" data-hq="/ra:lanczos3/size:800:600/.../image.jpg">
 
 // After page load
 setTimeout(() => {
