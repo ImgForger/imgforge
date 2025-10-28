@@ -9,6 +9,7 @@ imgforge encodes image transformations directly in the URL path. Each directive 
 | `resize`             | `rs`      | `type:width:height[:enlarge][:extend]` | Primary resize control. Defaults to no resize. `enlarge`/`extend` default to `false`. |
 | `size`               | `sz`, `s` | `width:height[:enlarge][:extend]`      | Convenience wrapper for `resize` with implicit `fit`.                                 |
 | `resizing_type`      | `rt`      | `type`                                 | Overrides the mode used by other resizing directives.                                 |
+| `resizing_algorithm` | `ra`      | `algorithm`                            | Interpolation kernel for resize operations. Defaults to `lanczos3`.                   |
 | `width`              | `w`       | `value`                                | Sets a target width (infers height). Implies `fit`.                                   |
 | `height`             | `h`       | `value`                                | Sets a target height (infers width). Implies `fit`.                                   |
 | `gravity`            | `g`       | `anchor`                               | Controls crop/fill anchoring (`center`, `north_east`, etc.). Defaults to `center`.    |
@@ -55,6 +56,22 @@ Setting a single dimension implicitly enables `fit` resizing. These options infl
 ### `resizing_type`
 
 `resizing_type:fill` (or similar) changes how implicit resizes behave. It affects `width`, `height`, `size`, and subsequent `resize` directives that omit the type. Place it before directives that rely on the mode to avoid surprises.
+
+### `resizing_algorithm`
+
+Controls the interpolation kernel used during resize operations. The algorithm affects image quality, sharpness, and processing speed:
+
+- **`nearest`** – Nearest-neighbor interpolation. Fastest but produces blocky results. Suitable for pixel art or when speed is critical and quality is secondary.
+- **`linear`** – Bilinear interpolation. Faster than cubic/lanczos with reasonable quality. Good for real-time applications.
+- **`cubic`** – Bicubic interpolation. Balances quality and speed. Produces smoother results than linear.
+- **`lanczos2`** – Lanczos with a=2. Good quality with less processing than lanczos3. Suitable for most use cases.
+- **`lanczos3`** – **Default**. Lanczos with a=3. Highest quality interpolation with the sharpest results. Best for final output where quality matters.
+
+The algorithm applies to all resize operations including `resize`, `size`, `width`, `height`, `min_width`, `min_height`, `zoom`, and `pixelate`. It also affects watermark scaling.
+
+**Example:** `resizing_algorithm:cubic/resize:fit:800:600` uses bicubic interpolation for faster processing.
+
+**Performance tip:** Use `nearest` or `linear` for thumbnails or temporary previews. Reserve `lanczos3` for production assets.
 
 ### `gravity`
 

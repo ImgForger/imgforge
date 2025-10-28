@@ -157,6 +157,36 @@ const scenarios = [
         options: 'resize:fill:400:400/gravity:center',
         description: 'Square crop with center gravity'
     },
+    {
+        name: 'Resize with Nearest Algorithm',
+        options: 'resizing_algorithm:nearest/resize:fit:400:400',
+        description: 'Fast resize using nearest-neighbor interpolation'
+    },
+    {
+        name: 'Resize with Linear Algorithm',
+        options: 'resizing_algorithm:linear/resize:fit:500:500',
+        description: 'Resize using bilinear interpolation'
+    },
+    {
+        name: 'Resize with Cubic Algorithm',
+        options: 'resizing_algorithm:cubic/resize:fit:450:450',
+        description: 'Resize using bicubic interpolation'
+    },
+    {
+        name: 'Resize with Lanczos2 Algorithm',
+        options: 'resizing_algorithm:lanczos2/resize:fit:600:600',
+        description: 'High quality resize with lanczos2'
+    },
+    {
+        name: 'Resize with Lanczos3 Algorithm',
+        options: 'resizing_algorithm:lanczos3/resize:fit:550:550',
+        description: 'Highest quality resize with lanczos3 (default)'
+    },
+    {
+        name: 'Algorithm with Complex Processing',
+        options: 'resizing_algorithm:cubic/resize:fill:400:300/sharpen:1.2/quality:88',
+        description: 'Cubic algorithm with additional processing'
+    },
 ];
 
 // Main test function

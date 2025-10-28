@@ -66,6 +66,26 @@ curl "http://localhost:3000/unsafe/resize:fill:600:400/plain/https://images.unsp
 
 Open `portrait.webp` in your image viewer to confirm the result.
 
+### Using different resizing algorithms
+
+Control the interpolation quality and speed with the `resizing_algorithm` parameter:
+
+```bash
+# Fast thumbnail with nearest-neighbor (fastest)
+curl "http://localhost:3000/unsafe/ra:nearest/resize:fit:200:200/plain/https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e" \
+  --output thumbnail.jpg
+
+# Balanced quality with cubic interpolation
+curl "http://localhost:3000/unsafe/ra:cubic/resize:fit:800:600/quality:85/plain/https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e" \
+  --output balanced.jpg
+
+# Highest quality with lanczos3 (default)
+curl "http://localhost:3000/unsafe/ra:lanczos3/resize:fit:1200:900/quality:92/plain/https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e" \
+  --output high-quality.jpg
+```
+
+See [13_resizing_algorithms.md](13_resizing_algorithms.md) for detailed guidance on choosing the right algorithm.
+
 ## Inspecting available endpoints
 
 | Endpoint          | Description                                                                                                             |

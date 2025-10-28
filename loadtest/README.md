@@ -31,7 +31,7 @@ This directory contains K6 load testing scripts for the imgforge image processin
 Comprehensive load test for the image processing endpoint with various parameter combinations.
 
 **Features:**
-- Tests 24+ different processing scenarios
+- Tests 30+ different processing scenarios
 - Covers resize, crop, format conversion, effects, and more
 - HMAC-signed URL generation
 - Configurable via environment variables
@@ -39,6 +39,7 @@ Comprehensive load test for the image processing endpoint with various parameter
 
 **Test Scenarios Include:**
 - Basic resizing (fill, fit, force modes)
+- Resizing algorithms (nearest, linear, cubic, lanczos2, lanczos3)
 - Size adjustments (width, height, size)
 - Quality adjustments
 - Format conversions (JPEG, PNG, WebP)
