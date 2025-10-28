@@ -132,19 +132,31 @@ pub fn apply_resize(
     let (target_w, target_h) = resolve_resize_dimensions(resize, src_width, src_height)?;
 
     match resize.resizing_type.as_str() {
-        "fill" => resize_to_fill(img, target_w, target_h, gravity.as_deref().unwrap_or("center")),
-        "fit" => resize_to_fit(img, target_w, target_h),
-        "force" => resize_to_force(img, target_w, target_h),
+        "fill" => resize_to_fill(
+            img,
+            target_w,
+            target_h,
+            gravity.as_deref().unwrap_or("center"),
+            resizing_algorithm,
+        ),
+        "fit" => resize_to_fit(img, target_w, target_h, resizing_algorithm),
+        "force" => resize_to_force(img, target_w, target_h, resizing_algorithm),
         "auto" => {
             let src_is_portrait = super::utils::is_portrait(src_width, src_height);
             let target_is_portrait = super::utils::is_portrait(target_w, target_h);
 
             if src_is_portrait == target_is_portrait {
                 debug!("Auto resize: orientations match, using fill");
-                resize_to_fill(img, target_w, target_h, gravity.as_deref().unwrap_or("center"))
+                resize_to_fill(
+                    img,
+                    target_w,
+                    target_h,
+                    gravity.as_deref().unwrap_or("center"),
+                    resizing_algorithm,
+                )
             } else {
                 debug!("Auto resize: orientations differ, using fit");
-                resize_to_fit(img, target_w, target_h)
+                resize_to_fit(img, target_w, target_h, resizing_algorithm)
             }
         }
         _ => Err(format!("Unknown resize type: {}", resize.resizing_type)),
@@ -152,7 +164,13 @@ pub fn apply_resize(
 }
 
 /// Resizes an image to fill the target dimensions, cropping if necessary.
-fn resize_to_fill(img: VipsImage, width: u32, height: u32, gravity: &str) -> Result<VipsImage, String> {
+fn resize_to_fill(
+    img: VipsImage,
+    width: u32,
+    height: u32,
+    gravity: &str,
+    resizing_algorithm: &Option<String>,
+) -> Result<VipsImage, String> {
     let (img_w, img_h) = (img.get_width() as u32, img.get_height() as u32);
     let aspect_ratio = img_w as f32 / img_h as f32;
     let target_aspect_ratio = width as f32 / height as f32;
@@ -180,7 +198,12 @@ fn resize_to_fill(img: VipsImage, width: u32, height: u32, gravity: &str) -> Res
 }
 
 /// Resizes an image to the exact target dimensions, allowing aspect ratio changes.
-fn resize_to_force(img: VipsImage, width: u32, height: u32) -> Result<VipsImage, String> {
+fn resize_to_force(
+    img: VipsImage,
+    width: u32,
+    height: u32,
+    resizing_algorithm: &Option<String>,
+) -> Result<VipsImage, String> {
     let (src_w, src_h) = (img.get_width() as f64, img.get_height() as f64);
     let scale_x = width as f64 / src_w;
     let scale_y = height as f64 / src_h;
@@ -196,7 +219,12 @@ fn resize_to_force(img: VipsImage, width: u32, height: u32) -> Result<VipsImage,
 }
 
 /// Resizes an image to fit within the target dimensions while maintaining aspect ratio.
-fn resize_to_fit(img: VipsImage, width: u32, height: u32) -> Result<VipsImage, String> {
+fn resize_to_fit(
+    img: VipsImage,
+    width: u32,
+    height: u32,
+    resizing_algorithm: &Option<String>,
+) -> Result<VipsImage, String> {
     let (img_w, img_h) = (img.get_width() as u32, img.get_height() as u32);
     let aspect_ratio = img_w as f32 / img_h as f32;
 
