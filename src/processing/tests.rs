@@ -195,6 +195,15 @@ mod test_processing {
         assert_eq!(bg_applied_img.get_bands(), 3);
     }
 
+    #[test]
+    fn test_apply_background_color_no_alpha() {
+        let _ = &*APP;
+        let img = VipsImage::new_from_buffer(&create_test_image_jpeg(100, 100), "").unwrap();
+        let bands_before = img.get_bands();
+        let bg_applied_img = transform::apply_background_color(img, [255, 0, 0, 255]).unwrap();
+        assert_eq!(bg_applied_img.get_bands(), bands_before);
+    }
+
     fn create_test_image(width: u32, height: u32) -> Vec<u8> {
         let mut img: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::new(width, height);
         for (_x, _y, pixel) in img.enumerate_pixels_mut() {
@@ -202,6 +211,17 @@ mod test_processing {
         }
         let mut bytes: Vec<u8> = Vec::new();
         img.write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
+            .unwrap();
+        bytes
+    }
+
+    fn create_test_image_jpeg(width: u32, height: u32) -> Vec<u8> {
+        let mut img: ImageBuffer<image::Rgb<u8>, Vec<u8>> = ImageBuffer::new(width, height);
+        for (_x, _y, pixel) in img.enumerate_pixels_mut() {
+            *pixel = image::Rgb([255, 0, 0]);
+        }
+        let mut bytes: Vec<u8> = Vec::new();
+        img.write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Jpeg)
             .unwrap();
         bytes
     }

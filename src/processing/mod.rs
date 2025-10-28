@@ -3,7 +3,7 @@ pub mod save;
 pub mod transform;
 pub mod utils;
 
-use crate::monitoring::{IMAGE_PROCESSING_DURATION_SECONDS, PROCESSED_IMAGES_TOTAL};
+use crate::monitoring::{increment_processed_images, observe_image_processing_duration};
 use crate::processing::options::ParsedOptions;
 use bytes::Bytes;
 use libvips::VipsImage;
@@ -198,10 +198,8 @@ pub async fn process_image(
     debug!("Image processing complete");
 
     let duration = start.elapsed().as_secs_f64();
-    IMAGE_PROCESSING_DURATION_SECONDS
-        .with_label_values(&[output_format])
-        .observe(duration);
-    PROCESSED_IMAGES_TOTAL.with_label_values(&[output_format]).inc();
+    observe_image_processing_duration(output_format, duration);
+    increment_processed_images(output_format);
 
     Ok(output_bytes)
 }

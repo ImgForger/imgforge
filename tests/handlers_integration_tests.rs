@@ -9,6 +9,9 @@ use image::{ImageBuffer, Rgba};
 use imgforge::caching::cache::ImgforgeCache;
 use imgforge::config::Config;
 use imgforge::handlers::{image_forge_handler, info_handler, status_handler, AppState};
+use imgforge::middleware::request_id_middleware;
+use lazy_static::lazy_static;
+use libvips::VipsApp;
 use serde_json::Value;
 use sha2::Sha256;
 use std::sync::Arc;
@@ -21,6 +24,11 @@ use wiremock::{
 
 type HmacSha256 = Hmac<Sha256>;
 
+lazy_static! {
+    static ref VIPS_APP: Arc<VipsApp> =
+        Arc::new(VipsApp::new("imgforge-test", false).expect("Failed to initialize libvips"));
+}
+
 /// Helper function to create a test PNG image
 fn create_test_image(width: u32, height: u32, color: [u8; 4]) -> Vec<u8> {
     let mut img: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::new(width, height);
@@ -29,6 +37,18 @@ fn create_test_image(width: u32, height: u32, color: [u8; 4]) -> Vec<u8> {
     }
     let mut bytes: Vec<u8> = Vec::new();
     img.write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
+        .unwrap();
+    bytes
+}
+
+/// Helper function to create a test JPEG image without alpha channel
+fn create_test_jpeg_image(width: u32, height: u32, color: [u8; 3]) -> Vec<u8> {
+    let mut img: ImageBuffer<image::Rgb<u8>, Vec<u8>> = ImageBuffer::new(width, height);
+    for (_x, _y, pixel) in img.enumerate_pixels_mut() {
+        *pixel = image::Rgb(color);
+    }
+    let mut bytes: Vec<u8> = Vec::new();
+    img.write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Jpeg)
         .unwrap();
     bytes
 }
@@ -69,6 +89,7 @@ async fn create_test_state(config: Config) -> Arc<AppState> {
         cache,
         rate_limiter: None,
         config,
+        vips_app: VIPS_APP.clone(),
     })
 }
 
@@ -96,7 +117,9 @@ async fn make_request(
 
 #[tokio::test]
 async fn test_status_handler_success() {
-    let app = axum::Router::new().route("/status", axum::routing::get(status_handler));
+    let app = axum::Router::new()
+        .route("/status", axum::routing::get(status_handler))
+        .layer(axum::middleware::from_fn(request_id_middleware));
 
     let (status, body, headers) = make_request(app, "/status", None).await;
 
@@ -130,7 +153,8 @@ async fn test_info_handler_with_unsigned_url() {
 
     let app = axum::Router::new()
         .route("/info/{*path}", axum::routing::get(info_handler))
-        .with_state(state);
+        .with_state(state)
+        .layer(axum::middleware::from_fn(request_id_middleware));
 
     let (status, body, headers) = make_request(app, &path, None).await;
 
@@ -169,7 +193,8 @@ async fn test_info_handler_with_signed_url() {
 
     let app = axum::Router::new()
         .route("/info/{*path}", axum::routing::get(info_handler))
-        .with_state(state);
+        .with_state(state)
+        .layer(axum::middleware::from_fn(request_id_middleware));
 
     let (status, body, _) = make_request(app, &full_path, None).await;
 
@@ -194,7 +219,8 @@ async fn test_info_handler_invalid_signature() {
 
     let app = axum::Router::new()
         .route("/info/{*path}", axum::routing::get(info_handler))
-        .with_state(state);
+        .with_state(state)
+        .layer(axum::middleware::from_fn(request_id_middleware));
 
     let (status, body, _) = make_request(app, &path, None).await;
 
@@ -212,7 +238,8 @@ async fn test_info_handler_unsigned_not_allowed() {
 
     let app = axum::Router::new()
         .route("/info/{*path}", axum::routing::get(info_handler))
-        .with_state(state);
+        .with_state(state)
+        .layer(axum::middleware::from_fn(request_id_middleware));
 
     let (status, body, _) = make_request(app, &path, None).await;
 
@@ -245,7 +272,8 @@ async fn test_info_handler_with_bearer_auth() {
 
     let app = axum::Router::new()
         .route("/info/{*path}", axum::routing::get(info_handler))
-        .with_state(state);
+        .with_state(state)
+        .layer(axum::middleware::from_fn(request_id_middleware));
 
     let (status, body, _) = make_request(app, &path, Some("my_secret_token")).await;
 
@@ -266,7 +294,8 @@ async fn test_info_handler_invalid_bearer_token() {
 
     let app = axum::Router::new()
         .route("/info/{*path}", axum::routing::get(info_handler))
-        .with_state(state);
+        .with_state(state)
+        .layer(axum::middleware::from_fn(request_id_middleware));
 
     let (status, body, _) = make_request(app, &path, Some("wrong_token")).await;
 
@@ -285,7 +314,8 @@ async fn test_info_handler_missing_bearer_token() {
 
     let app = axum::Router::new()
         .route("/info/{*path}", axum::routing::get(info_handler))
-        .with_state(state);
+        .with_state(state)
+        .layer(axum::middleware::from_fn(request_id_middleware));
 
     let (status, body, _) = make_request(app, &path, None).await;
 
@@ -302,7 +332,8 @@ async fn test_info_handler_invalid_url_format() {
 
     let app = axum::Router::new()
         .route("/info/{*path}", axum::routing::get(info_handler))
-        .with_state(state);
+        .with_state(state)
+        .layer(axum::middleware::from_fn(request_id_middleware));
 
     let (status, body, _) = make_request(app, path, None).await;
 
@@ -321,7 +352,8 @@ async fn test_info_handler_fetch_error() {
 
     let app = axum::Router::new()
         .route("/info/{*path}", axum::routing::get(info_handler))
-        .with_state(state);
+        .with_state(state)
+        .layer(axum::middleware::from_fn(request_id_middleware));
 
     let (status, body, _) = make_request(app, &path, None).await;
 
@@ -353,7 +385,8 @@ async fn test_image_forge_handler_unsigned_url() {
 
     let app = axum::Router::new()
         .route("/{*path}", axum::routing::get(image_forge_handler))
-        .with_state(state);
+        .with_state(state)
+        .layer(axum::middleware::from_fn(request_id_middleware));
 
     let (status, _body, headers) = make_request(app, &path, None).await;
 
@@ -385,7 +418,8 @@ async fn test_image_forge_handler_with_resize() {
 
     let app = axum::Router::new()
         .route("/{*path}", axum::routing::get(image_forge_handler))
-        .with_state(state);
+        .with_state(state)
+        .layer(axum::middleware::from_fn(request_id_middleware));
 
     let (status, _body, _) = make_request(app, &path, None).await;
 
@@ -416,7 +450,8 @@ async fn test_image_forge_handler_with_quality() {
 
     let app = axum::Router::new()
         .route("/{*path}", axum::routing::get(image_forge_handler))
-        .with_state(state);
+        .with_state(state)
+        .layer(axum::middleware::from_fn(request_id_middleware));
 
     let (status, _body, _) = make_request(app, &path, None).await;
 
@@ -447,7 +482,8 @@ async fn test_image_forge_handler_with_blur() {
 
     let app = axum::Router::new()
         .route("/{*path}", axum::routing::get(image_forge_handler))
-        .with_state(state);
+        .with_state(state)
+        .layer(axum::middleware::from_fn(request_id_middleware));
 
     let (status, _body, _) = make_request(app, &path, None).await;
 
@@ -477,7 +513,8 @@ async fn test_image_forge_handler_raw_option() {
 
     let app = axum::Router::new()
         .route("/{*path}", axum::routing::get(image_forge_handler))
-        .with_state(state);
+        .with_state(state)
+        .layer(axum::middleware::from_fn(request_id_middleware));
 
     let (status, body, _) = make_request(app, &path, None).await;
 
@@ -511,7 +548,8 @@ async fn test_image_forge_handler_invalid_processing_option() {
 
     let app = axum::Router::new()
         .route("/{*path}", axum::routing::get(image_forge_handler))
-        .with_state(state);
+        .with_state(state)
+        .layer(axum::middleware::from_fn(request_id_middleware));
 
     let (status, _body, _) = make_request(app, &path, None).await;
 
@@ -543,7 +581,8 @@ async fn test_image_forge_handler_max_file_size_exceeded() {
 
     let app = axum::Router::new()
         .route("/{*path}", axum::routing::get(image_forge_handler))
-        .with_state(state);
+        .with_state(state)
+        .layer(axum::middleware::from_fn(request_id_middleware));
 
     let (status, body, _) = make_request(app, &path, None).await;
 
@@ -576,7 +615,8 @@ async fn test_image_forge_handler_max_resolution_exceeded() {
 
     let app = axum::Router::new()
         .route("/{*path}", axum::routing::get(image_forge_handler))
-        .with_state(state);
+        .with_state(state)
+        .layer(axum::middleware::from_fn(request_id_middleware));
 
     let (status, body, _) = make_request(app, &path, None).await;
 
@@ -609,7 +649,8 @@ async fn test_image_forge_handler_mime_type_restriction() {
 
     let app = axum::Router::new()
         .route("/{*path}", axum::routing::get(image_forge_handler))
-        .with_state(state);
+        .with_state(state)
+        .layer(axum::middleware::from_fn(request_id_middleware));
 
     let (status, body, _) = make_request(app, &path, None).await;
 
@@ -645,7 +686,8 @@ async fn test_image_forge_handler_signed_url() {
 
     let app = axum::Router::new()
         .route("/{*path}", axum::routing::get(image_forge_handler))
-        .with_state(state);
+        .with_state(state)
+        .layer(axum::middleware::from_fn(request_id_middleware));
 
     let (status, _body, _) = make_request(app, &full_path, None).await;
 
@@ -676,7 +718,8 @@ async fn test_image_forge_handler_multiple_processing_options() {
 
     let app = axum::Router::new()
         .route("/{*path}", axum::routing::get(image_forge_handler))
-        .with_state(state);
+        .with_state(state)
+        .layer(axum::middleware::from_fn(request_id_middleware));
 
     let (status, _body, _) = make_request(app, &path, None).await;
 
@@ -707,7 +750,8 @@ async fn test_image_forge_handler_with_format_conversion() {
 
     let app = axum::Router::new()
         .route("/{*path}", axum::routing::get(image_forge_handler))
-        .with_state(state);
+        .with_state(state)
+        .layer(axum::middleware::from_fn(request_id_middleware));
 
     let (status, _body, _) = make_request(app, &path, None).await;
 
@@ -738,7 +782,8 @@ async fn test_image_forge_handler_with_crop() {
 
     let app = axum::Router::new()
         .route("/{*path}", axum::routing::get(image_forge_handler))
-        .with_state(state);
+        .with_state(state)
+        .layer(axum::middleware::from_fn(request_id_middleware));
 
     let (status, _body, _) = make_request(app, &path, None).await;
 
@@ -769,7 +814,8 @@ async fn test_image_forge_handler_with_rotation() {
 
     let app = axum::Router::new()
         .route("/{*path}", axum::routing::get(image_forge_handler))
-        .with_state(state);
+        .with_state(state)
+        .layer(axum::middleware::from_fn(request_id_middleware));
 
     let (status, _body, _) = make_request(app, &path, None).await;
 
@@ -800,7 +846,8 @@ async fn test_image_forge_handler_with_dpr() {
 
     let app = axum::Router::new()
         .route("/{*path}", axum::routing::get(image_forge_handler))
-        .with_state(state);
+        .with_state(state)
+        .layer(axum::middleware::from_fn(request_id_middleware));
 
     let (status, _body, _) = make_request(app, &path, None).await;
 
@@ -830,7 +877,8 @@ async fn test_image_forge_handler_plain_url() {
 
     let app = axum::Router::new()
         .route("/{*path}", axum::routing::get(image_forge_handler))
-        .with_state(state);
+        .with_state(state)
+        .layer(axum::middleware::from_fn(request_id_middleware));
 
     let (status, _body, _) = make_request(app, &path, None).await;
 
@@ -861,7 +909,8 @@ async fn test_image_forge_handler_with_extension() {
 
     let app = axum::Router::new()
         .route("/{*path}", axum::routing::get(image_forge_handler))
-        .with_state(state);
+        .with_state(state)
+        .layer(axum::middleware::from_fn(request_id_middleware));
 
     let (status, _body, _) = make_request(app, &path, None).await;
 
@@ -892,7 +941,8 @@ async fn test_image_forge_handler_with_sharpen() {
 
     let app = axum::Router::new()
         .route("/{*path}", axum::routing::get(image_forge_handler))
-        .with_state(state);
+        .with_state(state)
+        .layer(axum::middleware::from_fn(request_id_middleware));
 
     let (status, _body, _) = make_request(app, &path, None).await;
 
@@ -923,7 +973,8 @@ async fn test_image_forge_handler_with_padding() {
 
     let app = axum::Router::new()
         .route("/{*path}", axum::routing::get(image_forge_handler))
-        .with_state(state);
+        .with_state(state)
+        .layer(axum::middleware::from_fn(request_id_middleware));
 
     let (status, _body, _) = make_request(app, &path, None).await;
 
@@ -954,7 +1005,43 @@ async fn test_image_forge_handler_with_background_color() {
 
     let app = axum::Router::new()
         .route("/{*path}", axum::routing::get(image_forge_handler))
-        .with_state(state);
+        .with_state(state)
+        .layer(axum::middleware::from_fn(request_id_middleware));
+
+    let (status, _body, _) = make_request(app, &path, None).await;
+
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_image_forge_handler_with_background_color_jpeg_source() {
+    let mock_server = MockServer::start().await;
+    let test_image = create_test_jpeg_image(800, 600, [200, 100, 50]);
+
+    Mock::given(method("GET"))
+        .and(path("/bg.jpg"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_bytes(test_image)
+                .insert_header("Content-Type", "image/jpeg"),
+        )
+        .mount(&mock_server)
+        .await;
+
+    let config = create_test_config(vec![], vec![], true);
+    let state = create_test_state(config).await;
+
+    let source_url = format!("{}/bg.jpg", mock_server.uri());
+    let encoded_url = URL_SAFE_NO_PAD.encode(source_url.as_bytes());
+    let path = format!(
+        "/unsafe/resize:fill:800:600/gravity:center/quality:88/sharpen:1/background:FFFFFF/{}",
+        encoded_url
+    );
+
+    let app = axum::Router::new()
+        .route("/{*path}", axum::routing::get(image_forge_handler))
+        .with_state(state)
+        .layer(axum::middleware::from_fn(request_id_middleware));
 
     let (status, _body, _) = make_request(app, &path, None).await;
 

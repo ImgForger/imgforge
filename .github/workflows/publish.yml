@@ -3,7 +3,7 @@ name: Build & Publish Docker Image(s)
 on:
   push:
     tags:
-      - "v*"  # trigger on version tags like v1.0.0
+      - "v*" # trigger on version tags like v1.0.0
 
 permissions:
   contents: read
@@ -20,7 +20,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
         with:
-          fetch-depth: 0  # ensure all tags are fetched
+          fetch-depth: 0 # ensure all tags are fetched
 
       - name: Get latest Git tag
         id: get_tag
@@ -29,16 +29,17 @@ jobs:
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "Using tag: $TAG"
 
-  build-multiarch:
+  build-and-push:
     needs: get-latest-tag
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        arch: [amd64, arm64]
+
     steps:
       - name: Checkout source
         uses: actions/checkout@v5
 
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -49,35 +50,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and Push for ${{ matrix.arch }}
-        run: |
-          TAG=${{ needs.get-latest-tag.outputs.tag }}
-          docker buildx build \
-            --platform linux/${{ matrix.arch }} \
-            --push \
-            --tag ghcr.io/imgforger/imgforge:${TAG}-${{ matrix.arch }} \
-            --tag ghcr.io/imgforger/imgforge:${{ matrix.arch }} \
-            .
-
-  merge-manifest:
-    needs: [build-multiarch, get-latest-tag]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+      - name: Build and push image
+        uses: docker/build-push-action@v4
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Merge manifests
-        run: |
-          TAG=${{ needs.get-latest-tag.outputs.tag }}
-          docker buildx imagetools create \
-            -t ghcr.io/imgforger/imgforge:${TAG} \
-            -t ghcr.io/imgforger/imgforge:latest \
-            ghcr.io/imgforger/imgforge:${TAG}-amd64 \
-            ghcr.io/imgforger/imgforge:${TAG}-arm64
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/imgforger/imgforge:latest
+            ghcr.io/imgforger/imgforge:${{ needs.get-latest-tag.outputs.tag }}
