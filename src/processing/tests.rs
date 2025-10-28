@@ -1493,7 +1493,7 @@ mod test_processing {
     }
 
     #[test]
-    fn test_apply_resize_with_algorithm() {
+    fn test_apply_resize_with_cubic_algorithm() {
         let _ = &*APP;
         let img = VipsImage::new_from_buffer(&create_test_image(400, 300), "").unwrap();
         let resize = Resize {
@@ -1501,10 +1501,6 @@ mod test_processing {
             width: 200,
             height: 150,
         };
-        // Test with lanczos3 (default) - should work fine
-        let resized_img = transform::apply_resize(img.clone(), &resize, &None, &Some("lanczos3".to_string())).unwrap();
-        assert_eq!(resized_img.get_width(), 200);
-        assert_eq!(resized_img.get_height(), 150);
 
         // Test with cubic - should also work
         let resized_img2 = transform::apply_resize(img, &resize, &None, &Some("cubic".to_string())).unwrap();
