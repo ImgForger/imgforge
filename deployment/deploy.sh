@@ -21,18 +21,18 @@ DEPLOYMENT_DIR="$HOME/.imgforge"
 # Helper functions
 print_header() {
     echo ""
-    echo -e "${CYAN}╔════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${NC}                                                            ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}     ${BLUE}██╗███╗   ███╗ ██████╗ ███████╗ ██████╗ ██████╗  ██████╗ ███████╗${NC} ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}     ${BLUE}██║████╗ ████║██╔════╝ ██╔════╝██╔═══██╗██╔══██╗██╔════╝ ██╔════╝${NC} ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}     ${BLUE}██║██╔████╔██║██║  ███╗█████╗  ██║   ██║██████╔╝██║  ███╗█████╗${NC}   ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}     ${BLUE}██║██║╚██╔╝██║██║   ██║██╔══╝  ██║   ██║██╔══██╗██║   ██║██╔══╝${NC}   ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}     ${BLUE}██║██║ ╚═╝ ██║╚██████╔╝██║     ╚██████╔╝██║  ██║╚██████╔╝███████╗${NC} ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}     ${BLUE}╚═╝╚═╝     ╚═╝ ╚═════╝ ╚═╝      ╚═════╝ ╚═╝  ╚═╝ ╚═════╝ ╚══════╝${NC} ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}                                                            ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}          ${GREEN}Fast, Secure Image Transformation Server${NC}          ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}                                                            ${CYAN}║${NC}"
-    echo -e "${CYAN}╚════════════════════════════════════════════════════════════╝${NC}"
+    echo -e "${CYAN}╔═════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║                                                             ║${NC}"
+    echo -e "${CYAN}║  ${BLUE}██╗███╗   ███╗ ██████╗ ███████╗ ██████╗ ██████╗  ██████╗ ███████╗${NC}  ${CYAN}║${NC}"
+    echo -e "${CYAN}║  ${BLUE}██║████╗ ████║██╔════╝ ██╔════╝██╔═══██╗██╔══██╗██╔════╝ ██╔════╝${NC}  ${CYAN}║${NC}"
+    echo -e "${CYAN}║  ${BLUE}██║██╔████╔██║██║  ███╗█████╗  ██║   ██║██████╔╝██║  ███╗█████╗${NC}    ${CYAN}║${NC}"
+    echo -e "${CYAN}║  ${BLUE}██║██║╚██╔╝██║██║   ██║██╔══╝  ██║   ██║██╔══██╗██║   ██║██╔══╝${NC}    ${CYAN}║${NC}"
+    echo -e "${CYAN}║  ${BLUE}██║██║ ╚═╝ ██║╚██████╔╝██║     ╚██████╔╝██║  ██║╚██████╔╝███████╗${NC}  ${CYAN}║${NC}"
+    echo -e "${CYAN}║  ${BLUE}╚═╝╚═╝     ╚═╝ ╚═════╝ ╚═╝      ╚═════╝ ╚═╝  ╚═╝ ╚═════╝ ╚══════╝${NC}  ${CYAN}║${NC}"
+    echo -e "${CYAN}║                                                             ║${NC}"
+    echo -e "${CYAN}║         ${GREEN}Fast, Secure Image Transformation Server${NC}          ${CYAN}║${NC}"
+    echo -e "${CYAN}║                                                             ║${NC}"
+    echo -e "${CYAN}╚═════════════════════════════════════════════════════════════╝${NC}"
     echo ""
 }
 
@@ -201,10 +201,10 @@ ask_cache_config() {
     echo ""
     echo "imgforge supports multiple caching strategies to improve performance:"
     echo ""
-    echo "  ${GREEN}1)${NC} Memory Cache    - Fast in-memory caching (best for smaller workloads)"
-    echo "  ${GREEN}2)${NC} Disk Cache      - Persistent file-based caching (for larger datasets)"
-    echo "  ${GREEN}3)${NC} Hybrid Cache    - Combined memory + disk caching (best performance)"
-    echo "  ${GREEN}4)${NC} No Cache        - Disable caching entirely"
+    echo -e "  ${GREEN}1)${NC} Memory Cache    - Fast in-memory caching (best for smaller workloads)"
+    echo -e "  ${GREEN}2)${NC} Disk Cache      - Persistent file-based caching (for larger datasets)"
+    echo -e "  ${GREEN}3)${NC} Hybrid Cache    - Combined memory + disk caching (best performance)"
+    echo -e "  ${GREEN}4)${NC} No Cache        - Disable caching entirely"
     echo ""
     
     while true; do
@@ -253,13 +253,13 @@ ask_monitoring_config() {
     echo ""
     echo "imgforge can be monitored with Prometheus and Grafana:"
     echo ""
-    echo "  • ${GREEN}Prometheus${NC} - Collects and stores metrics from imgforge"
-    echo "  • ${GREEN}Grafana${NC}    - Provides beautiful dashboards and visualizations"
+    echo -e "  • ${GREEN}Prometheus${NC} - Collects and stores metrics from imgforge"
+    echo -e "  • ${GREEN}Grafana${NC}    - Provides beautiful dashboards and visualizations"
     echo ""
     echo "This will use the following ports:"
-    echo "  • Prometheus: ${YELLOW}$PROMETHEUS_PORT${NC}"
-    echo "  • Grafana:    ${YELLOW}$GRAFANA_PORT${NC} (admin/admin)"
-    echo "  • Metrics:    ${YELLOW}$METRICS_PORT${NC}"
+    echo -e "  • Prometheus: ${YELLOW}$PROMETHEUS_PORT${NC}"
+    echo -e "  • Grafana:    ${YELLOW}$GRAFANA_PORT${NC} (admin/admin)"
+    echo -e "  • Metrics:    ${YELLOW}$METRICS_PORT${NC}"
     echo ""
     
     while true; do
@@ -641,8 +641,6 @@ print_final_info() {
 # Main deployment flow
 main() {
     print_header
-    
-    check_root
     
     print_info "Starting imgforge deployment process..."
     echo ""
