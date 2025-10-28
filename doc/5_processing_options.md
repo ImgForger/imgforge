@@ -67,7 +67,7 @@ Controls the interpolation kernel used during resize operations. The algorithm a
 - **`lanczos2`** – Lanczos with a=2. Good quality with less processing than lanczos3. Suitable for most use cases.
 - **`lanczos3`** – **Default**. Lanczos with a=3. Highest quality interpolation with the sharpest results. Best for final output where quality matters.
 
-The algorithm applies to all resize operations including `resize`, `size`, `width`, `height`, `min_width`, `min_height`, `zoom`, and `pixelate`. It also affects watermark scaling.
+The algorithm applies to all resize operations including `resize`, `size`, `width`, `height`, `min_width`, `min_height`, `zoom`, and `pixelate`. It also affects watermark scaling. More deep dive into the algorithms can be found [here](5.1_resizing_algorithms.md).
 
 **Example:** `resizing_algorithm:cubic/resize:fit:800:600` uses bicubic interpolation for faster processing.
 
