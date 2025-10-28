@@ -175,22 +175,39 @@ fn resize_to_fill(
     let aspect_ratio = img_w as f32 / img_h as f32;
     let target_aspect_ratio = width as f32 / height as f32;
 
-    let (resize_w, resize_h) = if aspect_ratio > target_aspect_ratio {
-        ((height as f32 * aspect_ratio).round() as u32, height)
+    let mut scale = if aspect_ratio > target_aspect_ratio {
+        height as f64 / img_h as f64
     } else {
-        (width, (width as f32 / aspect_ratio).round() as u32)
+        width as f64 / img_w as f64
+    };
+    // Bump the scale slightly so kernels that round down still cover the target.
+    scale *= 1.0 + SCALE_EPSILON;
+
+    let resized_img = resize_with_algorithm(&img, scale, None, resizing_algorithm, "Error resizing for fill")?;
+
+    let resized_w = resized_img.get_width() as u32;
+    let resized_h = resized_img.get_height() as u32;
+
+    if resized_w < width || resized_h < height {
+        return Err(format!(
+            "Resized image {}x{} is smaller than fill target {}x{}",
+            resized_w, resized_h, width, height
+        ));
+    }
+
+    let extra_w = resized_w - width;
+    let extra_h = resized_h - height;
+
+    let crop_x = match gravity {
+        "west" => 0,
+        "east" => extra_w,
+        _ => extra_w / 2,
     };
 
-    let resized_img =
-        ops::resize(&img, resize_w as f64 / img_w as f64).map_err(|e| format!("Error resizing for fill: {}", e))?;
-
-    let (crop_x, crop_y) = match gravity {
-        "center" => ((resize_w - width) / 2, (resize_h - height) / 2),
-        "north" => ((resize_w - width) / 2, 0),
-        "south" => ((resize_w - width) / 2, resize_h - height),
-        "west" => (0, (resize_h - height) / 2),
-        "east" => (resize_w - width, (resize_h - height) / 2),
-        _ => ((resize_w - width) / 2, (resize_h - height) / 2), // Default to center
+    let crop_y = match gravity {
+        "north" => 0,
+        "south" => extra_h,
+        _ => extra_h / 2,
     };
 
     ops::extract_area(&resized_img, crop_x as i32, crop_y as i32, width as i32, height as i32)
@@ -211,11 +228,7 @@ fn resize_to_force(
     if (scale_x - 1.0).abs() < SCALE_EPSILON && (scale_y - 1.0).abs() < SCALE_EPSILON {
         return Ok(img);
     }
-    let options = ops::ResizeOptions {
-        vscale: scale_y,
-        ..Default::default()
-    };
-    ops::resize_with_opts(&img, scale_x, &options).map_err(|e| format!("Error force resizing: {}", e))
+    resize_with_algorithm(&img, scale_x, Some(scale_y), resizing_algorithm, "Error force resizing")
 }
 
 /// Resizes an image to fit within the target dimensions while maintaining aspect ratio.
@@ -237,7 +250,11 @@ fn resize_to_fit(
     };
 
     debug!("Resizing to fit from {}x{} to {}x{}", img_w, img_h, target_w, target_h);
-    ops::resize(&img, target_w as f64 / img_w as f64).map_err(|e| format!("Error fitting resize: {}", e))
+    let scale_w = target_w as f64 / img_w as f64;
+    let scale_h = target_h as f64 / img_h as f64;
+    let scale = scale_w.min(scale_h);
+
+    resize_with_algorithm(&img, scale, None, resizing_algorithm, "Error fitting resize")
 }
 
 /// Extends an image to the target dimensions with background color.
