@@ -52,15 +52,6 @@ print_warning() {
     echo -e "${YELLOW}⚠${NC} $1"
 }
 
-# Check if running as root
-check_root() {
-    if [ "$EUID" -eq 0 ]; then 
-        print_warning "Running as root. This is not recommended for Docker operations."
-        print_info "Consider running without sudo and adding your user to the docker group."
-        echo ""
-    fi
-}
-
 # Check if port is available
 check_port() {
     local port=$1

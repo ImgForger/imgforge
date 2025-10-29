@@ -57,15 +57,6 @@ print_warning() {
     echo -e "${YELLOW}⚠${NC} $1"
 }
 
-# Check if running as root
-check_root() {
-    if [ "$EUID" -eq 0 ]; then
-        print_error "This script should not be run as root."
-        print_info "Run it as a regular user. It will prompt for sudo when needed."
-        exit 1
-    fi
-}
-
 # Check if port is available
 check_port() {
     local port=$1
