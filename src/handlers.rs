@@ -42,20 +42,20 @@ pub async fn status_handler() -> impl IntoResponse {
 
 /// Handles the /info/{*path} endpoint, returning metadata about the source image.
 pub async fn info_handler(
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
     Path(path): Path<String>,
     auth_header: Option<TypedHeader<Authorization<Bearer>>>,
 ) -> impl IntoResponse {
-    info!("Info path captured: {}", path);
+    debug!("Info path captured: {}", path);
 
-    let (_url_parts, _decoded_url, image_bytes, _content_type) =
-        match common_image_setup(&path, auth_header, &_state.config).await {
+    let (_url_parts, decoded_url, image_bytes, _content_type) =
+        match common_image_setup(&path, auth_header, &state.config).await {
             Ok(data) => data,
             Err(response) => return response,
         };
-    debug!("Processing info request for URL: {}", _decoded_url);
+    debug!("Processing info request for URL: {}", decoded_url);
 
-    let (width, height, format_str) = match VipsImage::new_from_buffer(&image_bytes, "") {
+    let (width, height, image_format) = match VipsImage::new_from_buffer(&image_bytes, "") {
         Ok(img) => {
             let format_str = "unknown"; // libvips doesn't easily expose format info
             (img.get_width(), img.get_height(), format_str.to_string())
@@ -66,8 +66,13 @@ pub async fn info_handler(
     let json_response = json!({
         "width": width,
         "height": height,
-        "format": format_str,
+        "format": image_format.clone(),
     });
+
+    info!(
+        "Info handler served metadata path={} url={} dimensions={}x{} format={}",
+        path, decoded_url, width, height, image_format
+    );
 
     (StatusCode::OK, Json(json_response)).into_response()
 }
@@ -78,7 +83,8 @@ pub async fn image_forge_handler(
     Path(path): Path<String>,
     auth_header: Option<TypedHeader<Authorization<Bearer>>>,
 ) -> impl IntoResponse {
-    info!("Full path captured: {}", path);
+    debug!("Full path captured: {}", path);
+    info!("Imgforge request received path={}", path);
 
     if !matches!(state.cache, Cache::None) {
         if let Some(cached_image) = state.cache.get(&path).await {
@@ -106,6 +112,8 @@ pub async fn image_forge_handler(
             let mut headers = header::HeaderMap::new();
             headers.insert(header::CONTENT_TYPE, content_type.parse().unwrap());
             headers.insert(header::CACHE_STATUS, "HIT".parse().unwrap());
+
+            info!("Imgforge cache hit path={} output_format={}", path, output_format);
 
             return (StatusCode::OK, headers, cached_image).into_response();
         }
@@ -246,6 +254,13 @@ pub async fn image_forge_handler(
     let content_type = format_to_content_type(&output_format);
     let mut headers = header::HeaderMap::new();
     headers.insert(header::CONTENT_TYPE, content_type.parse().unwrap());
+
+    info!(
+        "Imgforge processed path={} output_format={} bytes={}",
+        path,
+        output_format,
+        processed_image_bytes.len()
+    );
 
     (StatusCode::OK, headers, processed_image_bytes).into_response()
 }
