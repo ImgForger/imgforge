@@ -194,7 +194,7 @@ install_libvips() {
 get_latest_release() {
     local latest_release
 
-    print_info "Fetching latest release information..."
+    print_info "Fetching latest release information..." >&2
 
     if command -v curl &> /dev/null; then
         latest_release=$(curl -s https://api.github.com/repos/ImgForger/imgforge/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
