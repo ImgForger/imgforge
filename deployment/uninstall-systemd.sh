@@ -254,26 +254,26 @@ display_summary() {
 main() {
     print_header
 
-    # print_warning "This will uninstall imgforge and optionally remove all data."
-    # echo ""
-    # prompt_read "${YELLOW}Are you sure you want to continue? [y/N]:${NC} " confirm
+    print_warning "This will uninstall imgforge and optionally remove all data."
+    echo ""
+    prompt_read "${YELLOW}Are you sure you want to continue? [y/N]:${NC} " confirm
 
-    # if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
-    #     print_info "Uninstallation cancelled"
-    #     exit 0
-    # fi
+    if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+        print_info "Uninstallation cancelled"
+        exit 0
+    fi
 
-    # echo ""
+    echo ""
 
-    # stop_services
-    # disable_services
-    # remove_service_files
-    # remove_binaries
-    # remove_configs
-    # remove_data
-    # uninstall_packages
+    stop_services
+    disable_services
+    remove_service_files
+    remove_binaries
+    remove_configs
+    remove_data
+    uninstall_packages
 
-    # display_summary
+    display_summary
 }
 
 main "$@"

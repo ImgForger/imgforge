@@ -548,23 +548,78 @@ EOF
 install_prometheus() {
     print_info "Installing Prometheus..."
 
-    local prometheus_version="2.48.0"
     local arch=$(uname -m)
 
     if [ "$arch" = "x86_64" ]; then
         arch="amd64"
-    elif [ "$arch" = "aarch64" ]; then
+    elif [ "$arch" = "aarch64" ] || [ "$arch" = "arm64" ]; then
         arch="arm64"
+    else
+        print_error "Unsupported architecture: $arch"
+        exit 1
     fi
 
     local tmp_dir=$(mktemp -d)
     cd "$tmp_dir"
 
-    print_info "Downloading Prometheus $prometheus_version..."
-    wget -q https://github.com/prometheus/prometheus/releases/download/v${prometheus_version}/prometheus-${prometheus_version}.linux-${arch}.tar.gz
+    local prometheus_version=""
+    if command -v curl &> /dev/null; then
+        prometheus_version=$(curl -s https://api.github.com/repos/prometheus/prometheus/releases/latest | grep '"tag_name":' | sed -E 's/.*"v?([^"]+)".*/\1/')
+    elif command -v wget &> /dev/null; then
+        prometheus_version=$(wget -qO- https://api.github.com/repos/prometheus/prometheus/releases/latest | grep '"tag_name":' | sed -E 's/.*"v?([^"]+)".*/\1/')
+    fi
 
-    tar xzf prometheus-${prometheus_version}.linux-${arch}.tar.gz
-    cd prometheus-${prometheus_version}.linux-${arch}
+    if [ -z "$prometheus_version" ]; then
+        cd ~
+        rm -rf "$tmp_dir"
+        print_error "Failed to determine latest Prometheus version"
+        exit 1
+    fi
+
+    local archive="prometheus-${prometheus_version}.linux-${arch}.tar.gz"
+    local download_url="https://github.com/prometheus/prometheus/releases/download/v${prometheus_version}/${archive}"
+
+    print_info "Latest Prometheus version: $prometheus_version"
+    print_info "Downloading Prometheus from: $download_url"
+
+    if command -v curl &> /dev/null; then
+        if ! curl -L -o "$archive" "$download_url"; then
+            cd ~
+            rm -rf "$tmp_dir"
+            print_error "Failed to download Prometheus"
+            exit 1
+        fi
+    elif command -v wget &> /dev/null; then
+        if ! wget -O "$archive" "$download_url"; then
+            cd ~
+            rm -rf "$tmp_dir"
+            print_error "Failed to download Prometheus"
+            exit 1
+        fi
+    else
+        cd ~
+        rm -rf "$tmp_dir"
+        print_error "Neither curl nor wget is available to download Prometheus"
+        exit 1
+    fi
+
+    local extract_dir
+    extract_dir=$(tar tzf "$archive" | head -n1 | cut -d/ -f1)
+    if [ -z "$extract_dir" ]; then
+        cd ~
+        rm -rf "$tmp_dir"
+        print_error "Failed to inspect Prometheus archive"
+        exit 1
+    fi
+
+    if ! tar xzf "$archive"; then
+        cd ~
+        rm -rf "$tmp_dir"
+        print_error "Failed to extract Prometheus archive"
+        exit 1
+    fi
+
+    cd "$extract_dir"
 
     sudo cp prometheus promtool /usr/local/bin/
     sudo cp -r consoles console_libraries /etc/prometheus/ 2>/dev/null || sudo mkdir -p /etc/prometheus && sudo cp -r consoles console_libraries /etc/prometheus/
@@ -644,22 +699,78 @@ EOF
             print_warning "Grafana automatic installation not supported for this package manager"
             print_info "Installing Grafana from binary..."
 
-            local grafana_version="10.2.2"
             local arch=$(uname -m)
 
             if [ "$arch" = "x86_64" ]; then
                 arch="amd64"
-            elif [ "$arch" = "aarch64" ]; then
+            elif [ "$arch" = "aarch64" ] || [ "$arch" = "arm64" ]; then
                 arch="arm64"
+            else
+                print_error "Unsupported architecture: $arch"
+                exit 1
             fi
 
             local tmp_dir=$(mktemp -d)
             cd "$tmp_dir"
 
-            wget -q https://dl.grafana.com/oss/release/grafana-${grafana_version}.linux-${arch}.tar.gz
-            tar xzf grafana-${grafana_version}.linux-${arch}.tar.gz
+            local grafana_version=""
+            if command -v curl &> /dev/null; then
+                grafana_version=$(curl -s https://api.github.com/repos/grafana/grafana/releases/latest | grep '"tag_name":' | sed -E 's/.*"v?([^"]+)".*/\1/')
+            elif command -v wget &> /dev/null; then
+                grafana_version=$(wget -qO- https://api.github.com/repos/grafana/grafana/releases/latest | grep '"tag_name":' | sed -E 's/.*"v?([^"]+)".*/\1/')
+            fi
 
-            sudo mv grafana-${grafana_version} /opt/grafana
+            if [ -z "$grafana_version" ]; then
+                cd ~
+                rm -rf "$tmp_dir"
+                print_error "Failed to determine latest Grafana version"
+                exit 1
+            fi
+
+            local grafana_archive="grafana-${grafana_version}.linux-${arch}.tar.gz"
+            local grafana_download_url="https://dl.grafana.com/oss/release/${grafana_archive}"
+
+            print_info "Latest Grafana version: $grafana_version"
+            print_info "Downloading Grafana from: $grafana_download_url"
+
+            if command -v curl &> /dev/null; then
+                if ! curl -L -o "$grafana_archive" "$grafana_download_url"; then
+                    cd ~
+                    rm -rf "$tmp_dir"
+                    print_error "Failed to download Grafana"
+                    exit 1
+                fi
+            elif command -v wget &> /dev/null; then
+                if ! wget -O "$grafana_archive" "$grafana_download_url"; then
+                    cd ~
+                    rm -rf "$tmp_dir"
+                    print_error "Failed to download Grafana"
+                    exit 1
+                fi
+            else
+                cd ~
+                rm -rf "$tmp_dir"
+                print_error "Neither curl nor wget is available to download Grafana"
+                exit 1
+            fi
+
+            local grafana_extract_dir
+            grafana_extract_dir=$(tar tzf "$grafana_archive" | head -n1 | cut -d/ -f1)
+            if [ -z "$grafana_extract_dir" ]; then
+                cd ~
+                rm -rf "$tmp_dir"
+                print_error "Failed to inspect Grafana archive"
+                exit 1
+            fi
+
+            if ! tar xzf "$grafana_archive"; then
+                cd ~
+                rm -rf "$tmp_dir"
+                print_error "Failed to extract Grafana archive"
+                exit 1
+            fi
+
+            sudo mv "$grafana_extract_dir" /opt/grafana
             sudo ln -sf /opt/grafana/bin/grafana-server /usr/local/bin/grafana-server
 
             cd ~
