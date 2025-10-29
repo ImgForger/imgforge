@@ -2,6 +2,17 @@
 
 This directory contains automated deployment scripts that will get imgforge up and running on a fresh Linux machine with minimal effort.
 
+## Available Scripts
+
+### Docker Deployment
+- `deploy.sh` - Deploy imgforge using Docker Compose
+- `uninstall.sh` - Remove Docker-based deployment
+
+### Systemd Deployment
+- `deploy-systemd.sh` - Deploy imgforge as a native systemd service
+- `upgrade-systemd.sh` - Upgrade imgforge to the latest version
+- `uninstall-systemd.sh` - Remove systemd-based deployment
+
 ## Deployment Options
 
 Choose the deployment method that best fits your infrastructure:
@@ -521,7 +532,32 @@ sudo systemctl restart imgforge
 
 ### Updating imgforge
 
-To update to the latest version:
+#### Automated Upgrade (Recommended)
+
+Use the provided upgrade script for safe, automated updates with automatic rollback on failure:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ImgForger/imgforge/main/deployment/upgrade-systemd.sh | bash
+```
+
+Or if you have the script locally:
+
+```bash
+cd /path/to/deployment
+./upgrade-systemd.sh
+```
+
+The upgrade script will:
+- Check for available updates
+- Create a backup of the current binary
+- Download and install the latest version
+- Verify the service starts correctly
+- Perform health checks
+- Automatically rollback if anything fails
+
+#### Manual Upgrade
+
+To manually update to the latest version:
 
 ```bash
 # Stop the service
@@ -543,6 +579,9 @@ fi
 curl -L -o imgforge.tar.gz "https://github.com/ImgForger/imgforge/releases/download/${LATEST_VERSION}/imgforge-linux-${BINARY_ARCH}.tar.gz"
 tar xzf imgforge.tar.gz
 
+# Backup current binary (optional but recommended)
+sudo cp /opt/imgforge/imgforge /opt/imgforge/imgforge.backup
+
 # Replace the binary
 sudo cp imgforge /opt/imgforge/imgforge
 sudo chmod +x /opt/imgforge/imgforge
@@ -555,12 +594,7 @@ sudo systemctl start imgforge
 
 # Verify
 sudo systemctl status imgforge
-```
-
-Or simply re-run the deployment script (it will download the latest version):
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/ImgForger/imgforge/main/deployment/deploy-systemd.sh | bash
+curl http://localhost:3000/status
 ```
 
 ### Monitoring Setup
