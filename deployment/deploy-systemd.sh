@@ -136,15 +136,15 @@ install_dependencies() {
     case $PKG_MANAGER in
         apt)
             sudo apt-get update -qq
-            sudo apt-get install -y curl wget git build-essential pkg-config libssl-dev ca-certificates
+            sudo apt-get install -y curl wget ca-certificates
             print_success "Base dependencies installed"
             ;;
         yum|dnf)
-            sudo $PKG_MANAGER install -y curl wget git gcc gcc-c++ make openssl-devel ca-certificates
+            sudo $PKG_MANAGER install -y curl wget ca-certificates
             print_success "Base dependencies installed"
             ;;
         pacman)
-            sudo pacman -Sy --noconfirm curl wget git base-devel openssl ca-certificates
+            sudo pacman -Sy --noconfirm curl wget ca-certificates
             print_success "Base dependencies installed"
             ;;
     esac
@@ -190,61 +190,89 @@ install_libvips() {
     fi
 }
 
-# Install Rust
-install_rust() {
-    print_info "Checking for Rust..."
+# Get latest release version from GitHub
+get_latest_release() {
+    local latest_release
     
-    if command -v cargo &> /dev/null; then
-        RUST_VERSION=$(rustc --version | cut -d ' ' -f2)
-        print_success "Rust already installed: $RUST_VERSION"
-        return 0
-    fi
+    print_info "Fetching latest release information..."
     
-    print_info "Installing Rust..."
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
-    
-    # Source cargo environment
-    source "$HOME/.cargo/env"
-    
-    if command -v cargo &> /dev/null; then
-        RUST_VERSION=$(rustc --version | cut -d ' ' -f2)
-        print_success "Rust installed: $RUST_VERSION"
+    if command -v curl &> /dev/null; then
+        latest_release=$(curl -s https://api.github.com/repos/ImgForger/imgforge/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+    elif command -v wget &> /dev/null; then
+        latest_release=$(wget -qO- https://api.github.com/repos/ImgForger/imgforge/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
     else
-        print_error "Failed to install Rust"
+        print_error "Neither curl nor wget is available"
         exit 1
     fi
+    
+    if [ -z "$latest_release" ]; then
+        print_error "Failed to fetch latest release information"
+        exit 1
+    fi
+    
+    echo "$latest_release"
 }
 
-# Clone and build imgforge
-build_imgforge() {
-    print_info "Building imgforge from source..."
+# Download and install imgforge binary
+download_imgforge() {
+    print_info "Downloading imgforge binary..."
+    
+    local arch=$(uname -m)
+    local binary_arch
+    
+    if [ "$arch" = "x86_64" ]; then
+        binary_arch="amd64"
+    elif [ "$arch" = "aarch64" ] || [ "$arch" = "arm64" ]; then
+        binary_arch="arm64"
+    else
+        print_error "Unsupported architecture: $arch"
+        print_info "Supported architectures: x86_64 (amd64), aarch64/arm64"
+        exit 1
+    fi
+    
+    local version=$(get_latest_release)
+    local download_url="https://github.com/ImgForger/imgforge/releases/download/${version}/imgforge-linux-${binary_arch}.tar.gz"
+    
+    print_info "Latest version: $version"
+    print_info "Architecture: $binary_arch"
+    print_info "Downloading from: $download_url"
     
     local tmp_dir=$(mktemp -d)
     cd "$tmp_dir"
     
-    print_info "Cloning imgforge repository..."
-    if ! git clone https://github.com/ImgForger/imgforge.git; then
-        print_error "Failed to clone imgforge repository"
-        exit 1
+    if command -v curl &> /dev/null; then
+        if ! curl -L -o imgforge.tar.gz "$download_url"; then
+            print_error "Failed to download imgforge binary"
+            cd ~
+            rm -rf "$tmp_dir"
+            exit 1
+        fi
+    elif command -v wget &> /dev/null; then
+        if ! wget -O imgforge.tar.gz "$download_url"; then
+            print_error "Failed to download imgforge binary"
+            cd ~
+            rm -rf "$tmp_dir"
+            exit 1
+        fi
     fi
     
-    cd imgforge
-    
-    print_info "Building imgforge (this may take several minutes)..."
-    if ! cargo build --release; then
-        print_error "Failed to build imgforge"
+    print_info "Extracting binary..."
+    if ! tar xzf imgforge.tar.gz; then
+        print_error "Failed to extract binary"
+        cd ~
+        rm -rf "$tmp_dir"
         exit 1
     fi
     
     print_info "Installing imgforge binary..."
     sudo mkdir -p "$INSTALL_DIR"
-    sudo cp target/release/imgforge "$INSTALL_DIR/imgforge"
+    sudo cp imgforge "$INSTALL_DIR/imgforge"
     sudo chmod +x "$INSTALL_DIR/imgforge"
     
     cd ~
     rm -rf "$tmp_dir"
     
-    print_success "imgforge built and installed to $INSTALL_DIR/imgforge"
+    print_success "imgforge $version installed to $INSTALL_DIR/imgforge"
 }
 
 # Generate secure random hex string
@@ -814,9 +842,8 @@ main() {
     print_info "Installing dependencies..."
     install_dependencies
     install_libvips
-    install_rust
     
-    build_imgforge
+    download_imgforge
     
     create_directory_structure
     generate_configs

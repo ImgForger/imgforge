@@ -348,7 +348,7 @@ docker rmi grafana/grafana:latest
 
 ## Systemd Deployment (Option 2)
 
-For environments where Docker is not available or you prefer native system services, use the systemd deployment method. This installs imgforge as a compiled binary managed by systemd.
+For environments where Docker is not available or you prefer native system services, use the systemd deployment method. This downloads pre-compiled imgforge binaries and installs them as a systemd service.
 
 ### Quick Start
 
@@ -372,15 +372,15 @@ The systemd deployment script will:
 
 1. **Check Prerequisites and Install Dependencies**
    - Detect your Linux distribution and package manager
-   - Install build tools (gcc, make, pkg-config, etc.)
-   - Install libvips and libvips-dev (required for image processing)
-   - Install Rust toolchain if not already present
+   - Install essential tools (curl, wget, ca-certificates)
+   - Install libvips and libvips-tools (required for image processing)
    - Verify all required ports are available
 
-2. **Build imgforge from Source**
-   - Clone the imgforge repository
-   - Compile imgforge in release mode
-   - Install the binary to `/opt/imgforge/`
+2. **Download imgforge Binary**
+   - Fetch the latest release information from GitHub
+   - Detect system architecture (amd64 or arm64)
+   - Download the pre-compiled binary for your architecture
+   - Extract and install the binary to `/opt/imgforge/`
 
 3. **Interactive Configuration**
    - Ask you to choose a caching strategy (Memory, Disk, Hybrid, or None)
@@ -527,21 +527,40 @@ To update to the latest version:
 # Stop the service
 sudo systemctl stop imgforge
 
-# Build the latest version
+# Download the latest version
 cd /tmp
-git clone https://github.com/ImgForger/imgforge.git
-cd imgforge
-cargo build --release
+LATEST_VERSION=$(curl -s https://api.github.com/repos/ImgForger/imgforge/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+ARCH=$(uname -m)
+
+# Determine architecture
+if [ "$ARCH" = "x86_64" ]; then
+    BINARY_ARCH="amd64"
+elif [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
+    BINARY_ARCH="arm64"
+fi
+
+# Download and extract
+curl -L -o imgforge.tar.gz "https://github.com/ImgForger/imgforge/releases/download/${LATEST_VERSION}/imgforge-linux-${BINARY_ARCH}.tar.gz"
+tar xzf imgforge.tar.gz
 
 # Replace the binary
-sudo cp target/release/imgforge /opt/imgforge/imgforge
+sudo cp imgforge /opt/imgforge/imgforge
 sudo chmod +x /opt/imgforge/imgforge
+
+# Cleanup
+rm -f imgforge imgforge.tar.gz
 
 # Start the service
 sudo systemctl start imgforge
 
 # Verify
 sudo systemctl status imgforge
+```
+
+Or simply re-run the deployment script (it will download the latest version):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ImgForger/imgforge/main/deployment/deploy-systemd.sh | bash
 ```
 
 ### Monitoring Setup
@@ -598,24 +617,31 @@ sudo nano /etc/imgforge/imgforge.env
 sudo systemctl restart imgforge
 ```
 
-#### Build failures
+#### Download or installation failures
 
 ```bash
 # Ensure libvips is installed
 vips --version
 
-# Check Rust installation
-cargo --version
-
 # Install libvips manually if needed
 # Ubuntu/Debian:
-sudo apt-get install libvips-dev libvips-tools
+sudo apt-get install libvips-tools
 
 # RHEL/CentOS/Fedora:
-sudo dnf install vips vips-devel
+sudo dnf install vips
 
-# Or build from source:
-# See https://www.libvips.org/install.html
+# Check internet connectivity
+curl -I https://github.com
+
+# Verify architecture is supported (should be x86_64 or aarch64)
+uname -m
+
+# Try downloading manually
+LATEST_VERSION=$(curl -s https://api.github.com/repos/ImgForger/imgforge/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+echo "Latest version: $LATEST_VERSION"
+
+# Check available releases
+curl -s https://api.github.com/repos/ImgForger/imgforge/releases/latest | grep browser_download_url
 ```
 
 #### Cache not working
@@ -709,14 +735,13 @@ sudo dnf remove grafana
 ### Systemd Requirements
 
 - Linux distribution with systemd (Ubuntu 16.04+, Debian 8+, CentOS 7+, RHEL 7+, Fedora, etc.)
-- 2 GB RAM minimum (4 GB recommended, more for building from source)
-- 15 GB free disk space minimum (for build artifacts and caching)
-- Internet connection (for downloading dependencies and source code)
+- Architecture: x86_64 (amd64) or aarch64/arm64
+- 2 GB RAM minimum (4 GB recommended)
+- 10 GB free disk space minimum (for caching and monitoring data)
+- Internet connection (for downloading binaries and dependencies)
 - `curl` or `wget` (for running the script)
 - Sufficient privileges to use `sudo`
-- Build essentials will be installed automatically
 - libvips will be installed automatically
-- Rust toolchain will be installed automatically
 
 ---
 
@@ -724,10 +749,10 @@ sudo dnf remove grafana
 
 | Feature | Docker Deployment | Systemd Deployment |
 |---------|-------------------|-------------------|
-| **Installation Time** | Fast (~2-5 minutes) | Slower (~10-20 minutes, includes compilation) |
-| **Disk Space** | ~500 MB (images) | ~2-3 GB (build artifacts + binaries) |
-| **Dependencies** | Docker only | libvips, Rust, build tools |
-| **Updates** | `docker compose pull` | Rebuild from source |
+| **Installation Time** | Fast (~2-5 minutes) | Fast (~3-7 minutes) |
+| **Disk Space** | ~500 MB (images) | ~100 MB (binary + libs) |
+| **Dependencies** | Docker only | libvips only |
+| **Updates** | `docker compose pull` | Download new binary |
 | **Isolation** | Container isolation | System process |
 | **Portability** | High (same image everywhere) | Medium (compiled per system) |
 | **Resource Overhead** | Small (container overhead) | None (native process) |
