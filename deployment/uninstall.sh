@@ -20,7 +20,7 @@ print_header() {
     echo ""
     echo -e "${CYAN}╔════════════════════════════════════════════════════╗${NC}"
     echo -e "${CYAN}║                                                    ║${NC}"
-    echo -e "${CYAN}║         ${RED}imgforge Uninstall Script${NC}                  ${CYAN}║${NC}"
+    echo -e "${CYAN}║         ${RED}!! imgforge Uninstall Script !!${NC}            ${CYAN}║${NC}"
     echo -e "${CYAN}║                                                    ║${NC}"
     echo -e "${CYAN}╚════════════════════════════════════════════════════╝${NC}"
     echo ""
@@ -178,7 +178,7 @@ print_final() {
     echo ""
     echo -e "${GREEN}╔════════════════════════════════════════════════════╗${NC}"
     echo -e "${GREEN}║                                                    ║${NC}"
-    echo -e "${GREEN}║      ${CYAN}imgforge has been uninstalled${NC}               ${GREEN}║${NC}"
+    echo -e "${GREEN}║      ${CYAN}!! imgforge has been uninstalled !!${NC}           ${GREEN}║${NC}"
     echo -e "${GREEN}║                                                    ║${NC}"
     echo -e "${GREEN}╚════════════════════════════════════════════════════╝${NC}"
     echo ""
@@ -194,17 +194,17 @@ print_final() {
 main() {
     print_header
     
-    confirm_uninstall
+    # confirm_uninstall
     
-    echo ""
-    print_info "Starting uninstall process..."
-    echo ""
+    # echo ""
+    # print_info "Starting uninstall process..."
+    # echo ""
     
-    stop_containers
-    remove_volumes
-    remove_config
-    remove_cache
-    remove_images
+    # stop_containers
+    # remove_volumes
+    # remove_config
+    # remove_cache
+    # remove_images
     
     print_final
 }

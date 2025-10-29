@@ -21,7 +21,7 @@ DEPLOYMENT_DIR="$HOME/.imgforge"
 # Helper functions
 print_header() {
     echo ""
-    echo -e "${CYAN}╔═════════════════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}╔═════════════════════════════════════════════════════════════════════╗${NC}"
     echo -e "${CYAN}║                                                                     ║${NC}"
     echo -e "${CYAN}║  ${BLUE}██╗███╗   ███╗ ██████╗ ███████╗ ██████╗ ██████╗  ██████╗ ███████╗${NC}  ${CYAN}║${NC}"
     echo -e "${CYAN}║  ${BLUE}██║████╗ ████║██╔════╝ ██╔════╝██╔═══██╗██╔══██╗██╔════╝ ██╔════╝${NC}  ${CYAN}║${NC}"
@@ -32,7 +32,7 @@ print_header() {
     echo -e "${CYAN}║                                                                     ║${NC}"
     echo -e "${CYAN}║              ${GREEN}Fast, Secure Image Transformation Server${NC}               ${CYAN}║${NC}"
     echo -e "${CYAN}║                                                                     ║${NC}"
-    echo -e "${CYAN}╚═════════════════════════════════════════════════════════════════════════════╝${NC}"
+    echo -e "${CYAN}╚═════════════════════════════════════════════════════════════════════╝${NC}"
     echo ""
 }
 
@@ -581,7 +581,7 @@ print_final_info() {
     echo ""
     echo -e "${GREEN}╔════════════════════════════════════════════════════════════╗${NC}"
     echo -e "${GREEN}║                                                            ║${NC}"
-    echo -e "${GREEN}║        ${CYAN}🎉  imgforge Deployment Successful!  🎉${NC}  ${GREEN}║${NC}"
+    echo -e "${GREEN}║        ${CYAN}🎉  imgforge Deployment Successful!  🎉${NC}             ${GREEN}║${NC}"
     echo -e "${GREEN}║                                                            ║${NC}"
     echo -e "${GREEN}╚════════════════════════════════════════════════════════════╝${NC}"
     echo ""
