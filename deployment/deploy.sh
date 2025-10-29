@@ -628,8 +628,7 @@ print_final_info() {
     echo -e "${CYAN}Service Information:${NC}"
     echo -e "  ${GREEN}•${NC} imgforge:      http://localhost:$IMGFORGE_PORT"
     echo -e "  ${GREEN}•${NC} Health check:  http://localhost:$IMGFORGE_PORT/status"
-    echo -e "  ${GREEN}•${NC} System info:   http://localhost:$IMGFORGE_PORT/info"
-    
+
     if [ "$ENABLE_MONITORING" = true ]; then
         echo ""
         echo -e "${CYAN}Monitoring Services:${NC}"
@@ -660,7 +659,7 @@ print_final_info() {
     echo -e "${CYAN}Security Notes:${NC}"
     echo -e "  ${YELLOW}⚠${NC}  Your security keys are stored in: ${YELLOW}$DEPLOYMENT_DIR/.env${NC}"
     echo -e "  ${YELLOW}⚠${NC}  Keep this file secure and do not share it publicly"
-    echo -e "  ${YELLOW}⚠${NC}  URLs must be HMAC-signed for security (see documentation)"
+    echo -e "  ${YELLOW}⚠${NC}  URLs must be HMAC-signed for security using the generated key and salt (see documentation)"
     
     if [ "$ENABLE_MONITORING" = true ]; then
         echo ""
@@ -669,9 +668,9 @@ print_final_info() {
     
     echo ""
     echo -e "${CYAN}Next Steps:${NC}"
-    echo -e "  ${GREEN}1.${NC} Read the documentation: ${BLUE}https://github.com/ImgForger/imgforge${NC}"
+    echo -e "  ${GREEN}1.${NC} Read the documentation: ${BLUE}https://imgforger.github.io${NC}"
     echo -e "  ${GREEN}2.${NC} Test a health check:    ${YELLOW}curl http://localhost:$IMGFORGE_PORT/status${NC}"
-    echo -e "  ${GREEN}3.${NC} Generate signed URLs using your IMGFORGE_KEY and IMGFORGE_SALT"
+    echo -e "  ${GREEN}3.${NC} Generate signed URLs using the generated IMGFORGE_KEY and IMGFORGE_SALT"
     
     echo ""
     echo -e "${GREEN}Thank you for using imgforge!${NC} 🚀"
