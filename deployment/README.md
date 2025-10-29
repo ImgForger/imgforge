@@ -1,8 +1,33 @@
 # imgforge Deployment Guide
 
-This directory contains an automated deployment script that will get imgforge up and running on a fresh Linux machine with minimal effort.
+This directory contains automated deployment scripts that will get imgforge up and running on a fresh Linux machine with minimal effort.
 
-## Quick Start
+## Available Scripts
+
+### Docker Deployment
+- `deploy.sh` - Deploy imgforge using Docker Compose
+- `uninstall.sh` - Remove Docker-based deployment
+
+### Systemd Deployment
+- `deploy-systemd.sh` - Deploy imgforge as a native systemd service
+- `upgrade-systemd.sh` - Upgrade imgforge to the latest version
+- `uninstall-systemd.sh` - Remove systemd-based deployment
+
+## Deployment Options
+
+Choose the deployment method that best fits your infrastructure:
+
+### Option 1: Docker Deployment (Recommended)
+Uses Docker and Docker Compose for containerized deployment. Simplest and most portable.
+
+### Option 2: Systemd Deployment
+Installs imgforge as a native systemd service. Best for environments where Docker is not available or not desired.
+
+---
+
+## Docker Deployment (Option 1)
+
+### Quick Start
 
 Run the deployment script:
 
@@ -18,9 +43,9 @@ chmod +x deploy.sh
 ./deploy.sh
 ```
 
-## What the Script Does
+### What the Docker Script Does
 
-The deployment script will:
+The Docker deployment script will:
 
 1. **Check Prerequisites**
    - Verify Docker installation
@@ -322,13 +347,452 @@ docker rmi prom/prometheus:latest
 docker rmi grafana/grafana:latest
 ```
 
-## Requirements
+### Docker Requirements
 
 - Linux distribution (Ubuntu, Debian, CentOS, RHEL, etc.)
 - 2 GB RAM minimum (4 GB recommended)
 - 10 GB free disk space (for caching)
 - Internet connection (for Docker image download)
 - `curl` or `wget` (for running the script)
+
+---
+
+## Systemd Deployment (Option 2)
+
+For environments where Docker is not available or you prefer native system services, use the systemd deployment method. This downloads pre-compiled imgforge binaries and installs them as a systemd service.
+
+### Quick Start
+
+Run the systemd deployment script:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ImgForger/imgforge/main/deployment/deploy-systemd.sh | bash
+```
+
+Or download and run locally:
+
+```bash
+wget https://raw.githubusercontent.com/ImgForger/imgforge/main/deployment/deploy-systemd.sh
+chmod +x deploy-systemd.sh
+./deploy-systemd.sh
+```
+
+### What the Systemd Script Does
+
+The systemd deployment script will:
+
+1. **Check Prerequisites and Install Dependencies**
+   - Detect your Linux distribution and package manager
+   - Install essential tools (curl, wget, ca-certificates)
+   - Install libvips and libvips-tools (required for image processing)
+   - Verify all required ports are available
+
+2. **Download imgforge Binary**
+   - Fetch the latest release information from GitHub
+   - Detect system architecture (amd64 or arm64)
+   - Download the pre-compiled binary for your architecture
+   - Extract and install the binary to `/opt/imgforge/`
+
+3. **Interactive Configuration**
+   - Ask you to choose a caching strategy (Memory, Disk, Hybrid, or None)
+   - Ask if you want to enable Prometheus + Grafana monitoring
+
+4. **System Setup**
+   - Create systemd service files for imgforge
+   - Generate secure random keys for HMAC signing
+   - Create configuration files with sane defaults
+   - Set up proper directory structure and permissions
+   - Install and configure Prometheus (if monitoring enabled)
+   - Install and configure Grafana (if monitoring enabled)
+
+5. **Service Management**
+   - Enable services to start on boot
+   - Start all services
+   - Perform health checks
+   - Display access URLs and credentials
+
+### System Locations
+
+The systemd deployment uses standard Linux filesystem locations:
+
+```
+/opt/imgforge/               # Binary installation
+├── imgforge                 # Main executable
+
+/etc/imgforge/               # Configuration
+├── imgforge.env             # Environment variables and keys
+
+/var/lib/imgforge/           # Data and state
+├── cache/                   # Disk cache (if enabled)
+├── prometheus/              # Prometheus data (if enabled)
+└── grafana/                 # Grafana data (if enabled)
+
+/var/log/imgforge/           # Logs
+├── imgforge.log             # Application logs
+└── imgforge-error.log       # Error logs
+
+~/.imgforge/                 # User backup
+└── imgforge.env.backup      # Configuration backup
+```
+
+### Service Management
+
+After deployment, manage imgforge using standard systemd commands:
+
+```bash
+# Start imgforge
+sudo systemctl start imgforge
+
+# Stop imgforge
+sudo systemctl stop imgforge
+
+# Restart imgforge
+sudo systemctl restart imgforge
+
+# Check status
+sudo systemctl status imgforge
+
+# View logs (live)
+sudo journalctl -u imgforge -f
+
+# View last 100 log lines
+sudo journalctl -u imgforge -n 100
+
+# Enable auto-start on boot (enabled by default)
+sudo systemctl enable imgforge
+
+# Disable auto-start
+sudo systemctl disable imgforge
+```
+
+If monitoring is enabled:
+
+```bash
+# Manage Prometheus
+sudo systemctl start/stop/restart prometheus
+sudo journalctl -u prometheus -f
+
+# Manage Grafana
+sudo systemctl start/stop/restart grafana-server
+sudo journalctl -u grafana-server -f
+```
+
+### Configuration Changes
+
+To modify the configuration after deployment:
+
+1. Edit the environment file:
+   ```bash
+   sudo nano /etc/imgforge/imgforge.env
+   ```
+
+2. Restart the service to apply changes:
+   ```bash
+   sudo systemctl restart imgforge
+   ```
+
+### Common Configuration Changes
+
+**Change the port:**
+```bash
+# In /etc/imgforge/imgforge.env
+IMGFORGE_BIND=8080
+
+# Restart the service
+sudo systemctl restart imgforge
+```
+
+**Add rate limiting:**
+```bash
+# In /etc/imgforge/imgforge.env
+IMGFORGE_RATE_LIMIT_PER_MINUTE=100
+
+# Restart the service
+sudo systemctl restart imgforge
+```
+
+**Increase cache size:**
+```bash
+# In /etc/imgforge/imgforge.env
+IMGFORGE_CACHE_MEMORY_CAPACITY=5000
+IMGFORGE_CACHE_DISK_CAPACITY=53687091200  # 50 GB
+
+# Restart the service
+sudo systemctl restart imgforge
+```
+
+**Enable unsigned URLs (NOT RECOMMENDED for production):**
+```bash
+# In /etc/imgforge/imgforge.env
+IMGFORGE_ALLOW_UNSIGNED=true
+
+# Restart the service
+sudo systemctl restart imgforge
+```
+
+### Updating imgforge
+
+#### Automated Upgrade (Recommended)
+
+Use the provided upgrade script for safe, automated updates with automatic rollback on failure:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ImgForger/imgforge/main/deployment/upgrade-systemd.sh | bash
+```
+
+Or if you have the script locally:
+
+```bash
+cd /path/to/deployment
+./upgrade-systemd.sh
+```
+
+The upgrade script will:
+- Check for available updates
+- Create a backup of the current binary
+- Download and install the latest version
+- Verify the service starts correctly
+- Perform health checks
+- Automatically rollback if anything fails
+
+#### Manual Upgrade
+
+To manually update to the latest version:
+
+```bash
+# Stop the service
+sudo systemctl stop imgforge
+
+# Download the latest version
+cd /tmp
+LATEST_VERSION=$(curl -s https://api.github.com/repos/ImgForger/imgforge/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+ARCH=$(uname -m)
+
+# Determine architecture
+if [ "$ARCH" = "x86_64" ]; then
+    BINARY_ARCH="amd64"
+elif [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
+    BINARY_ARCH="arm64"
+fi
+
+# Download and extract
+curl -L -o imgforge.tar.gz "https://github.com/ImgForger/imgforge/releases/download/${LATEST_VERSION}/imgforge-linux-${BINARY_ARCH}.tar.gz"
+tar xzf imgforge.tar.gz
+
+# Backup current binary (optional but recommended)
+sudo cp /opt/imgforge/imgforge /opt/imgforge/imgforge.backup
+
+# Replace the binary
+sudo cp imgforge /opt/imgforge/imgforge
+sudo chmod +x /opt/imgforge/imgforge
+
+# Cleanup
+rm -f imgforge imgforge.tar.gz
+
+# Start the service
+sudo systemctl start imgforge
+
+# Verify
+sudo systemctl status imgforge
+curl http://localhost:3000/status
+```
+
+### Monitoring Setup
+
+When monitoring is enabled, the script:
+
+1. **Installs Prometheus**
+   - Downloads and installs the latest Prometheus binary
+   - Configures it to scrape metrics from imgforge
+   - Sets up as a systemd service
+   - Accessible at http://localhost:9090
+
+2. **Installs Grafana**
+   - Installs via official repository (apt/yum/dnf)
+   - Falls back to binary installation if needed
+   - Configures Prometheus as datasource
+   - Attempts to download the imgforge dashboard
+   - Accessible at http://localhost:3001 (admin/admin)
+
+### Troubleshooting
+
+#### Service won't start
+
+```bash
+# Check service status
+sudo systemctl status imgforge
+
+# View detailed logs
+sudo journalctl -u imgforge -n 100 --no-pager
+
+# Check configuration
+cat /etc/imgforge/imgforge.env
+
+# Verify binary exists and is executable
+ls -la /opt/imgforge/imgforge
+
+# Test binary manually
+sudo -u $USER /opt/imgforge/imgforge
+```
+
+#### Port already in use
+
+```bash
+# Check what's using the port
+sudo lsof -i :3000
+
+# Or use netstat
+sudo netstat -tulpn | grep :3000
+
+# Change port in configuration
+sudo nano /etc/imgforge/imgforge.env
+# Update IMGFORGE_BIND=3000 to a different port
+
+sudo systemctl restart imgforge
+```
+
+#### Download or installation failures
+
+```bash
+# Ensure libvips is installed
+vips --version
+
+# Install libvips manually if needed
+# Ubuntu/Debian:
+sudo apt-get install libvips-tools
+
+# RHEL/CentOS/Fedora:
+sudo dnf install vips
+
+# Check internet connectivity
+curl -I https://github.com
+
+# Verify architecture is supported (should be x86_64 or aarch64)
+uname -m
+
+# Try downloading manually
+LATEST_VERSION=$(curl -s https://api.github.com/repos/ImgForger/imgforge/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+echo "Latest version: $LATEST_VERSION"
+
+# Check available releases
+curl -s https://api.github.com/repos/ImgForger/imgforge/releases/latest | grep browser_download_url
+```
+
+#### Cache not working
+
+```bash
+# Check cache configuration
+grep CACHE /etc/imgforge/imgforge.env
+
+# For disk cache, verify directory exists and has correct permissions
+ls -la /var/lib/imgforge/cache
+
+# Check metrics to see cache stats
+curl http://localhost:9000/metrics | grep cache
+```
+
+#### Monitoring not showing data
+
+```bash
+# Check Prometheus is running and scraping
+sudo systemctl status prometheus
+curl http://localhost:9090/targets
+
+# Verify imgforge metrics endpoint
+curl http://localhost:9000/metrics
+
+# Check Grafana
+sudo systemctl status grafana-server
+curl http://localhost:3001
+```
+
+### Uninstalling
+
+Use the provided uninstall script for systemd deployments:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ImgForger/imgforge/main/deployment/uninstall-systemd.sh | bash
+```
+
+Or if you have it locally:
+
+```bash
+./uninstall-systemd.sh
+```
+
+The script will:
+- Stop and disable all services
+- Remove systemd service files
+- Remove binaries
+- Optionally remove configuration files
+- Optionally remove data and cache
+- Optionally uninstall Grafana package
+
+#### Manual Uninstall
+
+To manually remove imgforge:
+
+```bash
+# Stop and disable services
+sudo systemctl stop imgforge prometheus grafana-server
+sudo systemctl disable imgforge prometheus grafana-server
+
+# Remove service files
+sudo rm /etc/systemd/system/imgforge.service
+sudo rm /etc/systemd/system/prometheus.service
+sudo systemctl daemon-reload
+
+# Remove binaries
+sudo rm -rf /opt/imgforge
+sudo rm /usr/local/bin/prometheus
+sudo rm /usr/local/bin/promtool
+
+# Remove configuration
+sudo rm -rf /etc/imgforge
+sudo rm -rf /etc/prometheus
+
+# Remove data (be careful - this removes cache and logs!)
+sudo rm -rf /var/lib/imgforge
+sudo rm -rf /var/log/imgforge
+
+# Remove user backup
+rm -rf ~/.imgforge
+
+# Optionally remove Grafana
+# Ubuntu/Debian:
+sudo apt-get remove grafana
+
+# RHEL/CentOS/Fedora:
+sudo dnf remove grafana
+```
+
+### Systemd Requirements
+
+- Linux distribution with systemd (Ubuntu 16.04+, Debian 8+, CentOS 7+, RHEL 7+, Fedora, etc.)
+- Architecture: x86_64 (amd64) or aarch64/arm64
+- 2 GB RAM minimum (4 GB recommended)
+- 10 GB free disk space minimum (for caching and monitoring data)
+- Internet connection (for downloading binaries and dependencies)
+- `curl` or `wget` (for running the script)
+- Sufficient privileges to use `sudo`
+- libvips will be installed automatically
+
+---
+
+## Comparison: Docker vs Systemd
+
+| Feature | Docker Deployment | Systemd Deployment |
+|---------|-------------------|-------------------|
+| **Installation Time** | Fast (~2-5 minutes) | Fast (~3-7 minutes) |
+| **Disk Space** | ~500 MB (images) | ~100 MB (binary + libs) |
+| **Dependencies** | Docker only | libvips only |
+| **Updates** | `docker compose pull` | Download new binary |
+| **Isolation** | Container isolation | System process |
+| **Portability** | High (same image everywhere) | Medium (compiled per system) |
+| **Resource Overhead** | Small (container overhead) | None (native process) |
+| **Log Management** | Docker logs | systemd journald |
+| **Service Management** | docker compose | systemctl |
+| **Best For** | Quick deployment, container infrastructure | Bare metal, no Docker environments |
 
 ## Support
 
