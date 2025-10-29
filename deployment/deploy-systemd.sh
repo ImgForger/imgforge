@@ -828,33 +828,33 @@ display_summary() {
 
 # Main execution
 main() {
-    # print_header
+    print_header
 
-    # detect_system
+    detect_system
 
-    # mkdir -p "$DEPLOYMENT_DIR"
+    mkdir -p "$DEPLOYMENT_DIR"
 
-    # ask_cache_config
-    # ask_monitoring_config
-    # check_required_ports
+    ask_cache_config
+    ask_monitoring_config
+    check_required_ports
 
-    # print_info "Installing dependencies..."
-    # install_dependencies
-    # install_libvips
+    print_info "Installing dependencies..."
+    install_dependencies
+    install_libvips
 
-    # download_imgforge
+    download_imgforge
 
-    # create_directory_structure
-    # generate_configs
-    # create_imgforge_service
+    create_directory_structure
+    generate_configs
+    create_imgforge_service
 
-    # if [ "$ENABLE_MONITORING" = true ]; then
-    #     install_prometheus
-    #     install_grafana
-    # fi
+    if [ "$ENABLE_MONITORING" = true ]; then
+        install_prometheus
+        install_grafana
+    fi
 
-    # start_services
-    # health_check
+    start_services
+    health_check
     display_summary
 }
 
