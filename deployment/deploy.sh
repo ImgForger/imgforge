@@ -536,6 +536,27 @@ providers:
     options:
       path: /etc/grafana/provisioning/dashboards
 EOF
+
+        # Download imgforge Grafana dashboard
+        print_info "Downloading Grafana dashboard..."
+        if command -v curl &> /dev/null; then
+            if curl -fsSL https://raw.githubusercontent.com/ImgForger/imgforge/main/grafana-dashboards/imgforge-dashboard.json -o "$DEPLOYMENT_DIR/grafana-dashboards/imgforge-dashboard.json"; then
+                print_success "Grafana dashboard downloaded"
+            else
+                print_warning "Failed to download Grafana dashboard from GitHub"
+                print_info "You can manually copy it later from the repository"
+            fi
+        elif command -v wget &> /dev/null; then
+            if wget -q https://raw.githubusercontent.com/ImgForger/imgforge/main/grafana-dashboards/imgforge-dashboard.json -O "$DEPLOYMENT_DIR/grafana-dashboards/imgforge-dashboard.json"; then
+                print_success "Grafana dashboard downloaded"
+            else
+                print_warning "Failed to download Grafana dashboard from GitHub"
+                print_info "You can manually copy it later from the repository"
+            fi
+        else
+            print_warning "Neither curl nor wget found, skipping dashboard download"
+            print_info "You can manually copy imgforge-dashboard.json to $DEPLOYMENT_DIR/grafana-dashboards/"
+        fi
     fi
     
     print_success "Configuration files generated"

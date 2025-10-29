@@ -34,7 +34,7 @@ curl -fsSL https://raw.githubusercontent.com/ImgForger/imgforge/main/deployment/
 The interactive script will:
 - Install Docker (if needed)
 - Let you choose a caching strategy (Memory, Disk, Hybrid, or None)
-- Optionally enable Prometheus + Grafana monitoring
+- Optionally enable Prometheus + Grafana monitoring with pre-built dashboards
 - Generate secure keys automatically
 - Start imgforge on port 3000
 

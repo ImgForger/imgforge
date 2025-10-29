@@ -16,6 +16,7 @@ This folder contains everything needed to deploy imgforge on a fresh Linux machi
 - ✅ Automatic security key generation (128-char hex)
 - ✅ Port conflict detection and validation
 - ✅ Service health checks and validation
+- ✅ Pre-built Grafana dashboard auto-download
 - ✅ Beautiful ASCII art interface with colored output
 - ✅ Comprehensive error handling and recovery
 - ✅ Docker Compose orchestration
@@ -101,13 +102,14 @@ When the deployment script runs, it creates the following structure in `~/.imgfo
 
 ```
 ~/.imgforge/
-├── .env                          # Environment variables with secrets
-├── docker-compose.yml            # Service orchestration
+├── .env                             # Environment variables with secrets
+├── docker-compose.yml               # Service orchestration
 ├── prometheus/
-│   └── prometheus.yml           # Scrape configuration
+│   └── prometheus.yml              # Scrape configuration
 ├── grafana-dashboards/
-│   └── dashboard-provisioning.yml
-└── grafana-datasources.yml      # Grafana → Prometheus connection
+│   ├── dashboard-provisioning.yml  # Dashboard auto-provisioning config
+│   └── imgforge-dashboard.json     # Pre-built imgforge dashboard (downloaded)
+└── grafana-datasources.yml         # Grafana → Prometheus connection
 ```
 
 ### `.env` File Structure

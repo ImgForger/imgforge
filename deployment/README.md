@@ -37,6 +37,7 @@ The deployment script will:
    - Generate secure random keys for HMAC signing
    - Create configuration files with sane defaults
    - Set up monitoring stack (if enabled)
+   - Download pre-built Grafana dashboard
    - Start all services using Docker Compose
 
 4. **Health Checks**
@@ -106,13 +107,14 @@ All configuration files are stored in `~/.imgforge/`:
 
 ```
 ~/.imgforge/
-├── .env                       # Environment variables
-├── docker-compose.yml         # Docker Compose configuration
+├── .env                          # Environment variables
+├── docker-compose.yml            # Docker Compose configuration
 ├── prometheus/
-│   └── prometheus.yml        # Prometheus scrape config
+│   └── prometheus.yml           # Prometheus scrape config
 ├── grafana-dashboards/
-│   └── dashboard-provisioning.yml
-└── grafana-datasources.yml   # Grafana Prometheus datasource
+│   ├── dashboard-provisioning.yml  # Dashboard auto-provisioning config
+│   └── imgforge-dashboard.json     # Pre-built imgforge dashboard
+└── grafana-datasources.yml      # Grafana Prometheus datasource
 ```
 
 ## Error Handling
@@ -143,6 +145,8 @@ After successful deployment:
 3. **Access monitoring** (if enabled):
    - Prometheus: http://localhost:9090
    - Grafana: http://localhost:3001 (admin/admin)
+     - The imgforge dashboard is automatically provisioned and ready to use
+     - Look for "ImgForge Monitoring Dashboard" in the dashboard list
 
 4. **Manage the service:**
    ```bash
