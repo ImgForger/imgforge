@@ -42,6 +42,24 @@ print_warning() {
     echo -e "${YELLOW}⚠${NC} $1"
 }
 
+prompt_read() {
+    local prompt_text="$1"
+    local result_var="$2"
+    local input_value
+
+    if [ -t 0 ]; then
+        read -rp "$(echo -e "$prompt_text")" input_value
+    elif [ -r /dev/tty ]; then
+        # shellcheck disable=SC2162
+        read -rp "$(echo -e "$prompt_text")" input_value </dev/tty
+    else
+        print_error "No interactive terminal available for prompt: $prompt_text"
+        exit 1
+    fi
+
+    printf -v "$result_var" '%s' "$input_value"
+}
+
 confirm_uninstall() {
     echo -e "${YELLOW}WARNING: This will remove imgforge and all associated data!${NC}"
     echo ""
@@ -51,7 +69,7 @@ confirm_uninstall() {
     echo "  • Cache data in $CACHE_DIR (if exists)"
     echo "  • Docker volumes (prometheus-data, grafana-data)"
     echo ""
-    read -p "$(echo -e ${RED}Are you sure you want to continue? [y/N]:${NC} )" confirm
+    prompt_read "${RED}Are you sure you want to continue? [y/N]:${NC} " confirm
     
     case $confirm in
         [Yy]*)
@@ -148,7 +166,7 @@ remove_cache() {
 
 remove_images() {
     echo ""
-    read -p "$(echo -e ${CYAN}Do you want to remove Docker images as well? [y/N]:${NC} )" remove_imgs
+    prompt_read "${CYAN}Do you want to remove Docker images as well? [y/N]:${NC} " remove_imgs
     
     case $remove_imgs in
         [Yy]*)

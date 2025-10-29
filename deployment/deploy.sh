@@ -192,6 +192,25 @@ generate_secure_key() {
     fi
 }
 
+# Prompt helper that pulls input from the controlling terminal when available.
+prompt_read() {
+    local prompt_text="$1"
+    local result_var="$2"
+    local input_value
+
+    if [ -t 0 ]; then
+        read -rp "$(echo -e "$prompt_text")" input_value
+    elif [ -r /dev/tty ]; then
+        # shellcheck disable=SC2162
+        read -rp "$(echo -e "$prompt_text")" input_value </dev/tty
+    else
+        print_error "No interactive terminal available for prompt: $prompt_text"
+        exit 1
+    fi
+
+    printf -v "$result_var" '%s' "$input_value"
+}
+
 # Ask user for cache configuration
 ask_cache_config() {
     echo ""
@@ -208,7 +227,7 @@ ask_cache_config() {
     echo ""
     
     while true; do
-        read -p "$(echo -e ${CYAN}Choose cache type [1-4]:${NC} )" cache_choice
+        prompt_read "${CYAN}Choose cache type [1-4]:${NC} " cache_choice
         case $cache_choice in
             1)
                 CACHE_TYPE="memory"
@@ -263,7 +282,7 @@ ask_monitoring_config() {
     echo ""
     
     while true; do
-        read -p "$(echo -e ${CYAN}Enable Prometheus + Grafana monitoring? [y/N]:${NC} )" monitoring_choice
+        prompt_read "${CYAN}Enable Prometheus + Grafana monitoring? [y/N]:${NC} " monitoring_choice
         case $monitoring_choice in
             [Yy]*)
                 ENABLE_MONITORING=true
