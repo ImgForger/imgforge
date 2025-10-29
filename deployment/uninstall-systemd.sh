@@ -195,25 +195,83 @@ remove_data() {
 # Uninstall packages
 uninstall_packages() {
     echo ""
-    prompt_read "${YELLOW}Remove installed packages (Grafana)? [y/N]:${NC} " remove_packages
+    prompt_read "${YELLOW}Remove installed packages (Prometheus, Grafana, libvips)? [y/N]:${NC} " remove_packages
 
     if [[ "$remove_packages" =~ ^[Yy]$ ]]; then
         print_info "Uninstalling packages..."
+        local packages_removed=false
 
         if command -v apt-get &> /dev/null; then
-            if dpkg -l | grep -q grafana; then
-                sudo apt-get remove -y grafana
-                print_success "Removed Grafana package"
+            local packages=()
+            for pkg in grafana prometheus libvips libvips-dev libvips-tools; do
+                if dpkg -s "$pkg" >/dev/null 2>&1; then
+                    packages+=("$pkg")
+                fi
+            done
+
+            if [ "${#packages[@]}" -gt 0 ]; then
+                sudo apt-get remove -y "${packages[@]}"
+                print_success "Removed packages: ${packages[*]}"
+                packages_removed=true
+            fi
+
+            if [ -f /etc/apt/sources.list.d/grafana.list ]; then
+                sudo rm -f /etc/apt/sources.list.d/grafana.list
+                print_success "Removed Grafana APT repository"
+            fi
+
+            if [ -f /etc/apt/keyrings/grafana.gpg ]; then
+                sudo rm -f /etc/apt/keyrings/grafana.gpg
+                print_success "Removed Grafana APT key"
             fi
         elif command -v yum &> /dev/null; then
-            if yum list installed grafana &>/dev/null; then
-                sudo yum remove -y grafana
-                print_success "Removed Grafana package"
+            local packages=()
+            for pkg in grafana prometheus vips vips-devel; do
+                if rpm -q "$pkg" >/dev/null 2>&1; then
+                    packages+=("$pkg")
+                fi
+            done
+
+            if [ "${#packages[@]}" -gt 0 ]; then
+                sudo yum remove -y "${packages[@]}"
+                print_success "Removed packages: ${packages[*]}"
+                packages_removed=true
+            fi
+
+            if [ -f /etc/yum.repos.d/grafana.repo ]; then
+                sudo rm -f /etc/yum.repos.d/grafana.repo
+                print_success "Removed Grafana YUM repo"
             fi
         elif command -v dnf &> /dev/null; then
-            if dnf list installed grafana &>/dev/null; then
-                sudo dnf remove -y grafana
-                print_success "Removed Grafana package"
+            local packages=()
+            for pkg in grafana prometheus vips vips-devel; do
+                if rpm -q "$pkg" >/dev/null 2>&1; then
+                    packages+=("$pkg")
+                fi
+            done
+
+            if [ "${#packages[@]}" -gt 0 ]; then
+                sudo dnf remove -y "${packages[@]}"
+                print_success "Removed packages: ${packages[*]}"
+                packages_removed=true
+            fi
+
+            if [ -f /etc/yum.repos.d/grafana.repo ]; then
+                sudo rm -f /etc/yum.repos.d/grafana.repo
+                print_success "Removed Grafana DNF repo"
+            fi
+        elif command -v pacman &> /dev/null; then
+            local packages=()
+            for pkg in grafana prometheus libvips; do
+                if pacman -Qi "$pkg" >/dev/null 2>&1; then
+                    packages+=("$pkg")
+                fi
+            done
+
+            if [ "${#packages[@]}" -gt 0 ]; then
+                sudo pacman -Rns --noconfirm "${packages[@]}"
+                print_success "Removed packages: ${packages[*]}"
+                packages_removed=true
             fi
         fi
 
@@ -221,6 +279,11 @@ uninstall_packages() {
             sudo rm -rf /opt/grafana
             sudo rm -f /usr/local/bin/grafana-server
             print_success "Removed Grafana binary installation"
+            packages_removed=true
+        fi
+
+        if [ "$packages_removed" = false ]; then
+            print_info "No matching packages were removed"
         fi
     else
         print_info "Packages preserved"
