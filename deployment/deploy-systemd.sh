@@ -35,7 +35,7 @@ print_header() {
     echo -e "${CYAN}║  ${BLUE}╚═╝╚═╝     ╚═╝ ╚═════╝ ╚═╝      ╚═════╝ ╚═╝  ╚═╝ ╚═════╝ ╚══════╝${NC}  ${CYAN}║${NC}"
     echo -e "${CYAN}║                                                                     ║${NC}"
     echo -e "${CYAN}║              ${GREEN}Fast, Secure Image Transformation Server${NC}               ${CYAN}║${NC}"
-    echo -e "${CYAN}║                  ${YELLOW}Systemd Deployment${NC}                                ${CYAN}║${NC}"
+    echo -e "${CYAN}║                        ${YELLOW}Systemd Deployment${NC}                           ${CYAN}║${NC}"
     echo -e "${CYAN}║                                                                     ║${NC}"
     echo -e "${CYAN}╚═════════════════════════════════════════════════════════════════════╝${NC}"
     echo ""
@@ -776,11 +776,11 @@ health_check() {
 # Display summary
 display_summary() {
     echo ""
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${CYAN}              Deployment Summary${NC}"
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo ""
-    echo -e "${GREEN}✓ imgforge has been successfully deployed!${NC}"
+    echo -e "${GREEN}╔════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${GREEN}║                                                            ║${NC}"
+    echo -e "${GREEN}║        ${CYAN}🎉  imgforge Deployment Successful!  🎉${NC}             ${GREEN}║${NC}"
+    echo -e "${GREEN}║                                                            ║${NC}"
+    echo -e "${GREEN}╚════════════════════════════════════════════════════════════╝${NC}"
     echo ""
     echo -e "${BLUE}Service URLs:${NC}"
     echo -e "  • imgforge API:    http://localhost:$IMGFORGE_PORT"
@@ -828,33 +828,33 @@ display_summary() {
 
 # Main execution
 main() {
-    print_header
+    # print_header
 
-    detect_system
+    # detect_system
 
-    mkdir -p "$DEPLOYMENT_DIR"
+    # mkdir -p "$DEPLOYMENT_DIR"
 
-    ask_cache_config
-    ask_monitoring_config
-    check_required_ports
+    # ask_cache_config
+    # ask_monitoring_config
+    # check_required_ports
 
-    print_info "Installing dependencies..."
-    install_dependencies
-    install_libvips
+    # print_info "Installing dependencies..."
+    # install_dependencies
+    # install_libvips
 
-    download_imgforge
+    # download_imgforge
 
-    create_directory_structure
-    generate_configs
-    create_imgforge_service
+    # create_directory_structure
+    # generate_configs
+    # create_imgforge_service
 
-    if [ "$ENABLE_MONITORING" = true ]; then
-        install_prometheus
-        install_grafana
-    fi
+    # if [ "$ENABLE_MONITORING" = true ]; then
+    #     install_prometheus
+    #     install_grafana
+    # fi
 
-    start_services
-    health_check
+    # start_services
+    # health_check
     display_summary
 }
 
