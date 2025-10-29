@@ -781,18 +781,18 @@ sudo dnf remove grafana
 
 ## Comparison: Docker vs Systemd
 
-| Feature | Docker Deployment | Systemd Deployment |
-|---------|-------------------|-------------------|
-| **Installation Time** | Fast (~2-5 minutes) | Fast (~3-7 minutes) |
-| **Disk Space** | ~500 MB (images) | ~100 MB (binary + libs) |
-| **Dependencies** | Docker only | libvips only |
-| **Updates** | `docker compose pull` | Download new binary |
-| **Isolation** | Container isolation | System process |
-| **Portability** | High (same image everywhere) | Medium (compiled per system) |
-| **Resource Overhead** | Small (container overhead) | None (native process) |
-| **Log Management** | Docker logs | systemd journald |
-| **Service Management** | docker compose | systemctl |
-| **Best For** | Quick deployment, container infrastructure | Bare metal, no Docker environments |
+| Feature                | Docker Deployment                          | Systemd Deployment                 |
+|------------------------|--------------------------------------------|------------------------------------|
+| **Installation Time**  | Fast (~2-5 minutes)                        | Fast (~3-7 minutes)                |
+| **Disk Space**         | ~500 MB (images)                           | ~100 MB (binary + libs)            |
+| **Dependencies**       | Docker only                                | libvips only                       |
+| **Updates**            | `docker compose pull`                      | Download new binary                |
+| **Isolation**          | Container isolation                        | System process                     |
+| **Portability**        | High (same image everywhere)               | Medium (compiled per system)       |
+| **Resource Overhead**  | Small (container overhead)                 | None (native process)              |
+| **Log Management**     | Docker logs                                | systemd journald                   |
+| **Service Management** | docker compose                             | systemctl                          |
+| **Best For**           | Quick deployment, container infrastructure | Bare metal, no Docker environments |
 
 ## Support
 

@@ -39,7 +39,7 @@ print_header() {
     echo ""
     echo -e "${CYAN}╔═════════════════════════════════════════════════════════════════════╗${NC}"
     echo -e "${CYAN}║                                                                     ║${NC}"
-    echo -e "${CYAN}║                  ${RED}imgforge Uninstaller (Systemd)${NC}                    ${CYAN}║${NC}"
+    echo -e "${CYAN}║                  ${RED}!! imgforge Uninstaller (Systemd) !!${NC}               ${CYAN}║${NC}"
     echo -e "${CYAN}║                                                                     ║${NC}"
     echo -e "${CYAN}╚═════════════════════════════════════════════════════════════════════╝${NC}"
     echo ""
@@ -65,17 +65,17 @@ prompt_read() {
 # Stop services
 stop_services() {
     print_info "Stopping services..."
-    
+
     if systemctl is-active --quiet imgforge.service 2>/dev/null; then
         sudo systemctl stop imgforge.service
         print_success "imgforge service stopped"
     fi
-    
+
     if systemctl is-active --quiet prometheus.service 2>/dev/null; then
         sudo systemctl stop prometheus.service
         print_success "Prometheus service stopped"
     fi
-    
+
     if systemctl is-active --quiet grafana-server.service 2>/dev/null; then
         sudo systemctl stop grafana-server.service
         print_success "Grafana service stopped"
@@ -85,17 +85,17 @@ stop_services() {
 # Disable services
 disable_services() {
     print_info "Disabling services..."
-    
+
     if systemctl is-enabled --quiet imgforge.service 2>/dev/null; then
         sudo systemctl disable imgforge.service
         print_success "imgforge service disabled"
     fi
-    
+
     if systemctl is-enabled --quiet prometheus.service 2>/dev/null; then
         sudo systemctl disable prometheus.service
         print_success "Prometheus service disabled"
     fi
-    
+
     if systemctl is-enabled --quiet grafana-server.service 2>/dev/null; then
         sudo systemctl disable grafana-server.service
         print_success "Grafana service disabled"
@@ -105,34 +105,34 @@ disable_services() {
 # Remove service files
 remove_service_files() {
     print_info "Removing systemd service files..."
-    
+
     if [ -f /etc/systemd/system/imgforge.service ]; then
         sudo rm /etc/systemd/system/imgforge.service
         print_success "Removed imgforge.service"
     fi
-    
+
     if [ -f /etc/systemd/system/prometheus.service ]; then
         sudo rm /etc/systemd/system/prometheus.service
         print_success "Removed prometheus.service"
     fi
-    
+
     sudo systemctl daemon-reload
 }
 
 # Remove binaries
 remove_binaries() {
     print_info "Removing imgforge binary..."
-    
+
     if [ -d "$INSTALL_DIR" ]; then
         sudo rm -rf "$INSTALL_DIR"
         print_success "Removed $INSTALL_DIR"
     fi
-    
+
     if [ -f /usr/local/bin/prometheus ]; then
         sudo rm /usr/local/bin/prometheus
         print_success "Removed Prometheus binary"
     fi
-    
+
     if [ -f /usr/local/bin/promtool ]; then
         sudo rm /usr/local/bin/promtool
         print_success "Removed Promtool binary"
@@ -142,12 +142,12 @@ remove_binaries() {
 # Remove configuration files
 remove_configs() {
     print_info "Removing configuration files..."
-    
+
     if [ -d "$CONFIG_DIR" ]; then
         sudo rm -rf "$CONFIG_DIR"
         print_success "Removed $CONFIG_DIR"
     fi
-    
+
     if [ -d /etc/prometheus ]; then
         prompt_read "${YELLOW}Remove Prometheus configuration? [y/N]:${NC} " remove_prom_config
         if [[ "$remove_prom_config" =~ ^[Yy]$ ]]; then
@@ -155,7 +155,7 @@ remove_configs() {
             print_success "Removed Prometheus configuration"
         fi
     fi
-    
+
     if [ -d /etc/grafana ]; then
         prompt_read "${YELLOW}Remove Grafana configuration? [y/N]:${NC} " remove_grafana_config
         if [[ "$remove_grafana_config" =~ ^[Yy]$ ]]; then
@@ -168,20 +168,20 @@ remove_configs() {
 # Remove data directories
 remove_data() {
     print_info "Removing data directories..."
-    
+
     prompt_read "${YELLOW}Remove all data (including cache and logs)? [y/N]:${NC} " remove_data_choice
-    
+
     if [[ "$remove_data_choice" =~ ^[Yy]$ ]]; then
         if [ -d "$DATA_DIR" ]; then
             sudo rm -rf "$DATA_DIR"
             print_success "Removed $DATA_DIR"
         fi
-        
+
         if [ -d "$LOG_DIR" ]; then
             sudo rm -rf "$LOG_DIR"
             print_success "Removed $LOG_DIR"
         fi
-        
+
         if [ -d "$DEPLOYMENT_DIR" ]; then
             rm -rf "$DEPLOYMENT_DIR"
             print_success "Removed $DEPLOYMENT_DIR"
@@ -196,10 +196,10 @@ remove_data() {
 uninstall_packages() {
     echo ""
     prompt_read "${YELLOW}Remove installed packages (Grafana)? [y/N]:${NC} " remove_packages
-    
+
     if [[ "$remove_packages" =~ ^[Yy]$ ]]; then
         print_info "Uninstalling packages..."
-        
+
         if command -v apt-get &> /dev/null; then
             if dpkg -l | grep -q grafana; then
                 sudo apt-get remove -y grafana
@@ -216,7 +216,7 @@ uninstall_packages() {
                 print_success "Removed Grafana package"
             fi
         fi
-        
+
         if [ -d /opt/grafana ]; then
             sudo rm -rf /opt/grafana
             sudo rm -f /usr/local/bin/grafana-server
@@ -230,13 +230,12 @@ uninstall_packages() {
 # Display summary
 display_summary() {
     echo ""
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${CYAN}              Uninstallation Complete${NC}"
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo ""
-    echo -e "${GREEN}✓ imgforge has been uninstalled${NC}"
-    echo ""
-    
+    echo -e "${GREEN}╔════════════════════════════════════════════════════╗${NC}"
+    echo -e "${GREEN}║                                                    ║${NC}"
+    echo -e "${GREEN}║      ${CYAN}!! imgforge has been uninstalled !!${NC}           ${GREEN}║${NC}"
+    echo -e "${GREEN}║                                                    ║${NC}"
+    echo -e "${GREEN}╚════════════════════════════════════════════════════╝${NC}"
+
     if [ -f "$DEPLOYMENT_DIR/imgforge.env.backup" ]; then
         echo -e "${BLUE}Note:${NC} Configuration backup is still available at:"
         echo -e "  ${YELLOW}$DEPLOYMENT_DIR/imgforge.env.backup${NC}"
@@ -246,7 +245,7 @@ display_summary() {
         echo "  rm -rf $DEPLOYMENT_DIR"
         echo ""
     fi
-    
+
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
 }
@@ -254,27 +253,27 @@ display_summary() {
 # Main execution
 main() {
     print_header
-    
-    print_warning "This will uninstall imgforge and optionally remove all data."
-    echo ""
-    prompt_read "${YELLOW}Are you sure you want to continue? [y/N]:${NC} " confirm
-    
-    if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
-        print_info "Uninstallation cancelled"
-        exit 0
-    fi
-    
-    echo ""
-    
-    stop_services
-    disable_services
-    remove_service_files
-    remove_binaries
-    remove_configs
-    remove_data
-    uninstall_packages
-    
-    display_summary
+
+    # print_warning "This will uninstall imgforge and optionally remove all data."
+    # echo ""
+    # prompt_read "${YELLOW}Are you sure you want to continue? [y/N]:${NC} " confirm
+
+    # if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+    #     print_info "Uninstallation cancelled"
+    #     exit 0
+    # fi
+
+    # echo ""
+
+    # stop_services
+    # disable_services
+    # remove_service_files
+    # remove_binaries
+    # remove_configs
+    # remove_data
+    # uninstall_packages
+
+    # display_summary
 }
 
 main "$@"
