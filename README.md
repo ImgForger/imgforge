@@ -1,4 +1,17 @@
-# imgforge
+```asciiart
+╔═════════════════════════════════════════════════════════════════════╗
+║                                                                     ║
+║  ██╗███╗   ███╗ ██████╗ ███████╗ ██████╗ ██████╗  ██████╗ ███████╗  ║
+║  ██║████╗ ████║██╔════╝ ██╔════╝██╔═══██╗██╔══██╗██╔════╝ ██╔════╝  ║
+║  ██║██╔████╔██║██║  ███╗█████╗  ██║   ██║██████╔╝██║  ███╗█████╗    ║
+║  ██║██║╚██╔╝██║██║   ██║██╔══╝  ██║   ██║██╔══██╗██║   ██║██╔══╝    ║
+║  ██║██║ ╚═╝ ██║╚██████╔╝██║     ╚██████╔╝██║  ██║╚██████╔╝███████╗  ║
+║  ╚═╝╚═╝     ╚═╝ ╚═════╝ ╚═╝      ╚═════╝ ╚═╝  ╚═╝ ╚═════╝ ╚══════╝  ║
+║                                                                     ║
+║              Fast, Secure Image Transformation Server               ║
+║                                                                     ║
+╚═════════════════════════════════════════════════════════════════════╝
+```
 
 [![crates.io](https://img.shields.io/crates/v/imgforge.svg)](https://crates.io/crates/imgforge)
 [![Build](https://github.com/ImgForger/imgforge/actions/workflows/build.yml/badge.svg)](https://github.com/ImgForger/imgforge/actions/workflows/build.yml)
@@ -22,6 +35,25 @@ imgforge is a fast, secure image proxy and transformation server written in Rust
 - Prometheus metrics, structured tracing, and health endpoints suitable for production observability.
 
 ## Get started in minutes
+
+### One-line deployment (Recommended)
+
+Deploy imgforge on any Linux machine with a single command:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ImgForger/imgforge/main/deployment/deploy.sh | bash
+```
+
+The interactive script will:
+- Install Docker (if needed)
+- Let you choose a caching strategy (Memory, Disk, Hybrid, or None)
+- Optionally enable Prometheus + Grafana monitoring with pre-built dashboards
+- Generate secure keys automatically
+- Start imgforge on port 3000
+
+See the [deployment guide](deployment/README.md) for more options.
+
+### Manual Docker setup
 
 Generate development-only values with OpenSSL:
 
