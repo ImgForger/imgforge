@@ -45,38 +45,37 @@ The deployment script will:
    - Check imgforge responds to status endpoint
    - Display access URLs and credentials
 
+### What's NOT Included (User Responsibility)
+- HTTPS/TLS termination (use reverse proxy)
+- Firewall configuration
+- Rate limiting at proxy level
+- Bearer token authentication
+- Network isolation
+- Backup automation
+
 ## Configuration Options
 
 ### Cache Types
 
 The script offers four caching strategies:
 
-1. **Memory Cache** (Default: 1000 entries)
-   - Fast in-memory caching
-   - Best for smaller workloads
-   - Lost on restart
-
-2. **Disk Cache** (Default: 10 GB)
-   - Persistent file-based caching
-   - Best for larger datasets
-   - Survives restarts
-
-3. **Hybrid Cache** (Memory + Disk)
-   - Combined approach for best performance
-   - Hot content in memory, cold on disk
-   - Recommended for production
-
-4. **No Cache**
-   - Disables caching entirely
-   - Useful for testing or specific workloads
+| Type   | Description                 | Default Capacity | Persistence |
+|--------|-----------------------------|------------------|-------------|
+| Memory | Fast in-memory cache        | 1000 entries     | No          |
+| Disk   | File-based persistent cache | 10 GB            | Yes         |
+| Hybrid | Memory + Disk combined      | 1000 + 10 GB     | Partial     |
+| None   | No caching                  | -                | -           |
 
 ### Monitoring
 
 If enabled, the script deploys:
 
-- **Prometheus** on port 9090 - Metrics collection and storage
-- **Grafana** on port 3001 - Visualization dashboards (admin/admin)
-- **Metrics endpoint** on port 9000 - imgforge metrics
+| Service    | Port | Credentials | Purpose                    |
+|------------|------|-------------|----------------------------|
+| imgforge   | 3000 | -           | Image processing API       |
+| Metrics    | 9000 | -           | Prometheus metrics         |
+| Prometheus | 9090 | -           | Metrics storage/queries    |
+| Grafana    | 3001 | admin/admin | Visualization dashboards   |
 
 ## Default Configuration
 
@@ -134,7 +133,6 @@ After successful deployment:
 1. **Test the service:**
    ```bash
    curl http://localhost:3000/status
-   curl http://localhost:3000/info
    ```
 
 2. **View logs:**
@@ -172,9 +170,9 @@ After successful deployment:
 
 1. **HMAC Keys**: The script generates secure random keys stored in `~/.imgforge/.env`. Keep this file secure!
 
-2. **Signed URLs**: By default, imgforge requires HMAC-signed URLs for security. Use your `IMGFORGE_KEY` and `IMGFORGE_SALT` to generate signatures.
+2. **Signed URLs**: By default, imgforge requires HMAC-signed URLs for security. Use the generated `IMGFORGE_KEY` and `IMGFORGE_SALT` in the `.env` to make signatures.
 
-3. **Grafana Password**: If monitoring is enabled, change the default Grafana password (admin/admin) immediately after first login.
+3. **Grafana Password**: If monitoring is enabled, change the default Grafana password (admin/admin) immediately after the first login.
 
 4. **Production Deployment**: For production use, consider:
    - Using HTTPS with a reverse proxy (nginx, Caddy, Traefik)
@@ -334,10 +332,6 @@ docker rmi grafana/grafana:latest
 
 ## Support
 
-- **Documentation**: https://github.com/ImgForger/imgforge/tree/main/doc
+- **Documentation**: https://imgforger.github.io/
 - **Issues**: https://github.com/ImgForger/imgforge/issues
 - **Contributing**: See [CONTRIBUTING.md](../CONTRIBUTING.md)
-
-## License
-
-imgforge is licensed under the same terms as the main project. See [LICENSE](../LICENSE) for details.
