@@ -613,7 +613,18 @@ install_prometheus() {
     cd "$extract_dir"
 
     sudo cp prometheus promtool /usr/local/bin/
-    sudo cp -r consoles console_libraries /etc/prometheus/ 2>/dev/null || sudo mkdir -p /etc/prometheus && sudo cp -r consoles console_libraries /etc/prometheus/
+    sudo mkdir -p /etc/prometheus
+
+    local console_assets=("consoles" "console_libraries")
+    for asset in "${console_assets[@]}"; do
+        if [ -d "$asset" ]; then
+            sudo rm -rf "/etc/prometheus/$asset"
+            sudo cp -r "$asset" "/etc/prometheus/"
+        else
+            print_warning "Prometheus archive missing '$asset'; creating empty directory instead"
+            sudo mkdir -p "/etc/prometheus/$asset"
+        fi
+    done
 
     sudo tee /etc/prometheus/prometheus.yml > /dev/null << EOF
 global:
