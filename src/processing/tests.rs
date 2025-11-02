@@ -47,7 +47,7 @@ mod test_processing {
             width: 200,
             height: 150,
         };
-        let resized_img = transform::apply_resize(img, &resize, &None).unwrap();
+        let resized_img = transform::apply_resize(img, &resize, &None, &None).unwrap();
         assert_eq!(resized_img.get_width(), 200);
         assert_eq!(resized_img.get_height(), 150);
     }
@@ -61,7 +61,7 @@ mod test_processing {
             width: 200,
             height: 200,
         };
-        let resized_img = transform::apply_resize(img, &resize, &Some("center".to_string())).unwrap();
+        let resized_img = transform::apply_resize(img, &resize, &Some("center".to_string()), &None).unwrap();
         assert_eq!(resized_img.get_width(), 200);
         assert_eq!(resized_img.get_height(), 200);
     }
@@ -75,7 +75,7 @@ mod test_processing {
             width: 200,
             height: 0,
         };
-        let resized_img = transform::apply_resize(img, &resize, &Some("center".to_string())).unwrap();
+        let resized_img = transform::apply_resize(img, &resize, &Some("center".to_string()), &None).unwrap();
         assert_eq!(resized_img.get_width(), 200);
         assert_eq!(resized_img.get_height(), 150);
     }
@@ -89,7 +89,7 @@ mod test_processing {
             width: 0,
             height: 150,
         };
-        let resized_img = transform::apply_resize(img, &resize, &Some("center".to_string())).unwrap();
+        let resized_img = transform::apply_resize(img, &resize, &Some("center".to_string()), &None).unwrap();
         assert_eq!(resized_img.get_width(), 200);
         assert_eq!(resized_img.get_height(), 150);
     }
@@ -103,7 +103,7 @@ mod test_processing {
             width: 200,
             height: 0,
         };
-        let resized_img = transform::apply_resize(img, &resize, &None).unwrap();
+        let resized_img = transform::apply_resize(img, &resize, &None, &None).unwrap();
         assert_eq!(resized_img.get_width(), 200);
         assert_eq!(resized_img.get_height(), 300);
     }
@@ -117,7 +117,7 @@ mod test_processing {
             width: 0,
             height: 150,
         };
-        let resized_img = transform::apply_resize(img, &resize, &None).unwrap();
+        let resized_img = transform::apply_resize(img, &resize, &None, &None).unwrap();
         assert_eq!(resized_img.get_width(), 400);
         assert_eq!(resized_img.get_height(), 150);
     }
@@ -131,7 +131,7 @@ mod test_processing {
             width: 0,
             height: 0,
         };
-        let result = transform::apply_resize(img, &resize, &None);
+        let result = transform::apply_resize(img, &resize, &None, &None);
         assert!(result.is_err());
     }
 
@@ -444,7 +444,7 @@ mod test_processing {
     fn test_apply_min_dimensions() {
         let _ = &*APP;
         let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
-        let min_dims_img = transform::apply_min_dimensions(img, Some(200), Some(150)).unwrap();
+        let min_dims_img = transform::apply_min_dimensions(img, Some(200), Some(150), &None).unwrap();
         assert_eq!(min_dims_img.get_width(), 200);
         assert_eq!(min_dims_img.get_height(), 200); // Scales by max(2, 1.5) = 2
     }
@@ -453,7 +453,7 @@ mod test_processing {
     fn test_apply_zoom() {
         let _ = &*APP;
         let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
-        let zoomed_img = transform::apply_zoom(img, 2.0).unwrap();
+        let zoomed_img = transform::apply_zoom(img, 2.0, &None).unwrap();
         assert_eq!(zoomed_img.get_width(), 200);
         assert_eq!(zoomed_img.get_height(), 200);
     }
@@ -471,7 +471,7 @@ mod test_processing {
     fn test_apply_pixelate() {
         let _ = &*APP;
         let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
-        let pixelated_img = transform::apply_pixelate(img, 10).unwrap();
+        let pixelated_img = transform::apply_pixelate(img, 10, &None).unwrap();
         assert_eq!(pixelated_img.get_width(), 100);
         assert_eq!(pixelated_img.get_height(), 100);
     }
@@ -502,7 +502,7 @@ mod test_processing {
             opacity: 0.5,
             position: "center".to_string(),
         };
-        let watermarked_img = transform::apply_watermark(img, &watermark_bytes, &watermark_opts).unwrap();
+        let watermarked_img = transform::apply_watermark(img, &watermark_bytes, &watermark_opts, &None).unwrap();
 
         assert_eq!(watermarked_img.get_width(), 200);
         assert_eq!(watermarked_img.get_height(), 200);
@@ -652,7 +652,7 @@ mod test_processing {
             width: 5,
             height: 5,
         };
-        let resized_img = transform::apply_resize(img, &resize, &None).unwrap();
+        let resized_img = transform::apply_resize(img, &resize, &None, &None).unwrap();
         assert_eq!(resized_img.get_width(), 5);
         assert_eq!(resized_img.get_height(), 5);
     }
@@ -666,7 +666,7 @@ mod test_processing {
             width: 1000,
             height: 1000,
         };
-        let resized_img = transform::apply_resize(img, &resize, &None).unwrap();
+        let resized_img = transform::apply_resize(img, &resize, &None, &None).unwrap();
         assert_eq!(resized_img.get_width(), 1000);
         assert_eq!(resized_img.get_height(), 1000);
     }
@@ -680,7 +680,7 @@ mod test_processing {
             width: 1000,
             height: 10,
         };
-        let resized_img = transform::apply_resize(img, &resize, &None).unwrap();
+        let resized_img = transform::apply_resize(img, &resize, &None, &None).unwrap();
         assert_eq!(resized_img.get_width(), 1000);
         assert_eq!(resized_img.get_height(), 10);
     }
@@ -757,7 +757,7 @@ mod test_processing {
         let _ = &*APP;
         let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
         let original_width = img.get_width();
-        let pixelated_img = transform::apply_pixelate(img, 0).unwrap();
+        let pixelated_img = transform::apply_pixelate(img, 0, &None).unwrap();
         assert_eq!(pixelated_img.get_width(), original_width);
     }
 
@@ -765,7 +765,7 @@ mod test_processing {
     fn test_pixelate_small_amount() {
         let _ = &*APP;
         let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
-        let pixelated_img = transform::apply_pixelate(img, 1).unwrap();
+        let pixelated_img = transform::apply_pixelate(img, 1, &None).unwrap();
         assert_eq!(pixelated_img.get_width(), 100);
     }
 
@@ -773,7 +773,7 @@ mod test_processing {
     fn test_pixelate_large_amount() {
         let _ = &*APP;
         let img = VipsImage::new_from_buffer(&create_test_image(200, 200), "").unwrap();
-        let pixelated_img = transform::apply_pixelate(img, 50).unwrap();
+        let pixelated_img = transform::apply_pixelate(img, 50, &None).unwrap();
         assert_eq!(pixelated_img.get_width(), 200);
         assert_eq!(pixelated_img.get_height(), 200);
     }
@@ -795,7 +795,7 @@ mod test_processing {
             width: 100,
             height: 100,
         };
-        let final_img = transform::apply_resize(cropped, &resize, &None).unwrap();
+        let final_img = transform::apply_resize(cropped, &resize, &None, &None).unwrap();
         assert_eq!(final_img.get_width(), 100);
         assert_eq!(final_img.get_height(), 100);
     }
@@ -809,7 +809,7 @@ mod test_processing {
             width: 100,
             height: 100,
         };
-        let resized = transform::apply_resize(img, &resize, &None).unwrap();
+        let resized = transform::apply_resize(img, &resize, &None, &None).unwrap();
         let blurred = transform::apply_blur(resized, 3.0).unwrap();
         assert_eq!(blurred.get_width(), 100);
         assert_eq!(blurred.get_height(), 100);
@@ -824,7 +824,7 @@ mod test_processing {
             width: 300,
             height: 300,
         };
-        let resized = transform::apply_resize(img, &resize, &None).unwrap();
+        let resized = transform::apply_resize(img, &resize, &None, &None).unwrap();
         let sharpened = transform::apply_sharpen(resized, 1.0).unwrap();
         assert_eq!(sharpened.get_width(), 300);
         assert_eq!(sharpened.get_height(), 300);
@@ -841,7 +841,7 @@ mod test_processing {
             width: 100,
             height: 100,
         };
-        let resized = transform::apply_resize(rotated, &resize, &None).unwrap();
+        let resized = transform::apply_resize(rotated, &resize, &None, &None).unwrap();
         // Fit scales based on width: 200x100 -> 100x50
         assert_eq!(resized.get_width(), 100);
         assert_eq!(resized.get_height(), 50);
@@ -878,10 +878,39 @@ mod test_processing {
                 width: 100,
                 height: 100,
             };
-            let resized = transform::apply_resize(img, &resize, &Some(gravity.to_string())).unwrap();
+            let resized = transform::apply_resize(img, &resize, &Some(gravity.to_string()), &None).unwrap();
             assert_eq!(resized.get_width(), 100);
             assert_eq!(resized.get_height(), 100);
         }
+    }
+
+    #[test]
+    fn test_resize_fill_with_lanczos2_kernel() {
+        let _ = &*APP;
+        let img = VipsImage::new_from_buffer(&create_test_image(800, 600), "").unwrap();
+        let resize = Resize {
+            resizing_type: "fill".to_string(),
+            width: 300,
+            height: 400,
+        };
+        let resized =
+            transform::apply_resize(img, &resize, &Some("center".to_string()), &Some("lanczos2".to_string())).unwrap();
+        assert_eq!(resized.get_width(), 300);
+        assert_eq!(resized.get_height(), 400);
+    }
+
+    #[test]
+    fn test_resize_fit_with_nearest_kernel() {
+        let _ = &*APP;
+        let img = VipsImage::new_from_buffer(&create_test_image(800, 600), "").unwrap();
+        let resize = Resize {
+            resizing_type: "fit".to_string(),
+            width: 300,
+            height: 400,
+        };
+        let resized = transform::apply_resize(img, &resize, &None, &Some("nearest".to_string())).unwrap();
+        assert_eq!(resized.get_width(), 300);
+        assert_eq!(resized.get_height(), 225);
     }
 
     #[test]
@@ -906,7 +935,7 @@ mod test_processing {
                 opacity: 0.5,
                 position: position.to_string(),
             };
-            let watermarked = transform::apply_watermark(img, &watermark_bytes, &watermark_opts).unwrap();
+            let watermarked = transform::apply_watermark(img, &watermark_bytes, &watermark_opts, &None).unwrap();
             assert_eq!(watermarked.get_width(), 200);
             assert_eq!(watermarked.get_height(), 200);
         }
@@ -921,7 +950,7 @@ mod test_processing {
             opacity: 1.0,
             position: "center".to_string(),
         };
-        let watermarked = transform::apply_watermark(img, &watermark_bytes, &watermark_opts).unwrap();
+        let watermarked = transform::apply_watermark(img, &watermark_bytes, &watermark_opts, &None).unwrap();
         assert_eq!(watermarked.get_width(), 200);
         assert_eq!(watermarked.get_height(), 200);
     }
@@ -935,7 +964,7 @@ mod test_processing {
             opacity: 0.0,
             position: "center".to_string(),
         };
-        let watermarked = transform::apply_watermark(img, &watermark_bytes, &watermark_opts).unwrap();
+        let watermarked = transform::apply_watermark(img, &watermark_bytes, &watermark_opts, &None).unwrap();
         assert_eq!(watermarked.get_width(), 200);
         assert_eq!(watermarked.get_height(), 200);
     }
@@ -950,7 +979,7 @@ mod test_processing {
             width: 100,
             height: 0,
         };
-        let resized = transform::apply_resize(img, &resize, &None).unwrap();
+        let resized = transform::apply_resize(img, &resize, &None, &None).unwrap();
         assert_eq!(resized.get_width(), 100);
         assert_eq!(resized.get_height(), 50);
     }
@@ -964,7 +993,7 @@ mod test_processing {
             width: 0,
             height: 50,
         };
-        let resized = transform::apply_resize(img, &resize, &None).unwrap();
+        let resized = transform::apply_resize(img, &resize, &None, &None).unwrap();
         assert_eq!(resized.get_width(), 100);
         assert_eq!(resized.get_height(), 50);
     }
@@ -978,7 +1007,7 @@ mod test_processing {
             width: 50,
             height: 100,
         };
-        let resized = transform::apply_resize(img, &resize, &None).unwrap();
+        let resized = transform::apply_resize(img, &resize, &None, &None).unwrap();
         assert_eq!(resized.get_width(), 50);
         assert_eq!(resized.get_height(), 100);
     }
@@ -992,7 +1021,7 @@ mod test_processing {
             width: 100,
             height: 50,
         };
-        let resized = transform::apply_resize(img, &resize, &None).unwrap();
+        let resized = transform::apply_resize(img, &resize, &None, &None).unwrap();
         assert_eq!(resized.get_width(), 100);
         assert_eq!(resized.get_height(), 50);
     }
@@ -1006,10 +1035,10 @@ mod test_processing {
             width: 150,
             height: 100,
         };
-        let resized = transform::apply_resize(img, &resize, &None).unwrap();
-        // Uses fit mode when orientations differ, which scales based on width (100x200 -> 150x300)
-        assert_eq!(resized.get_width(), 150);
-        assert_eq!(resized.get_height(), 300);
+        let resized = transform::apply_resize(img, &resize, &None, &None).unwrap();
+        // Uses fit mode when orientations differ, fitting within 150x100 while keeping aspect.
+        assert_eq!(resized.get_width(), 50);
+        assert_eq!(resized.get_height(), 100);
     }
 
     // Utils tests
@@ -1062,7 +1091,7 @@ mod test_processing {
     fn test_apply_min_width_only() {
         let _ = &*APP;
         let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
-        let result = transform::apply_min_dimensions(img, Some(200), None).unwrap();
+        let result = transform::apply_min_dimensions(img, Some(200), None, &None).unwrap();
         assert_eq!(result.get_width(), 200);
         assert_eq!(result.get_height(), 200);
     }
@@ -1071,7 +1100,7 @@ mod test_processing {
     fn test_apply_min_height_only() {
         let _ = &*APP;
         let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
-        let result = transform::apply_min_dimensions(img, None, Some(150)).unwrap();
+        let result = transform::apply_min_dimensions(img, None, Some(150), &None).unwrap();
         assert_eq!(result.get_width(), 150);
         assert_eq!(result.get_height(), 150);
     }
@@ -1080,7 +1109,7 @@ mod test_processing {
     fn test_apply_min_dimensions_already_larger() {
         let _ = &*APP;
         let img = VipsImage::new_from_buffer(&create_test_image(200, 200), "").unwrap();
-        let result = transform::apply_min_dimensions(img, Some(100), Some(100)).unwrap();
+        let result = transform::apply_min_dimensions(img, Some(100), Some(100), &None).unwrap();
         assert_eq!(result.get_width(), 200);
         assert_eq!(result.get_height(), 200);
     }
@@ -1089,7 +1118,7 @@ mod test_processing {
     fn test_apply_zoom_scale_down() {
         let _ = &*APP;
         let img = VipsImage::new_from_buffer(&create_test_image(200, 200), "").unwrap();
-        let zoomed = transform::apply_zoom(img, 0.5).unwrap();
+        let zoomed = transform::apply_zoom(img, 0.5, &None).unwrap();
         assert_eq!(zoomed.get_width(), 100);
         assert_eq!(zoomed.get_height(), 100);
     }
@@ -1098,7 +1127,7 @@ mod test_processing {
     fn test_apply_zoom_scale_up() {
         let _ = &*APP;
         let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
-        let zoomed = transform::apply_zoom(img, 3.0).unwrap();
+        let zoomed = transform::apply_zoom(img, 3.0, &None).unwrap();
         assert_eq!(zoomed.get_width(), 300);
         assert_eq!(zoomed.get_height(), 300);
     }
@@ -1141,6 +1170,15 @@ mod test_processing {
         assert_eq!(sharpened.get_height(), 100);
     }
 
+    #[test]
+    fn test_apply_sharpen_clamps_sigma() {
+        let _ = &*APP;
+        let img = VipsImage::new_from_buffer(&create_test_image(50, 50), "").unwrap();
+        let sharpened = transform::apply_sharpen(img, 100.0).unwrap();
+        assert_eq!(sharpened.get_width(), 50);
+        assert_eq!(sharpened.get_height(), 50);
+    }
+
     // Complex multi-operation scenarios
     #[test]
     fn test_complex_pipeline_crop_resize_blur_rotate() {
@@ -1163,7 +1201,7 @@ mod test_processing {
             width: 200,
             height: 200,
         };
-        let img = transform::apply_resize(img, &resize, &None).unwrap();
+        let img = transform::apply_resize(img, &resize, &None, &None).unwrap();
         assert_eq!(img.get_width(), 200);
 
         // Blur
@@ -1186,7 +1224,7 @@ mod test_processing {
             width: 150,
             height: 150,
         };
-        let img = transform::apply_resize(img, &resize, &None).unwrap();
+        let img = transform::apply_resize(img, &resize, &None, &None).unwrap();
 
         // Padding
         let img = transform::apply_padding(img, 10, 10, 10, 10, &Some([255, 255, 255, 255])).unwrap();
@@ -1199,7 +1237,7 @@ mod test_processing {
             opacity: 0.7,
             position: "south_east".to_string(),
         };
-        let img = transform::apply_watermark(img, &watermark_bytes, &watermark_opts).unwrap();
+        let img = transform::apply_watermark(img, &watermark_bytes, &watermark_opts, &None).unwrap();
         assert_eq!(img.get_width(), 170);
     }
 
@@ -1411,5 +1449,62 @@ mod test_processing {
         }];
         let parsed = parse_all_options(options).unwrap();
         assert_eq!(parsed.height, Some(0));
+    }
+
+    #[test]
+    fn test_parse_resizing_algorithm_full() {
+        let options = vec![ProcessingOption {
+            name: "resizing_algorithm".to_string(),
+            args: vec!["cubic".to_string()],
+        }];
+        let parsed = parse_all_options(options).unwrap();
+        assert_eq!(parsed.resizing_algorithm, Some("cubic".to_string()));
+    }
+
+    #[test]
+    fn test_parse_resizing_algorithm_short() {
+        let options = vec![ProcessingOption {
+            name: "ra".to_string(),
+            args: vec!["linear".to_string()],
+        }];
+        let parsed = parse_all_options(options).unwrap();
+        assert_eq!(parsed.resizing_algorithm, Some("linear".to_string()));
+    }
+
+    #[test]
+    fn test_parse_resizing_algorithm_case_insensitive() {
+        let options = vec![ProcessingOption {
+            name: "ra".to_string(),
+            args: vec!["LANCZOS3".to_string()],
+        }];
+        let parsed = parse_all_options(options).unwrap();
+        assert_eq!(parsed.resizing_algorithm, Some("lanczos3".to_string()));
+    }
+
+    #[test]
+    fn test_parse_resizing_algorithm_invalid() {
+        let options = vec![ProcessingOption {
+            name: "resizing_algorithm".to_string(),
+            args: vec!["invalid".to_string()],
+        }];
+        let result = parse_all_options(options);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid resizing algorithm"));
+    }
+
+    #[test]
+    fn test_apply_resize_with_cubic_algorithm() {
+        let _ = &*APP;
+        let img = VipsImage::new_from_buffer(&create_test_image(400, 300), "").unwrap();
+        let resize = Resize {
+            resizing_type: "fit".to_string(),
+            width: 200,
+            height: 150,
+        };
+
+        // Test with cubic - should also work
+        let resized_img2 = transform::apply_resize(img, &resize, &None, &Some("cubic".to_string())).unwrap();
+        assert_eq!(resized_img2.get_width(), 200);
+        assert_eq!(resized_img2.get_height(), 150);
     }
 }

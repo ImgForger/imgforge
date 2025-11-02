@@ -36,6 +36,7 @@ docker run \
   -e IMGFORGE_KEY=<generated_key> \
   -e IMGFORGE_SALT=<generated_salt> \
   -e IMGFORGE_ALLOW_UNSIGNED=true \
+  -e IMGFORGE_LOG_LEVEL=imgforge=info \
   ghcr.io/imgforger/imgforge:latest
 ```
 
@@ -46,6 +47,8 @@ Use `--env-file` to load additional configuration or mount volumes for caching. 
 Prefer a native workflow? Launch imgforge through Cargo:
 
 ```bash
+git clone https://github.com/imgforger/imgforge.git
+cd imgforge
 cargo run
 ```
 
@@ -64,7 +67,7 @@ curl "http://localhost:3000/unsafe/resize:fill:600:400/plain/https://images.unsp
 - `resize:fill:600:400` resizes and crops the source to match the target aspect ratio.
 - `@webp` triggers format conversion.
 
-Open `portrait.webp` in your image viewer to confirm the result.
+Open `portrait.webp` in your image viewer to confirm the result. After this, check out [4_url_structure.md](4_url_structure.md) for more information on how to sign URLs.
 
 ## Inspecting available endpoints
 
@@ -79,7 +82,7 @@ If `IMGFORGE_SECRET` is set, include `Authorization: Bearer <token>` on `/info` 
 
 ## Reviewing logs and metrics
 
-Logs are emitted via the configured tracing subscriber. Set `IMGFORGE_LOG_LEVEL=imgforge=debug` to see detailed request flow. For metrics:
+Logs are emitted via the configured tracing subscriber. Set `IMGFORGE_LOG_LEVEL=imgforge=debug` to see detailed request flow. We suggest setting `IMGFORGE_LOG_LEVEL=imgforge=info` in production. For metrics:
 
 ```bash
 curl http://localhost:3000/metrics | head

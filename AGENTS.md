@@ -1,4 +1,5 @@
 # Repository Guidelines
+imgforge is a fast, secure image proxy and transformation server written in Rust. Built with Rust and libvips, it delivers imgproxy-compatible URL semantics with an async-first architecture and optional, pluggable caching backends.
 
 ## Project Structure & Module Organization
 imgforge is a Rust binary crate; `src/main.rs` boots the HTTP server and `src/lib.rs` wires shared state. Request routing lives in `src/server.rs`, HTTP handlers in `src/handlers.rs`, and middleware in `src/middleware.rs`. Image operations are grouped under `src/processing/`, with cache logic in `src/caching/` and configuration helpers in `src/config.rs`. Integration coverage sits in `tests/`, while Docker assets support container runs.

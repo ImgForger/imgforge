@@ -4,7 +4,7 @@ This directory contains K6 load testing scripts for the imgforge image processin
 
 ## Prerequisites
 
-1. **Install K6**: Follow the installation guide at [k6.io](https://k6.io/docs/getting-started/installation/)
+**Install K6**: Follow the installation guide at [k6.io](https://k6.io/docs/getting-started/installation/)
    
    Quick install options:
    ```bash
@@ -22,103 +22,123 @@ This directory contains K6 load testing scripts for the imgforge image processin
    docker pull grafana/k6:latest
    ```
 
-2. **Start imgforge server**: Ensure the imgforge server is running before executing load tests.
-
-## Test Scripts
-
-### processing-endpoint.js
-
-Comprehensive load test for the image processing endpoint with various parameter combinations.
-
-**Features:**
-- Tests 24+ different processing scenarios
-- Covers resize, crop, format conversion, effects, and more
-- HMAC-signed URL generation
-- Configurable via environment variables
-- Detailed metrics and error tracking
-
-**Test Scenarios Include:**
-- Basic resizing (fill, fit, force modes)
-- Size adjustments (width, height, size)
-- Quality adjustments
-- Format conversions (JPEG, PNG, WebP)
-- Image effects (blur, sharpen, pixelate)
-- Cropping operations
-- Rotation (90°, 180°, 270°)
-- Gravity positioning
-- Padding and backgrounds
-- DPR (Device Pixel Ratio) scaling
-- Minimum dimensions
-- Zoom effects
-- Complex multi-option combinations
-
-## Running the Tests
-
-### Basic Usage
+## 1. Configure Your Environment
 
 ```bash
-# From the project root
 cd loadtest
+cp .env.example .env
 
-# Run with default settings (requires server at localhost:3000)
+# Edit .env with your settings
+nano .env  # or vim, code, etc.
+```
+
+Minimum required configuration:
+```bash
+IMGFORGE_URL=http://localhost:3000
+IMGFORGE_KEY=your-key-here
+IMGFORGE_SALT=your-salt-here
+```
+
+For development/testing with unsigned URLs:
+```bash
+IMGFORGE_URL=http://localhost:3000
+IMGFORGE_ALLOW_UNSIGNED=true
+```
+
+## 2. Start imgforge Server
+
+```bash
+# In another terminal, from project root
+export IMGFORGE_KEY=your-key-here
+export IMGFORGE_SALT=your-salt-here
+export IMGFORGE_ALLOW_UNSIGNED=true  # Optional for testing
+cargo run
+```
+
+Or with Docker:
+```bash
+docker run --rm -p 3000:3000 \
+  -e IMGFORGE_KEY=your-key \
+  -e IMGFORGE_SALT=your-salt \
+  -e IMGFORGE_ALLOW_UNSIGNED=true \
+  ghcr.io/imgforger/imgforge:latest
+```
+
+## 3. Run Your First Test
+
+### Option A: Using the Helper Script (Recommended)
+
+```bash
+# Quick smoke test (30 seconds, 3 users)
+./run-test.sh smoke
+
+# Standard load test (~4 minutes, up to 20 users)
+./run-test.sh load
+
+# Stress test (~24 minutes, up to 200 users)
+./run-test.sh stress
+```
+
+### Option B: Direct K6 Command
+
+```bash
+# Smoke test
+k6 run smoke-test.js
+
+# Load test
 k6 run processing-endpoint.js
+
+# Custom duration/VUs
+k6 run --vus 10 --duration 1m processing-endpoint.js
 ```
 
-### With Environment Variables
+## 4. Understanding Results
 
+After the test completes, look for:
+
+✅ **Good signs:**
+- `checks: 100%` - All checks passed
+- `http_req_failed: 0.00%` - No failed requests
+- `p(95) < 3000ms` - 95% of requests under 3 seconds
+
+⚠️ **Warning signs:**
+- `http_req_failed > 5%` - High error rate
+- `p(95) > 5000ms` - Slow response times
+- Failed thresholds shown in red
+
+## Common Use Cases
+
+### Development - Quick Validation
 ```bash
-# Configure the test environment
-export IMGFORGE_URL="http://localhost:3000"
-export IMGFORGE_KEY="your-hmac-key-here"
-export IMGFORGE_SALT="your-hmac-salt-here"
-export TEST_IMAGE_URL="https://picsum.photos/800/600"
-
-# Run the test
-k6 run processing-endpoint.js
+# Fast smoke test with unsigned URLs
+./run-test.sh --unsigned --duration 30s smoke
 ```
 
-### Using Unsigned URLs (Development Only)
-
+### Pre-deployment - Load Testing
 ```bash
-# If your server has IMGFORGE_ALLOW_UNSIGNED=true
-export IMGFORGE_ALLOW_UNSIGNED="true"
-export IMGFORGE_URL="http://localhost:3000"
-
-k6 run processing-endpoint.js
+# Standard load test, save results
+./run-test.sh --output results.json load
 ```
 
-### Using Docker
-
+### Performance Tuning - Finding Limits
 ```bash
-# Run K6 in Docker
-docker run --rm -i \
-  -e IMGFORGE_URL="http://host.docker.internal:3000" \
-  -e IMGFORGE_KEY="your-key" \
-  -e IMGFORGE_SALT="your-salt" \
-  -v $(pwd):/scripts \
-  grafana/k6:latest run /scripts/processing-endpoint.js
+# Stress test to find breaking point
+./run-test.sh stress
 ```
 
-### Custom Test Duration
-
-You can modify the load test stages by editing the `options` object in the script:
-
-```javascript
-export const options = {
-    stages: [
-        { duration: '30s', target: 10 },  // Ramp up to 10 users
-        { duration: '1m', target: 20 },   // Ramp up to 20 users
-        { duration: '2m', target: 20 },   // Stay at 20 users
-        { duration: '30s', target: 0 },   // Ramp down to 0 users
-    ],
-    // ...
-};
-```
-
-Or run a quick smoke test:
-
+### Testing Specific Image
 ```bash
-k6 run --vus 5 --duration 30s processing-endpoint.js
+# Test with your own image
+./run-test.sh -i https://example.com/large-photo.jpg load
+```
+
+### Remote Server Testing
+```bash
+# Test production or staging environment
+./run-test.sh -u https://imgforge.example.com \
+  -k prod-key \
+  -s prod-salt \
+  load
 ```
 
 ## Understanding the Results
@@ -144,7 +164,14 @@ The test defines performance thresholds:
 - 99th percentile response time < 5000ms
 - Error rate < 5%
 
-If any threshold is breached, the test will fail.
+If any threshold is breached, the test will fail. Monitor the results to identify bottlenecks.
+
+| Metric              | Good Value | Warning Signs |
+|---------------------|------------|---------------|
+| http_req_failed     | < 1%       | > 5%          |
+| p(95) response time | < 3s       | > 5s          |
+| checks              | 100%       | < 95%         |
+| errors rate         | < 1%       | > 5%          |
 
 ### Sample Output
 

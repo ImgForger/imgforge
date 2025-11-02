@@ -23,6 +23,25 @@ imgforge is a fast, secure image proxy and transformation server written in Rust
 
 ## Get started in minutes
 
+### One-line deployment (Recommended)
+
+Deploy imgforge on any Linux machine with a single command:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ImgForger/imgforge/main/deployment/deploy.sh | bash
+```
+
+The interactive script will:
+- Install Docker (if needed)
+- Let you choose a caching strategy (Memory, Disk, Hybrid, or None)
+- Optionally enable Prometheus + Grafana monitoring with pre-built dashboards
+- Generate secure keys automatically
+- Start imgforge on port 3000
+
+See the [deployment guide](deployment/README.md) for more options.
+
+### Manual Docker setup
+
 Generate development-only values with OpenSSL:
 
 ```bash
@@ -34,6 +53,7 @@ docker pull ghcr.io/imgforger/imgforge:latest
 docker run --rm -p 3000:3000 \
   -e IMGFORGE_KEY=<generated_key> \
   -e IMGFORGE_SALT=<generated_salt> \
+  -e IMGFORGE_LOG_LEVEL=imgforge=info \
   ghcr.io/imgforger/imgforge:latest
 ```
 
@@ -41,17 +61,7 @@ Then follow the [Quick Start guide](doc/2_quick_start.md) to sign URLs and try y
 
 ## Documentation
 
-- [Introduction](doc/introduction.md)
-- [Installation](doc/1_installation.md)
-- [Quick Start](doc/2_quick_start.md)
-- [URL structure and signing](doc/4_url_structure.md)
-- [Processing options reference](doc/5_processing_options.md)
-- [Request lifecycle overview](doc/6_request_lifecycle.md)
-- [Image processing pipeline deep dive](doc/12_image_processing_pipeline.md)
-- [Prometheus monitoring playbooks](doc/11_prometheus_monitoring.md)
-- [K6 load testing suite](loadtest/README.md)
-
-Browse the full documentation set under [`doc/`](doc/).
+The documentation is live on the [docs site](https://imgforger.github.io/).
 
 ## Community
 
