@@ -62,6 +62,40 @@ prompt_read() {
     printf -v "$result_var" '%s' "$input_value"
 }
 
+apt_remove_with_retry() {
+    local max_attempts=5
+    local delay_seconds=5
+    local attempt=1
+    local output
+    local status
+
+    while [ $attempt -le $max_attempts ]; do
+        set +e
+        output=$(sudo apt-get remove -y "$@" 2>&1)
+        status=$?
+        set -e
+
+        if [ $status -eq 0 ]; then
+            return 0
+        fi
+
+        if echo "$output" | grep -qi "Could not get lock"; then
+            print_warning "APT lock detected. Waiting $delay_seconds seconds before retrying ($attempt/$max_attempts)..."
+            sleep "$delay_seconds"
+        else
+            print_error "apt-get remove failed (exit $status)"
+            echo "$output"
+            return "$status"
+        fi
+
+        attempt=$((attempt + 1))
+    done
+
+    print_error "apt-get remove failed after $max_attempts attempts due to persistent lock contention."
+    echo "$output"
+    return 1
+}
+
 # Stop services
 stop_services() {
     print_info "Stopping services..."
@@ -210,9 +244,12 @@ uninstall_packages() {
             done
 
             if [ "${#packages[@]}" -gt 0 ]; then
-                sudo apt-get remove -y "${packages[@]}"
-                print_success "Removed packages: ${packages[*]}"
-                packages_removed=true
+                if apt_remove_with_retry "${packages[@]}"; then
+                    print_success "Removed packages: ${packages[*]}"
+                    packages_removed=true
+                else
+                    return 1
+                fi
             fi
 
             if [ -f /etc/apt/sources.list.d/grafana.list ]; then
