@@ -17,6 +17,7 @@ imgforge is a fast, secure image proxy and transformation server written in Rust
 ## Feature highlights
 
 - On-the-fly resizing, cropping, format conversion, watermarking, and other libvips-backed transforms.
+- Named presets for consistent transformation governance across requests.
 - Signed URL enforcement with optional bearer authentication and rate limiting.
 - Memory, disk, and hybrid caches powered by [Foyer](https://foyer-rs.github.io/foyer/) for efficient content reuse.
 - Prometheus metrics, structured tracing, and health endpoints suitable for production observability.

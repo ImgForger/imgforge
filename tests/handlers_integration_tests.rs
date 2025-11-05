@@ -78,6 +78,8 @@ fn create_test_config(key: Vec<u8>, salt: Vec<u8>, allow_unsigned: bool) -> Conf
         allowed_mime_types: None,
         download_timeout: 10,
         secret: None,
+        presets: std::collections::HashMap::new(),
+        only_presets: false,
     }
 }
 
