@@ -52,8 +52,8 @@ export IMGFORGE_PRESETS="thumbnail=resize:fit:150:150/quality:80,banner=resize:f
 **URL usage:**
 
 ```
-/signature/preset:thumbnail/encoded_url
-/signature/pr:banner/encoded_url
+/signature/preset:thumbnail/aHR0cHM6Ly9leGFtcGxlLmNvbS9pbWFnZS5qcGc   # base64 URL-safe
+/signature/pr:banner/plain/https%3A%2F%2Fexample.com%2Fhero.jpg@webp  # plain URL with @extension
 ```
 
 **Behavior:**
@@ -65,6 +65,8 @@ export IMGFORGE_PRESETS="thumbnail=resize:fit:150:150/quality:80,banner=resize:f
 **Presets-only mode:**
 
 Set `IMGFORGE_ONLY_PRESETS=true` to restrict URLs to preset references only. Non-preset options will return `400 Bad Request`. This is useful for enforcing strict governance over allowed transformations.
+
+Both URL-safe base64 and `plain/` source references work with presets; choose whichever format fits your signing helper.
 
 See [Presets](5.2_presets.md) for comprehensive preset documentation including patterns, examples, and best practices. Configuration reference available in [Configuration](3_configuration.md).
 
