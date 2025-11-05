@@ -1,4 +1,5 @@
 use crate::constants::*;
+use std::collections::HashMap;
 use std::env;
 
 pub struct Config {
@@ -15,6 +16,8 @@ pub struct Config {
     pub allowed_mime_types: Option<Vec<String>>,
     pub download_timeout: u64,
     pub secret: Option<String>,
+    pub presets: HashMap<String, String>,
+    pub only_presets: bool,
 }
 
 fn normalize_bind_address(raw: &str) -> String {
@@ -24,6 +27,25 @@ fn normalize_bind_address(raw: &str) -> String {
     } else {
         trimmed.to_string()
     }
+}
+
+fn parse_presets(presets_str: &str) -> HashMap<String, String> {
+    let mut presets = HashMap::new();
+    if presets_str.is_empty() {
+        return presets;
+    }
+
+    for preset_def in presets_str.split(',') {
+        if let Some((name, options)) = preset_def.split_once('=') {
+            let name = name.trim().to_string();
+            let options = options.trim().to_string();
+            if !name.is_empty() && !options.is_empty() {
+                presets.insert(name, options);
+            }
+        }
+    }
+
+    presets
 }
 
 impl Config {
@@ -63,6 +85,9 @@ impl Config {
             .unwrap_or(10);
         let secret = env::var(ENV_SECRET).ok();
 
+        let presets = parse_presets(&env::var(ENV_PRESETS).unwrap_or_default());
+        let only_presets = env::var(ENV_ONLY_PRESETS).unwrap_or_default().to_lowercase() == "true";
+
         Ok(Self {
             workers,
             bind_address,
@@ -77,6 +102,8 @@ impl Config {
             allowed_mime_types,
             download_timeout,
             secret,
+            presets,
+            only_presets,
         })
     }
 }
@@ -128,5 +155,110 @@ mod tests {
 
         restore_env_var(ENV_BIND, original_bind);
         restore_env_var(ENV_PROMETHEUS_BIND, original_prometheus);
+    }
+
+    #[test]
+    fn test_parse_presets_single() {
+        let presets_str = "thumbnail=resize:fit:150:150/quality:80";
+        let presets = parse_presets(presets_str);
+        assert_eq!(presets.len(), 1);
+        assert_eq!(
+            presets.get("thumbnail"),
+            Some(&"resize:fit:150:150/quality:80".to_string())
+        );
+    }
+
+    #[test]
+    fn test_parse_presets_multiple() {
+        let presets_str = "thumbnail=resize:fit:150:150/quality:80,small=resize:fit:300:300/quality:85";
+        let presets = parse_presets(presets_str);
+        assert_eq!(presets.len(), 2);
+        assert_eq!(
+            presets.get("thumbnail"),
+            Some(&"resize:fit:150:150/quality:80".to_string())
+        );
+        assert_eq!(presets.get("small"), Some(&"resize:fit:300:300/quality:85".to_string()));
+    }
+
+    #[test]
+    fn test_parse_presets_empty() {
+        let presets_str = "";
+        let presets = parse_presets(presets_str);
+        assert_eq!(presets.len(), 0);
+    }
+
+    #[test]
+    fn test_parse_presets_with_spaces() {
+        let presets_str = "thumbnail = resize:fit:150:150/quality:80 , small = resize:fit:300:300";
+        let presets = parse_presets(presets_str);
+        assert_eq!(presets.len(), 2);
+        assert_eq!(
+            presets.get("thumbnail"),
+            Some(&"resize:fit:150:150/quality:80".to_string())
+        );
+        assert_eq!(presets.get("small"), Some(&"resize:fit:300:300".to_string()));
+    }
+
+    #[test]
+    fn test_parse_presets_default() {
+        let presets_str = "default=quality:90/dpr:2";
+        let presets = parse_presets(presets_str);
+        assert_eq!(presets.len(), 1);
+        assert_eq!(presets.get("default"), Some(&"quality:90/dpr:2".to_string()));
+    }
+
+    #[test]
+    fn test_parse_presets_invalid_format() {
+        let presets_str = "thumbnail:resize:fit:150:150";
+        let presets = parse_presets(presets_str);
+        assert_eq!(presets.len(), 0);
+    }
+
+    #[test]
+    fn test_parse_presets_missing_name() {
+        let presets_str = "=resize:fit:150:150";
+        let presets = parse_presets(presets_str);
+        assert_eq!(presets.len(), 0);
+    }
+
+    #[test]
+    fn test_parse_presets_missing_options() {
+        let presets_str = "thumbnail=";
+        let presets = parse_presets(presets_str);
+        assert_eq!(presets.len(), 0);
+    }
+
+    #[test]
+    fn test_config_presets_from_env() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let original_presets = env::var(ENV_PRESETS).ok();
+        let original_only_presets = env::var(ENV_ONLY_PRESETS).ok();
+
+        env::set_var(ENV_PRESETS, "thumbnail=resize:fit:150:150,default=quality:90");
+        env::set_var(ENV_ONLY_PRESETS, "true");
+
+        let config = Config::from_env().expect("config loads");
+
+        assert_eq!(config.presets.len(), 2);
+        assert_eq!(config.presets.get("thumbnail"), Some(&"resize:fit:150:150".to_string()));
+        assert_eq!(config.presets.get("default"), Some(&"quality:90".to_string()));
+        assert!(config.only_presets);
+
+        restore_env_var(ENV_PRESETS, original_presets);
+        restore_env_var(ENV_ONLY_PRESETS, original_only_presets);
+    }
+
+    #[test]
+    fn test_config_only_presets_false_by_default() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let original_only_presets = env::var(ENV_ONLY_PRESETS).ok();
+
+        env::remove_var(ENV_ONLY_PRESETS);
+
+        let config = Config::from_env().expect("config loads");
+
+        assert!(!config.only_presets);
+
+        restore_env_var(ENV_ONLY_PRESETS, original_only_presets);
     }
 }

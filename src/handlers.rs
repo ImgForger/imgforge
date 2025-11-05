@@ -98,7 +98,20 @@ pub async fn image_forge_handler(
                 }
             };
 
-            let parsed_options = match crate::processing::options::parse_all_options(url_parts.processing_options) {
+            let expanded_options = match crate::processing::presets::expand_presets(
+                url_parts.processing_options,
+                &state.config.presets,
+                state.config.only_presets,
+            ) {
+                Ok(opts) => opts,
+                Err(_) => {
+                    let mut headers = header::HeaderMap::new();
+                    headers.insert(header::CONTENT_TYPE, "application/octet-stream".parse().unwrap());
+                    return (StatusCode::OK, headers, cached_image).into_response();
+                }
+            };
+
+            let parsed_options = match crate::processing::options::parse_all_options(expanded_options) {
                 Ok(options) => options,
                 Err(_) => {
                     let mut headers = header::HeaderMap::new();
@@ -126,7 +139,19 @@ pub async fn image_forge_handler(
         };
     debug!("Processing image forge request for URL: {}", _decoded_url);
 
-    let parsed_options = match crate::processing::options::parse_all_options(url_parts.processing_options) {
+    let expanded_options = match crate::processing::presets::expand_presets(
+        url_parts.processing_options,
+        &state.config.presets,
+        state.config.only_presets,
+    ) {
+        Ok(opts) => opts,
+        Err(e) => {
+            error!("Error expanding presets: {}", e);
+            return (StatusCode::BAD_REQUEST, e).into_response();
+        }
+    };
+
+    let parsed_options = match crate::processing::options::parse_all_options(expanded_options) {
         Ok(options) => options,
         Err(e) => {
             error!("Error parsing processing options: {}", e);

@@ -6,6 +6,7 @@ imgforge encodes image transformations directly in the URL path. Each directive 
 
 | Option               | Aliases   | Arguments                              | Purpose & defaults                                                                    |
 |----------------------|-----------|----------------------------------------|---------------------------------------------------------------------------------------|
+| `preset`             | `pr`      | `name`                                 | References a named preset defined via `IMGFORGE_PRESETS`. See [3_configuration.md](3_configuration.md). |
 | `resize`             | `rs`      | `type:width:height[:enlarge][:extend]` | Primary resize control. Defaults to no resize. `enlarge`/`extend` default to `false`. |
 | `size`               | `sz`, `s` | `width:height[:enlarge][:extend]`      | Convenience wrapper for `resize` with implicit `fit`.                                 |
 | `resizing_type`      | `rt`      | `type`                                 | Overrides the mode used by other resizing directives.                                 |
@@ -35,6 +36,37 @@ imgforge encodes image transformations directly in the URL path. Each directive 
 | `max_src_file_size`  | —         | `bytes`                                | Request-level override. Requires server opt-in.                                       |
 | `watermark`          | `wm`      | `opacity:position`                     | Enables watermarking. Requires watermark asset.                                       |
 | `watermark_url`      | `wmu`     | `base64url(url)`                       | Fetches watermark per request. Overrides server default path.                         |
+
+## Presets
+
+### `preset:name`
+
+Presets provide a way to define reusable sets of processing options via the `IMGFORGE_PRESETS` environment variable. Instead of repeating complex transformation chains in every URL, reference a preset by name.
+
+**Example configuration:**
+
+```bash
+export IMGFORGE_PRESETS="thumbnail=resize:fit:150:150/quality:80,banner=resize:fill:1200:300/quality:90"
+```
+
+**URL usage:**
+
+```
+/signature/preset:thumbnail/encoded_url
+/signature/pr:banner/encoded_url
+```
+
+**Behavior:**
+- The `preset:name` (or `pr:name`) directive expands to the preset's defined options at processing time.
+- Multiple presets can be chained: `/preset:base/preset:quality_high/encoded_url`.
+- URL-specific options override preset values when the same parameter appears in both.
+- A preset named `default` automatically applies to every request before other options or presets.
+
+**Presets-only mode:**
+
+Set `IMGFORGE_ONLY_PRESETS=true` to restrict URLs to preset references only. Non-preset options will return `400 Bad Request`. This is useful for enforcing strict governance over allowed transformations.
+
+See [5.2_presets.md](5.2_presets.md) for comprehensive preset documentation including patterns, examples, and best practices. Configuration reference available in [3_configuration.md](3_configuration.md).
 
 ## Geometry & resizing
 

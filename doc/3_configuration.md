@@ -54,6 +54,45 @@ Caching is optional but highly recommended for hot content. Enable it via `IMGFO
 | `IMGFORGE_CACHE_DISK_PATH`       | _required for disk/hybrid_ | Directory for on-disk storage. Must be writable and persistent. |
 | `IMGFORGE_CACHE_DISK_CAPACITY`   | `10000`                    | Maximum number of entries persisted on disk.                    |
 
+## Presets
+
+Presets are named sets of processing options that can be reused across multiple requests, simplifying URL management and enforcing consistency.
+
+| Variable                 | Default | Description & tips                                                                                                                                                                                                                                                                        |
+|--------------------------|---------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `IMGFORGE_PRESETS`       | unset   | Comma-separated preset definitions in the format `name=options`. Options use `/` as separator and follow standard processing option syntax (e.g., `thumbnail=resize:fit:150:150/quality:80,banner=resize:fill:1200:300/quality:90`). A preset named `default` applies to all requests. |
+| `IMGFORGE_ONLY_PRESETS`  | `false` | When `true`, enables presets-only mode. Only `preset:name` (or `pr:name`) references are allowed in URLs; other processing options are rejected. Use this to enforce strict governance over transformations.                                                                             |
+
+### Usage
+
+Reference a preset in the URL path with `preset:name` or the shorthand `pr:name`:
+
+```
+/signature/preset:thumbnail/encoded_url
+```
+
+Multiple presets can be chained:
+
+```
+/signature/preset:base/preset:quality_high/encoded_url
+```
+
+The special `default` preset automatically applies to every request before URL-specific options or named presets. URL options override preset values when the same parameter appears in both.
+
+### Example
+
+```bash
+export IMGFORGE_PRESETS="thumbnail=resize:fit:150:150/quality:80,default=quality:90/dpr:1"
+export IMGFORGE_ONLY_PRESETS="false"
+```
+
+With this configuration:
+- All images receive `quality:90/dpr:1` by default
+- Request URLs can reference `preset:thumbnail` for consistent thumbnail generation
+- Additional processing options can be added in the URL unless `IMGFORGE_ONLY_PRESETS=true`
+
+For comprehensive preset documentation including common patterns, best practices, and integration examples, see [5.2_presets.md](5.2_presets.md).
+
 ## Advanced tuning
 
 | Variable                         | Default | Description & tips                                                                                                                       |
