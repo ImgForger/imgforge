@@ -19,7 +19,7 @@ imgforge strives to return clear error messages and appropriate HTTP status code
 
 1. **Check logs** – `IMGFORGE_LOG_LEVEL=debug` reveals detailed traces. Look for the generated `id` in `TraceLayer` spans to correlate multiple log lines.
 2. **Inspect `/metrics`** – Counters such as `status_codes_total` and `source_images_fetched_total` help spot systemic issues (e.g., many fetch errors).
-3. **Validate signatures** – Use helper scripts from [4_url_structure.md](4_url_structure.md) to ensure the signature and encoded URL match exactly.
+3. **Validate signatures** – Use helper scripts from [URL Structure](4_url_structure.md) to ensure the signature and encoded URL match exactly.
 4. **Replicate without signature** – Temporarily set `IMGFORGE_ALLOW_UNSIGNED=true` and replace the signature with `unsafe` to isolate signing issues.
 5. **Reproduce locally** – Run the same URL against a local instance with `IMGFORGE_LOG_LEVEL=debug`. Compare log output with production behavior.
 6. **Confirm dependencies** – Ensure libvips is installed and accessible. Missing shared libraries can cause runtime panics or `500` responses.
@@ -41,7 +41,7 @@ imgforge strives to return clear error messages and appropriate HTTP status code
 ### Source blocked by safeguards (`400`)
 
 - Error messages such as `"Source image file size is too large"` or `"Source image MIME type is not allowed"` indicate guardrails triggered.
-- Relax global limits in [3_configuration.md](3_configuration.md) or allow per-request overrides with `IMGFORGE_ALLOW_SECURITY_OPTIONS=true`.
+- Relax global limits in [Configuration](3_configuration.md) or allow per-request overrides with `IMGFORGE_ALLOW_SECURITY_OPTIONS=true`.
 
 ### Watermark issues (`400`)
 
@@ -68,4 +68,4 @@ When filing a bug report or seeking help, provide:
 - Output from `/metrics` showing related counters or histograms.
 - Environment settings related to the issue (timeouts, cache configuration, security flags).
 
-Use [11_contributing.md](11_contributing.md) for additional guidelines on opening issues.
+Use [Contributing](11_contributing.md) for additional guidelines on opening issues.

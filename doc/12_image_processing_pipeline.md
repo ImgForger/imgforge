@@ -1,6 +1,6 @@
 # 12. Image Processing Pipeline
 
-This document zooms in on the transformation phase that runs after imgforge validates a request. Use it alongside [5_processing_options.md](5_processing_options.md) to design URLs and reason about how directives interact inside libvips.
+This document zooms in on the transformation phase that runs after imgforge validates a request. Use it alongside [Processing Options](5_processing_options.md) to design URLs and reason about how directives interact inside libvips.
 
 ## High-level flow
 
@@ -30,6 +30,6 @@ This document zooms in on the transformation phase that runs after imgforge vali
 
 - `image_processing_duration_seconds` measures time spent inside this pipeline.
 - `processed_images_total{format="..."}` tracks throughput per output format.
-- Logging includes a request ID. Combine it with the detailed stages in [6_request_lifecycle.md](6_request_lifecycle.md) when debugging complex transformations.
+- Logging includes a request ID. Combine it with the detailed stages in [Request Lifecycle](6_request_lifecycle.md) when debugging complex transformations.
 
 Use this pipeline map when troubleshooting visual discrepancies, designing new directives, or reasoning about how multiple options compose.

@@ -10,7 +10,7 @@ imgforge leverages libvips and Tokio to deliver high throughput with modest reso
 
 ## Embrace caching
 
-- Enable `memory` or `hybrid` caching for hot assets. See [7_caching.md](7_caching.md) for sizing guidelines.
+- Enable `memory` or `hybrid` caching for hot assets. See [Caching](7_caching.md) for sizing guidelines.
 - Warm caches proactively after deployments or cache flushes. Scripts can replay historical access logs.
 - Combine imgforge with a CDN to offload repeated requests and reduce origin bandwidth.
 
@@ -26,7 +26,7 @@ imgforge leverages libvips and Tokio to deliver high throughput with modest reso
 
 ## Monitor key metrics
 
-Scrape `/metrics` frequently and build dashboards around the core histograms and counters. Start with `image_processing_duration_seconds`, `http_requests_duration_seconds`, cache hit ratios, and `status_codes_total`, then expand using the playbooks in [11_prometheus_monitoring.md](11_prometheus_monitoring.md).
+Scrape `/metrics` frequently and build dashboards around the core histograms and counters. Start with `image_processing_duration_seconds`, `http_requests_duration_seconds`, cache hit ratios, and `status_codes_total`, then expand using the playbooks in [Prometheus Monitoring](11_prometheus_monitoring.md).
 
 ## Right-size hardware
 
@@ -55,4 +55,4 @@ Scrape `/metrics` frequently and build dashboards around the core histograms and
 - Horizontal scaling is straightforward—deploy multiple imgforge instances behind a load balancer. Ensure each replica has its own cache path (or use a shared NAS for disk caches).
 - Combine imgforge with message queues or background jobs when pre-rendering large batches of images.
 
-Pair these tips with the lifecycle overview in [6_request_lifecycle.md](6_request_lifecycle.md) to pinpoint bottlenecks quickly.
+Pair these tips with the lifecycle overview in [Request Lifecycle](6_request_lifecycle.md) to pinpoint bottlenecks quickly.

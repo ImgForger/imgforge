@@ -54,10 +54,10 @@ When running a dedicated metrics listener, adjust `targets` to the alternate por
 
 ## Connecting with tracing and logs
 
-Correlate request IDs emitted in logs (via the `X-Request-ID` header) with spikes in histogram buckets. Pair this document with [6_request_lifecycle.md](6_request_lifecycle.md) to map metrics anomalies back to lifecycle stages, and with infrastructure metrics (CPU, memory, I/O) for holistic visibility.
+Correlate request IDs emitted in logs (via the `X-Request-ID` header) with spikes in histogram buckets. Pair this document with [Request Lifecycle](6_request_lifecycle.md) to map metrics anomalies back to lifecycle stages, and with infrastructure metrics (CPU, memory, I/O) for holistic visibility.
 
 ## Next steps
 
 - Surface these dashboards in Grafana or your preferred visualization tool.
 - Feed alerts into your incident workflow (PagerDuty, Opsgenie, Slack). Use quiet hours and grouping strategies to avoid alert fatigue.
-- Share runbooks linking playbooks in [8_error_troubleshooting.md](8_error_troubleshooting.md) so responders can remediate issues quickly.
+- Share runbooks linking playbooks in [Error Troubleshooting](8_error_troubleshooting.md) so responders can remediate issues quickly.
