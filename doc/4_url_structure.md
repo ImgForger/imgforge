@@ -1,6 +1,6 @@
 # 4. URL Structure & Signing
 
-imgforge mirrors the URL layout of imgproxy: every transformation is encoded inside the request path, and requests are authenticated via an HMAC signature. This document details the anatomy of those URLs, explains how to sign them, and highlights development shortcuts.
+imgforge mirrors the URL layout of imgproxy: every transformation is encoded inside the request path, and requests are authenticated via an HMAC signature. Source URLs can be provided either in plain text (with the `plain/` prefix) or Base64-encoded format. This document details the anatomy of those URLs, explains how to sign them, and highlights development shortcuts.
 
 ## Path anatomy
 
@@ -9,27 +9,38 @@ http(s)://<host>/<signature>/<processing_options>/plain/<percent-encoded-source>
 http(s)://<host>/<signature>/<processing_options>/<base64url-source>.<extension>
 ```
 
-| Segment                | Description                                                                                                                          |
-|------------------------|--------------------------------------------------------------------------------------------------------------------------------------|
-| `<signature>`          | Base64 URL-safe, unpadded HMAC-SHA256 digest generated from the path. Use `unsafe` when unsigned URLs are permitted.                 |
-| `<processing_options>` | Slash-separated list of directives (e.g., `resize:fill:800:600/quality:85`). See [5_processing_options.md](5_processing_options.md). |
-| `plain/...`            | Indicates the source URL is percent-encoded and may include `@<extension>` to declare the output format.                             |
-| `<base64url-source>`   | Encodes the source URL using URL-safe Base64 without padding (`=`). The extension, if present, is appended after a dot.              |
+| Segment                | Description                                                                                                                                 |
+|------------------------|---------------------------------------------------------------------------------------------------------------------------------------------|
+| `<signature>`          | Base64 URL-safe, unpadded HMAC-SHA256 digest generated from the path. Use `unsafe` when unsigned URLs are permitted.                        |
+| `<processing_options>` | Slash-separated list of directives (e.g., `resize:fill:800:600/quality:85`). See [Processing Options](5_processing_options.md).             |
+| `plain/...`            | Indicates the source URL is provided in plain text (percent-encoded if needed) and may include `@<extension>` to declare the output format. |
+| `<base64url-source>`   | The source URL encoded using URL-safe Base64 without padding (`=`). The output extension, if specified, is appended after a dot.            |
 
 ## Choosing between `plain` and Base64
 
-Use `plain` when the source URL contains only characters legal within a path segment and does not already include a signature. Use Base64 to avoid double-encoding query strings or to embed signed/expiring source URLs.
+Source URLs can be provided in two formats:
+
+- **Plain format** (`plain/` prefix): Use when the source URL contains only URL-safe characters and you want to specify the output format explicitly with `@<extension>`
+- **Base64 format**: Use when the source URL contains special characters, query parameters, or when you want to avoid potential encoding conflicts
 
 ### Examples
 
-- Plain URL with format conversion:
-  ```
-  /<sig>/resize:fit:1024:0/plain/https://example.com/cats/siamese.jpg@webp
-  ```
-- Base64-encoded URL retaining the source format:
-  ```
-  /<sig>/resize:fill:800:600/https://example.com/cats/siamese.jpg (encoded) .jpg
-  ```
+**Plain URL format with format conversion:**
+```
+/<sig>/resize:fit:1024:0/plain/https://example.com/cats/siamese.jpg@webp
+```
+
+**Base64-encoded URL format:**
+```
+/<sig>/resize:fill:800:600/aHR0cHM6Ly9leGFtcGxlLmNvbS9jYXRzL3NpYW1lc2UuanBn.jpg
+```
+*Note: `aHR0cHM6Ly9leGFtcGxlLmNvbS9jYXRzL3NpYW1lc2UuanBn` is the Base64URL encoding of `https://example.com/cats/siamese.jpg`*
+
+**Plain URL with query parameters (requires Base64):**
+```
+/<sig>/resize:fit:800:0/aHR0cHM6Ly9leGFtcGxlLmNvbS9pbWFnZS5qcGc_dj0xMjM.webp
+```
+*Note: `aHR0cHM6Ly9leGFtcGxlLmNvbS9pbWFnZS5qcGc_dj0xMjM` is the Base64URL encoding of `https://example.com/image.jpg?v=123`*
 
 Generate Base64 URL-safe strings without padding (replace `+` with `-`, `/` with `_`, and remove trailing `=`).
 
@@ -110,6 +121,6 @@ Use this mode for development only; it bypasses HMAC validation entirely.
 
 ## Next steps
 
-- Explore available transformations in [5_processing_options.md](5_processing_options.md).
-- Review the request lifecycle in [6_request_lifecycle.md](6_request_lifecycle.md).
+- Explore available transformations in [Processing Options](5_processing_options.md).
+- Review the request lifecycle in [Request Lifecycle](6_request_lifecycle.md).
 - If your application generates many URLs, encapsulate signing logic into a shared helper library to avoid drift.

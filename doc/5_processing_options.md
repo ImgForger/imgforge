@@ -6,7 +6,7 @@ imgforge encodes image transformations directly in the URL path. Each directive 
 
 | Option               | Aliases   | Arguments                              | Purpose & defaults                                                                                      |
 |----------------------|-----------|----------------------------------------|---------------------------------------------------------------------------------------------------------|
-| `preset`             | `pr`      | `name`                                 | References a named preset defined via `IMGFORGE_PRESETS`. See [3_configuration.md](3_configuration.md). |
+| `preset`             | `pr`      | `name`                                 | References a named preset defined via `IMGFORGE_PRESETS`. See [Configuration](3_configuration.md). |
 | `resize`             | `rs`      | `type:width:height[:enlarge][:extend]` | Primary resize control. Defaults to no resize. `enlarge`/`extend` default to `false`.                   |
 | `size`               | `sz`, `s` | `width:height[:enlarge][:extend]`      | Convenience wrapper for `resize` with implicit `fit`.                                                   |
 | `resizing_type`      | `rt`      | `type`                                 | Overrides the mode used by other resizing directives.                                                   |
@@ -66,7 +66,7 @@ export IMGFORGE_PRESETS="thumbnail=resize:fit:150:150/quality:80,banner=resize:f
 
 Set `IMGFORGE_ONLY_PRESETS=true` to restrict URLs to preset references only. Non-preset options will return `400 Bad Request`. This is useful for enforcing strict governance over allowed transformations.
 
-See [5.2_presets.md](5.2_presets.md) for comprehensive preset documentation including patterns, examples, and best practices. Configuration reference available in [3_configuration.md](3_configuration.md).
+See [Presets](5.2_presets.md) for comprehensive preset documentation including patterns, examples, and best practices. Configuration reference available in [Configuration](3_configuration.md).
 
 ## Geometry & resizing
 
@@ -177,17 +177,17 @@ Listed earlier under geometry, but keep in mind it also affects the intensity of
 ## Watermarking
 
 1. Add `watermark:<opacity>:<position>` to enable overlay. Opacity ranges from `0.0` (invisible) to `1.0` (solid). Position accepts the same anchors as gravity (e.g., `south_east`).
-2. Supply the watermark image via `watermark_url:<base64url>` or configure `IMGFORGE_WATERMARK_PATH` on the server. When both are present, the URL value wins.
+2. Supply the watermark image via `watermark_url:<base64url>` or configure `IMGFORGE_WATERMARK_PATH` on the server (see [Configuration](3_configuration.md) for details). When both are present, the URL value wins.
 3. Watermarks render after resizing, padding, and effects. Oversized or missing watermark assets fail the request with `400 Bad Request`.
 
 ## Cache control & concurrency
 
-- `cache_buster:<token>` appends arbitrary data to the cache key. Change the token when you want to force reprocessing without altering transformations.
+- `cache_buster:<token>` appends arbitrary data to the cache key. Change the token when you want to force reprocessing without altering transformations. See [Caching](7_caching.md) for more details on cache behavior.
 - `raw` bypasses the concurrency semaphore that ordinarily limits the number of simultaneous libvips jobs. Reserve it for high-priority tasks; uncontrolled usage can starve other requests.
 
 ## Security overrides
 
-`max_src_resolution` and `max_src_file_size` relax server-wide safeguards for a single request. They only take effect when `IMGFORGE_ALLOW_SECURITY_OPTIONS=true` is set. Use cautiously, preferably on trusted internal URLs.
+`max_src_resolution` and `max_src_file_size` relax server-wide safeguards for a single request. They only take effect when `IMGFORGE_ALLOW_SECURITY_OPTIONS=true` is set (see [Configuration](3_configuration.md) for security settings). Use cautiously, preferably on trusted internal URLs.
 
 ## Validation tips
 
