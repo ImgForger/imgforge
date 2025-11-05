@@ -59,7 +59,7 @@ pub fn expand_presets(
         }
     }
 
-    // If only_presets is enabled and we have options but no preset reference,
+    // If only_presets is enabled, and we have options but no preset reference,
     // and no default preset, reject the request
     if only_presets && !has_preset_reference && !presets.contains_key("default") && !expanded.is_empty() {
         return Err("only preset references are allowed in only_presets mode".to_string());

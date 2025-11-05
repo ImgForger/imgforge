@@ -3,6 +3,9 @@ use crate::config::Config;
 use crate::constants::*;
 use crate::fetch::fetch_image;
 use crate::middleware::format_to_content_type;
+use crate::processing::options::parse_all_options;
+use crate::processing::presets::expand_presets;
+use crate::processing::process_image;
 use crate::url::{parse_path, validate_signature, ImgforgeUrl};
 use axum::{
     body::Bytes,
@@ -98,7 +101,7 @@ pub async fn image_forge_handler(
                 }
             };
 
-            let expanded_options = match crate::processing::presets::expand_presets(
+            let expanded_options = match expand_presets(
                 url_parts.processing_options,
                 &state.config.presets,
                 state.config.only_presets,
@@ -111,7 +114,7 @@ pub async fn image_forge_handler(
                 }
             };
 
-            let parsed_options = match crate::processing::options::parse_all_options(expanded_options) {
+            let parsed_options = match parse_all_options(expanded_options) {
                 Ok(options) => options,
                 Err(_) => {
                     let mut headers = header::HeaderMap::new();
@@ -260,14 +263,14 @@ pub async fn image_forge_handler(
     // Get the output format before processing
     let output_format = parsed_options.format.clone().unwrap_or_else(|| "jpeg".to_string());
 
-    let processed_image_bytes =
-        match crate::processing::process_image(image_bytes.into(), parsed_options, watermark_bytes.as_ref()).await {
-            Ok(bytes) => bytes,
-            Err(e) => {
-                error!("Error processing image: {}", e);
-                return (StatusCode::BAD_REQUEST, format!("Error processing image: {}", e)).into_response();
-            }
-        };
+    let processed_image_bytes = match process_image(image_bytes.into(), parsed_options, watermark_bytes.as_ref()).await
+    {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            error!("Error processing image: {}", e);
+            return (StatusCode::BAD_REQUEST, format!("Error processing image: {}", e)).into_response();
+        }
+    };
 
     if !matches!(state.cache, Cache::None) {
         if let Err(e) = state.cache.insert(path.clone(), processed_image_bytes.clone()).await {

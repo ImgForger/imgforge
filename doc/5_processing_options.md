@@ -4,38 +4,38 @@ imgforge encodes image transformations directly in the URL path. Each directive 
 
 ## Quick reference
 
-| Option               | Aliases   | Arguments                              | Purpose & defaults                                                                    |
-|----------------------|-----------|----------------------------------------|---------------------------------------------------------------------------------------|
+| Option               | Aliases   | Arguments                              | Purpose & defaults                                                                                      |
+|----------------------|-----------|----------------------------------------|---------------------------------------------------------------------------------------------------------|
 | `preset`             | `pr`      | `name`                                 | References a named preset defined via `IMGFORGE_PRESETS`. See [3_configuration.md](3_configuration.md). |
-| `resize`             | `rs`      | `type:width:height[:enlarge][:extend]` | Primary resize control. Defaults to no resize. `enlarge`/`extend` default to `false`. |
-| `size`               | `sz`, `s` | `width:height[:enlarge][:extend]`      | Convenience wrapper for `resize` with implicit `fit`.                                 |
-| `resizing_type`      | `rt`      | `type`                                 | Overrides the mode used by other resizing directives.                                 |
-| `resizing_algorithm` | `ra`      | `algorithm`                            | Interpolation kernel for resize operations. Defaults to `lanczos3`.                   |
-| `width`              | `w`       | `value`                                | Sets a target width (infers height). Implies `fit`.                                   |
-| `height`             | `h`       | `value`                                | Sets a target height (infers width). Implies `fit`.                                   |
-| `gravity`            | `g`       | `anchor`                               | Controls crop/fill anchoring (`center`, `north_east`, etc.). Defaults to `center`.    |
-| `enlarge`            | `el`      | `bool`                                 | Allows upscaling globally. Defaults to `false`.                                       |
-| `extend`             | `ex`      | `bool`                                 | Pads to target dimensions after resize. Defaults to `false`.                          |
-| `padding`            | `pd`      | `top[:right][:bottom][:left]`          | Adds padding after resizing. Defaults to zero padding.                                |
-| `min_width`          | `mw`      | `value`                                | Ensures result width meets minimum. Upscales if required.                             |
-| `min_height`         | `mh`      | `value`                                | Ensures result height meets minimum. Upscales if required.                            |
-| `zoom`               | `z`       | `factor`                               | Multiplies dimensions after resizing. Defaults to `1.0`.                              |
-| `crop`               | —         | `x:y:width:height`                     | Crops before resizing. No crop by default.                                            |
-| `rotate`             | `rot`     | `0                                     | 90                                                                                    |180|270`                             | Applies fixed rotation. Defaults to `0`.                                                                                           |
-| `auto_rotate`        | `ar`      | `bool`                                 | Honours EXIF orientation (`true` by default).                                         |
-| `blur`               | `bl`      | `sigma`                                | Gaussian blur (0 disables).                                                           |
-| `sharpen`            | `sh`      | `sigma`                                | Sharpens edges.                                                                       |
-| `pixelate`           | `px`      | `amount`                               | Pixelation strength.                                                                  |
-| `background`         | `bg`      | `RRGGBB[AA]`                           | Canvas colour for extend/padding/flatten. Defaults to transparent unless JPEG output. |
-| `quality`            | `q`       | `1-100`                                | Compression quality. Defaults to `85` for lossy formats.                              |
-| `format`             | —         | `jpeg                                  | png                                                                                   |webp|avif|...`                   | Output format override. Defaults to `jpeg` when unspecified.                                                                       |
-| `dpr`                | —         | `1.0-5.0`                              | Device pixel ratio multiplier. Defaults to `1.0`.                                     |
-| `raw`                | —         | —                                      | Skips the concurrency semaphore. Defaults to disabled.                                |
-| `cache_buster`       | —         | `token`                                | Alters the cache key.                                                                 |
-| `max_src_resolution` | —         | `megapixels`                           | Request-level override. Requires server opt-in.                                       |
-| `max_src_file_size`  | —         | `bytes`                                | Request-level override. Requires server opt-in.                                       |
-| `watermark`          | `wm`      | `opacity:position`                     | Enables watermarking. Requires watermark asset.                                       |
-| `watermark_url`      | `wmu`     | `base64url(url)`                       | Fetches watermark per request. Overrides server default path.                         |
+| `resize`             | `rs`      | `type:width:height[:enlarge][:extend]` | Primary resize control. Defaults to no resize. `enlarge`/`extend` default to `false`.                   |
+| `size`               | `sz`, `s` | `width:height[:enlarge][:extend]`      | Convenience wrapper for `resize` with implicit `fit`.                                                   |
+| `resizing_type`      | `rt`      | `type`                                 | Overrides the mode used by other resizing directives.                                                   |
+| `resizing_algorithm` | `ra`      | `algorithm`                            | Interpolation kernel for resize operations. Defaults to `lanczos3`.                                     |
+| `width`              | `w`       | `value`                                | Sets a target width (infers height). Implies `fit`.                                                     |
+| `height`             | `h`       | `value`                                | Sets a target height (infers width). Implies `fit`.                                                     |
+| `gravity`            | `g`       | `anchor`                               | Controls crop/fill anchoring (`center`, `north_east`, etc.). Defaults to `center`.                      |
+| `enlarge`            | `el`      | `bool`                                 | Allows upscaling globally. Defaults to `false`.                                                         |
+| `extend`             | `ex`      | `bool`                                 | Pads to target dimensions after resize. Defaults to `false`.                                            |
+| `padding`            | `pd`      | `top[:right][:bottom][:left]`          | Adds padding after resizing. Defaults to zero padding.                                                  |
+| `min_width`          | `mw`      | `value`                                | Ensures result width meets minimum. Upscales if required.                                               |
+| `min_height`         | `mh`      | `value`                                | Ensures result height meets minimum. Upscales if required.                                              |
+| `zoom`               | `z`       | `factor`                               | Multiplies dimensions after resizing. Defaults to `1.0`.                                                |
+| `crop`               | —         | `x:y:width:height`                     | Crops before resizing. No crop by default.                                                              |
+| `rotate`             | `rot`     | `0`                                    | 90                                                                                                      |180|270`                             | Applies fixed rotation. Defaults to `0`.                                                                                           |
+| `auto_rotate`        | `ar`      | `bool`                                 | Honours EXIF orientation (`true` by default).                                                           |
+| `blur`               | `bl`      | `sigma`                                | Gaussian blur (0 disables).                                                                             |
+| `sharpen`            | `sh`      | `sigma`                                | Sharpens edges.                                                                                         |
+| `pixelate`           | `px`      | `amount`                               | Pixelation strength.                                                                                    |
+| `background`         | `bg`      | `RRGGBB[AA]`                           | Canvas colour for extend/padding/flatten. Defaults to transparent unless JPEG output.                   |
+| `quality`            | `q`       | `1-100`                                | Compression quality. Defaults to `85` for lossy formats.                                                |
+| `format`             | —         | `jpeg`                                 | png                                                                                                     |webp|avif|...`                   | Output format override. Defaults to `jpeg` when unspecified.                                                                       |
+| `dpr`                | —         | `1.0-5.0`                              | Device pixel ratio multiplier. Defaults to `1.0`.                                                       |
+| `raw`                | —         | —                                      | Skips the concurrency semaphore. Defaults to disabled.                                                  |
+| `cache_buster`       | —         | `token`                                | Alters the cache key.                                                                                   |
+| `max_src_resolution` | —         | `megapixels`                           | Request-level override. Requires server opt-in.                                                         |
+| `max_src_file_size`  | —         | `bytes`                                | Request-level override. Requires server opt-in.                                                         |
+| `watermark`          | `wm`      | `opacity:position`                     | Enables watermarking. Requires watermark asset.                                                         |
+| `watermark_url`      | `wmu`     | `base64url(url)`                       | Fetches watermark per request. Overrides server default path.                                           |
 
 ## Presets
 
