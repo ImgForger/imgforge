@@ -21,14 +21,14 @@ imgforge encodes image transformations directly in the URL path. Each directive 
 | `min_height`         | `mh`      | `value`                                | Ensures result height meets minimum. Upscales if required.                                              |
 | `zoom`               | `z`       | `factor`                               | Multiplies dimensions after resizing. Defaults to `1.0`.                                                |
 | `crop`               | —         | `x:y:width:height`                     | Crops before resizing. No crop by default.                                                              |
-| `rotate`             | `rot`     | `0`                                    | 90                                                                                                      |180|270`                             | Applies fixed rotation. Defaults to `0`.                                                                                           |
+| `rotate`             | `rot`     | `0\|90\|180\|270`                      | Applies fixed rotation. Defaults to `0`.                                                                |
 | `auto_rotate`        | `ar`      | `bool`                                 | Honours EXIF orientation (`true` by default).                                                           |
 | `blur`               | `bl`      | `sigma`                                | Gaussian blur (0 disables).                                                                             |
 | `sharpen`            | `sh`      | `sigma`                                | Sharpens edges.                                                                                         |
 | `pixelate`           | `px`      | `amount`                               | Pixelation strength.                                                                                    |
 | `background`         | `bg`      | `RRGGBB[AA]`                           | Canvas colour for extend/padding/flatten. Defaults to transparent unless JPEG output.                   |
 | `quality`            | `q`       | `1-100`                                | Compression quality. Defaults to `85` for lossy formats.                                                |
-| `format`             | —         | `jpeg`                                 | png                                                                                                     |webp|avif|...`                   | Output format override. Defaults to `jpeg` when unspecified.                                                                       |
+| `format`             | —         | `jpeg\|png\|webp\|avif\|...`           | Output format override. Defaults to `jpeg` when unspecified.                                            |
 | `dpr`                | —         | `1.0-5.0`                              | Device pixel ratio multiplier. Defaults to `1.0`.                                                       |
 | `raw`                | —         | —                                      | Skips the concurrency semaphore. Defaults to disabled.                                                  |
 | `cache_buster`       | —         | `token`                                | Alters the cache key.                                                                                   |
@@ -99,7 +99,7 @@ Controls the interpolation kernel used during resize operations. The algorithm a
 - **`lanczos2`** – Lanczos with a=2. Good quality with less processing than lanczos3. Suitable for most use cases.
 - **`lanczos3`** – **Default**. Lanczos with a=3. Highest quality interpolation with the sharpest results. Best for final output where quality matters.
 
-The algorithm applies to all resize operations including `resize`, `size`, `width`, `height`, `min_width`, `min_height`, `zoom`, and `pixelate`. It also affects watermark scaling. More deep dive into the algorithms can be found [here](5.1_resizing_algorithms.md).
+The algorithm applies to all resize operations including `resize`, `size`, `width`, `height`, `min_width`, `min_height`, `zoom`, and `pixelate`. It also affects watermark scaling. More deep dive into the algorithms can be found in [Resizing Algorithms](5.1_resizing_algorithms.md).
 
 **Example:** `resizing_algorithm:cubic/resize:fit:800:600` uses bicubic interpolation for faster processing.
 
@@ -191,6 +191,6 @@ Listed earlier under geometry, but keep in mind it also affects the intensity of
 
 ## Validation tips
 
-- Use the signing guidance in [4_url_structure.md](4_url_structure.md) to confirm the encoded path matches the intended options.
-- Reference the lifecycle and processing order in [6_request_lifecycle.md](6_request_lifecycle.md) and [12_image_processing_pipeline.md](12_image_processing_pipeline.md) when debugging unexpected output.
+- Use the signing guidance in [URL Structure](4_url_structure.md) to confirm the encoded path matches the intended options.
+- Reference the lifecycle and processing order in [Request Lifecycle](6_request_lifecycle.md) and [Image Processing Pipeline](12_image_processing_pipeline.md) when debugging unexpected output.
 - Automate regression tests that call the processing endpoint with representative options to catch typos or changed defaults.
