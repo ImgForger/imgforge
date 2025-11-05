@@ -90,8 +90,16 @@ Presets are expanded during request processing:
    - Added `preset` to quick reference table
    - Added dedicated Presets section with examples
    - Explained preset expansion behavior
+   - Reference to detailed preset documentation
 
-3. **`README.md`** - Added presets to feature highlights
+3. **`doc/5.2_presets.md`** - New comprehensive preset guide:
+   - Complete preset documentation with patterns and best practices
+   - Configuration examples and use cases
+   - Integration examples (JavaScript, Python, React)
+   - Troubleshooting and performance considerations
+   - Security implications and migration strategies
+
+4. **`README.md`** - Added presets to feature highlights
 
 ## Testing
 

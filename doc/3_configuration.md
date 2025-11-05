@@ -91,6 +91,8 @@ With this configuration:
 - Request URLs can reference `preset:thumbnail` for consistent thumbnail generation
 - Additional processing options can be added in the URL unless `IMGFORGE_ONLY_PRESETS=true`
 
+For comprehensive preset documentation including common patterns, best practices, and integration examples, see [5.2_presets.md](5.2_presets.md).
+
 ## Advanced tuning
 
 | Variable                         | Default | Description & tips                                                                                                                       |

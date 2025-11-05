@@ -66,7 +66,7 @@ export IMGFORGE_PRESETS="thumbnail=resize:fit:150:150/quality:80,banner=resize:f
 
 Set `IMGFORGE_ONLY_PRESETS=true` to restrict URLs to preset references only. Non-preset options will return `400 Bad Request`. This is useful for enforcing strict governance over allowed transformations.
 
-See [3_configuration.md](3_configuration.md) for full configuration details.
+See [5.2_presets.md](5.2_presets.md) for comprehensive preset documentation including patterns, examples, and best practices. Configuration reference available in [3_configuration.md](3_configuration.md).
 
 ## Geometry & resizing
 
