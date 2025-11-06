@@ -2,6 +2,92 @@
 
 Understanding imgforge’s internal workflow helps you reason about performance, error handling, and observability. Each request flows through the following stages:
 
+
+## Request flow diagram
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          Request Lifecycle                                  │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+    ┌──────────────────────┐
+    │  Incoming Request    │  → HTTP GET /<sig>/<options>/<source>
+    └──────────┬───────────┘
+               │
+               ▼
+    ┌──────────────────────┐
+    │ Routing & Middleware │  → Attach tracing spans
+    │                      │    Rate limiting check (429 if depleted)
+    └──────────┬───────────┘
+               │
+               ▼
+    ┌──────────────────────┐
+    │ URL Parsing &        │  → Split: signature | options | source
+    │ Authentication       │    HMAC validation (403 if invalid)
+    │                      │    Bearer token check (401 if required)
+    └──────────┬───────────┘
+               │
+               ▼
+    ┌──────────────────────┐         ┌─────────────┐
+    │   Cache Lookup       │────────▶│ Cache Hit?  │─┐
+    │ (Memory/Disk/Hybrid) │         └─────────────┘ │
+    └──────────────────────┘                         │
+               │                                     │ YES
+               │ NO                                  │
+               ▼                                     │
+    ┌──────────────────────┐                        │
+    │ Source Acquisition   │  → Acquire semaphore   │
+    │                      │    Download image      │
+    │                      │    Validate size/MIME  │
+    │                      │    Check resolution    │
+    │                      │    Fetch watermark     │
+    └──────────┬───────────┘                        │
+               │                                     │
+               ▼                                     │
+    ┌──────────────────────┐                        │
+    │  Option Parsing      │  → Parse directives    │
+    │                      │    Validate ranges     │
+    └──────────┬───────────┘                        │
+               │                                     │
+               ▼                                     │
+    ┌──────────────────────┐                        │
+    │ Image Transformation │  → libvips pipeline    │
+    │ (see Pipeline doc)   │    7-stage process     │
+    └──────────┬───────────┘                        │
+               │                                     │
+               ▼                                     │
+    ┌──────────────────────┐                        │
+    │   Cache Populate     │  → Store in cache      │
+    │   (on success)       │                        │
+    └──────────┬───────────┘                        │
+               │                                     │
+               ├─────────────────────────────────────┘
+               ▼
+    ┌──────────────────────┐
+    │ Response Composition │  → 200 OK + Content-Type
+    │                      │    X-Request-ID header
+    │                      │    Processed image bytes
+    └──────────┬───────────┘
+               │
+               ▼
+    ┌──────────────────────┐
+    │  Metrics & Logging   │  → Record durations & counters
+    │                      │    Update Prometheus metrics
+    └──────────┬───────────┘
+               │
+               ▼
+    ┌──────────────────────┐
+    │   Client Receives    │  → Image delivered
+    └──────────────────────┘
+
+    Error Paths:
+    • 403 Forbidden ←─────────── Signature/auth failure
+    • 400 Bad Request ←────────── Invalid options, oversized, bad MIME
+    • 429 Too Many Requests ←──── Rate limit exceeded
+    • 504 Gateway Timeout ←────── Processing timeout
+    • 500 Internal Error ←──────── Unhandled exceptions
+```
+
 ## 1. Routing & middleware
 
 1. **Ingress** – The Axum router accepts the HTTP request and attaches structured tracing spans so every hop can be correlated in logs.

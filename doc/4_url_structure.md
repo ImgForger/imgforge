@@ -9,6 +9,45 @@ http(s)://<host>/<signature>/<processing_options>/plain/<percent-encoded-source>
 http(s)://<host>/<signature>/<processing_options>/<base64url-source>.<extension>
 ```
 
+### URL structure visualization
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│                          URL Anatomy                                     │
+└──────────────────────────────────────────────────────────────────────────┘
+
+Plain format example:
+┌───────────┬────────────────┬──────────────────────┬──────────────────────┐
+│ https://  │ imgforge.com/  │ Q7j8K...NpM/         │ resize:fill:800:600/ │
+│ Protocol  │ Host           │ HMAC Signature       │ Processing Options   │
+└───────────┴────────────────┴──────────────────────┴──────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────┐
+│ plain/https%3A%2F%2Fexample.com%2Fcat.jpg@webp                           │
+│ Source URL (percent-encoded) + Output Format                             │
+└──────────────────────────────────────────────────────────────────────────┘
+
+
+Base64 format example:
+┌───────────┬────────────────┬──────────────────────┬──────────────────────┐
+│ https://  │ imgforge.com/  │ Q7j8K...NpM/         │ resize:fit:1024:0/   │
+│ Protocol  │ Host           │ HMAC Signature       │ Processing Options   │
+└───────────┴────────────────┴──────────────────────┴──────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────┐
+│ aHR0cHM6Ly9leGFtcGxlLmNvbS9jYXQzLmpwZw.webp                              │
+│ Base64URL-encoded source      + Output Format                            │
+└──────────────────────────────────────────────────────────────────────────┘
+
+
+Processing Options Chain:
+┌─────────────────────────────────────────────────────────────────────────┐
+│  resize:fill:800:600 / quality:85 / blur:2.5 / watermark:0.8:se        │
+│  ─────┬────────────   ────┬─────   ───┬────   ──────────┬──────        │
+│       │                   │            │                 │              │
+│       ▼                   ▼            ▼                 ▼              │
+│  Directive:args      Directive:arg  Directive:arg   Directive:args     │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
 | Segment                | Description                                                                                                                                 |
 |------------------------|---------------------------------------------------------------------------------------------------------------------------------------------|
 | `<signature>`          | Base64 URL-safe, unpadded HMAC-SHA256 digest generated from the path. Use `unsafe` when unsigned URLs are permitted.                        |
@@ -51,6 +90,56 @@ Generate Base64 URL-safe strings without padding (replace `+` with `-`, `/` with
 Signed URLs prevent tampering. Anyone with write access to a CDN, cache, or browser can attempt to modify processing directives to produce oversized images or trigger expensive transformations. The HMAC signature ensures only parties who know `IMGFORGE_KEY` and `IMGFORGE_SALT` can generate valid requests.
 
 ### How signing works
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│                       HMAC Signing Process                               │
+└──────────────────────────────────────────────────────────────────────────┘
+
+    ┌─────────────────────┐          ┌─────────────────────┐
+    │  IMGFORGE_KEY       │          │  IMGFORGE_SALT      │
+    │  (hex string)       │          │  (hex string)       │
+    └──────────┬──────────┘          └──────────┬──────────┘
+               │                                │
+               │ hex_decode()                   │ hex_decode()
+               ▼                                ▼
+    ┌─────────────────────┐          ┌─────────────────────┐
+    │   Key (bytes)       │          │   Salt (bytes)      │
+    └─────────┬───────────┘          └──────────┬──────────┘
+              │                                  │
+              │                                  │
+              │                    ┌─────────────▼──────────────┐
+              │                    │ Path to sign:              │
+              │                    │ /resize:fill:800:600/...   │
+              │                    └─────────────┬──────────────┘
+              │                                  │
+              │                                  │ Concatenate
+              │                    ┌─────────────▼──────────────┐
+              │                    │ salt_bytes + path_bytes    │
+              │                    └─────────────┬──────────────┘
+              │                                  │
+              └──────────────────────────────────┘
+                                   │
+                                   │ HMAC-SHA256
+                                   ▼
+                        ┌────────────────────────┐
+                        │  HMAC Digest (bytes)   │
+                        └──────────┬─────────────┘
+                                   │
+                                   │ Base64 URL-safe (no padding)
+                                   ▼
+                        ┌────────────────────────┐
+                        │  Signature String      │
+                        │  Q7j8K...NpM           │
+                        └──────────┬─────────────┘
+                                   │
+                                   │ Prepend to path
+                                   ▼
+                        ┌────────────────────────┐
+                        │ Signed URL:            │
+                        │ /Q7j8K...NpM/resize:...│
+                        └────────────────────────┘
+```
 
 1. Convert `IMGFORGE_KEY` and `IMGFORGE_SALT` from hex to raw bytes.
 2. Build the path portion beginning with the slash before the processing options (for example `/resize:fill:800:600/plain/...`).

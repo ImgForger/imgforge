@@ -72,6 +72,64 @@ See [Presets](5.2_presets.md) for comprehensive preset documentation including p
 
 ## Geometry & resizing
 
+### Resize types visualization
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│                         Resize Type Behaviors                            │
+└──────────────────────────────────────────────────────────────────────────┘
+
+    Original: 800×600                Target: 400×400
+
+    ┌─────────────────────┐
+    │   resize:fit        │  → Preserve aspect ratio, fit inside target
+    └─────────────────────┘
+    
+    ┌───────────────┐                ┌───────────────┐
+    │               │                │  ┌─────────┐  │
+    │   800×600     │      ──▶       │  │ 400×300 │  │  (400×400 canvas)
+    │               │                │  └─────────┘  │
+    └───────────────┘                └───────────────┘
+    
+    
+    ┌─────────────────────┐
+    │   resize:fill       │  → Preserve aspect ratio, crop to fill target
+    └─────────────────────┘
+    
+    ┌───────────────┐                ┌───────────────┐
+    │               │                │               │
+    │   800×600     │      ──▶       │   400×400     │  (cropped)
+    │               │                │               │
+    └───────────────┘                └───────────────┘
+    
+    
+    ┌─────────────────────┐
+    │   resize:force      │  → Ignore aspect ratio, stretch to target
+    └─────────────────────┘
+    
+    ┌───────────────┐                ┌───────────────┐
+    │               │                │               │
+    │   800×600     │      ──▶       │   400×400     │  (stretched)
+    │               │                │               │
+    └───────────────┘                └───────────────┘
+    
+    
+    ┌─────────────────────┐
+    │   resize:auto       │  → Smart selection: fill if same orientation,
+    └─────────────────────┘    fit otherwise
+
+
+    Gravity Effect (with resize:fill):
+    ┌─────────────────────────────────────────────────────────────────┐
+    │                                                                 │
+    │  gravity:north ──▶  Crop from top                              │
+    │  gravity:south ──▶  Crop from bottom                           │
+    │  gravity:center ──▶ Crop from center (default)                 │
+    │  gravity:north_east ──▶  Crop from top-right                   │
+    │                                                                 │
+    └─────────────────────────────────────────────────────────────────┘
+```
+
 ### `resize:type:width:height[:enlarge][:extend]`
 
 - **Types** – `fill`, `fit`, `force`, and `auto`. `auto` selects `fill` when orientations match and `fit` otherwise.

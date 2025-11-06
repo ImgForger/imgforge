@@ -2,6 +2,77 @@
 
 Caching dramatically reduces repeated processing costs and shrinks latency for popular images. imgforge integrates with the [Foyer](https://foyer-rs.github.io/foyer/) cache engine to offer three backends: in-memory, disk, and hybrid. This document explains how to configure each mode and how the cache interacts with the request lifecycle.
 
+## Cache architecture diagram
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         Cache Architecture                              │
+└─────────────────────────────────────────────────────────────────────────┘
+
+    Request arrives
+         │
+         ▼
+    ┌────────────────────────┐
+    │   Generate cache key   │  → Full path hash (signature + options + source)
+    │   from request path    │
+    └───────────┬────────────┘
+                │
+                ▼
+    ┌───────────────────────────────────────────────────────────────┐
+    │              Check IMGFORGE_CACHE_TYPE                        │
+    └───────────────────────────────────────────────────────────────┘
+                │
+                │
+        ┌───────┴───────┬──────────────┬────────────────┐
+        │               │              │                │
+        ▼               ▼              ▼                ▼
+    ┌────────┐    ┌─────────┐   ┌──────────┐     ┌──────────┐
+    │  None  │    │ Memory  │   │   Disk   │     │  Hybrid  │
+    └────┬───┘    └────┬────┘   └────┬─────┘     └────┬─────┘
+         │             │              │                │
+         │             ▼              ▼                ▼
+         │      ┌────────────┐  ┌──────────────┐  ┌──────────────────┐
+         │      │Foyer       │  │Foyer Block   │  │Memory (hot) +    │
+         │      │In-Memory   │  │Engine        │  │Disk (spillover)  │
+         │      │LRU Cache   │  │Persistent    │  │                  │
+         │      └─────┬──────┘  └──────┬───────┘  └────────┬─────────┘
+         │            │                │                    │
+         │         HIT│    MISS        │HIT      MISS      │HIT    MISS
+         │            │                │                    │
+         │            └────────────────┴────────────────────┘
+         │                            │
+         │                         MISS
+         └────────────────────────────┘
+                                      │
+                                      ▼
+                          ┌──────────────────────┐
+                          │  Process Image       │
+                          │  (full pipeline)     │
+                          └──────────┬───────────┘
+                                     │
+                                     ▼
+                          ┌──────────────────────┐
+                          │  Populate Cache      │
+                          │  (if enabled)        │
+                          └──────────┬───────────┘
+                                     │
+                                     ▼
+                          ┌──────────────────────┐
+                          │  Return Response     │
+                          └──────────────────────┘
+
+
+    Cache Backend Comparison:
+    ┌─────────────┬──────────────┬───────────────┬─────────────────────┐
+    │   Type      │   Speed      │  Persistence  │     Best For        │
+    ├─────────────┼──────────────┼───────────────┼─────────────────────┤
+    │  Memory     │  Fastest     │  Volatile     │  Edge nodes, dev    │
+    │  Disk       │  Medium      │  Persistent   │  Long-lived cache   │
+    │  Hybrid     │  Fast + Med  │  Persistent   │  High-traffic prod  │
+    │  None       │  N/A         │  N/A          │  Testing only       │
+    └─────────────┴──────────────┴───────────────┴─────────────────────┘
+```
+
 ## How caching works
 
 - **Key derivation**: The cache key is the full request path (including processing options, `cache_buster`, and output format). Different signatures or parameters yield different cache entries.

@@ -2,6 +2,67 @@
 
 imgforge reads configuration exclusively from environment variables. This document expands on every tunable option, providing context, defaults, and usage notes. Combine it with infrastructure-specific techniques (dotenv files, container orchestrator secrets, etc.) to inject settings at runtime.
 
+## Configuration flow diagram
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│                   Configuration Sources                                  │
+└──────────────────────────────────────────────────────────────────────────┘
+
+    ┌────────────┐     ┌────────────┐     ┌────────────┐     ┌────────────┐
+    │ .env file  │     │ Shell ENV  │     │ Kubernetes │     │  Systemd   │
+    │ (local)    │     │ variables  │     │  Secrets   │     │   Unit     │
+    └─────┬──────┘     └─────┬──────┘     └─────┬──────┘     └─────┬──────┘
+          │                  │                    │                  │
+          └──────────────────┴────────────────────┴──────────────────┘
+                                     │
+                                     ▼
+                        ┌────────────────────────┐
+                        │  Environment Variables │
+                        └──────────┬─────────────┘
+                                   │
+                ┌──────────────────┼──────────────────┐
+                │                  │                  │
+                ▼                  ▼                  ▼
+    ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
+    │    Security     │  │    Runtime      │  │    Caching      │
+    ├─────────────────┤  ├─────────────────┤  ├─────────────────┤
+    │ IMGFORGE_KEY    │  │ IMGFORGE_BIND   │  │ IMGFORGE_CACHE_ │
+    │ IMGFORGE_SALT   │  │ IMGFORGE_       │  │   TYPE          │
+    │ IMGFORGE_SECRET │  │   WORKERS       │  │ IMGFORGE_CACHE_ │
+    │ IMGFORGE_ALLOW_ │  │ IMGFORGE_       │  │   MEMORY_       │
+    │   UNSIGNED      │  │   TIMEOUT       │  │   CAPACITY      │
+    └─────────────────┘  └─────────────────┘  └─────────────────┘
+                │                  │                  │
+                │                  │                  │
+                └──────────────────┴──────────────────┘
+                                   │
+                                   ▼
+                        ┌────────────────────────┐
+                        │    imgforge Server     │
+                        │                        │
+                        │  • HTTP Listener       │
+                        │  • Cache Backend       │
+                        │  • Security Checks     │
+                        │  • Processing Pipeline │
+                        │  • Metrics Exporter    │
+                        └────────────────────────┘
+
+
+    Configuration Categories:
+    ┌──────────────────┬─────────────────────────────────────────────────┐
+    │  Category        │  Key Variables                                  │
+    ├──────────────────┼─────────────────────────────────────────────────┤
+    │  Security        │  IMGFORGE_KEY, IMGFORGE_SALT, IMGFORGE_SECRET   │
+    │  Runtime         │  IMGFORGE_WORKERS, IMGFORGE_TIMEOUT             │
+    │  Networking      │  IMGFORGE_BIND, IMGFORGE_PROMETHEUS_BIND        │
+    │  Caching         │  IMGFORGE_CACHE_TYPE, IMGFORGE_CACHE_*          │
+    │  Source Guards   │  IMGFORGE_MAX_SRC_*, IMGFORGE_ALLOWED_MIME_*    │
+    │  Presets         │  IMGFORGE_PRESETS, IMGFORGE_ONLY_PRESETS        │
+    │  Observability   │  IMGFORGE_LOG_LEVEL                             │
+    └──────────────────┴─────────────────────────────────────────────────┘
+```
+
 ## Runtime & threading
 
 | Variable                         | Default      | Description & tips                                                                                                                                                                |
