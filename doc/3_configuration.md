@@ -76,7 +76,7 @@ Presets are named sets of processing options that can be reused across multiple 
 
 - **Dotenv files**: Store variables in `.env` and load them with `dotenvx` or `direnv`. Keep files out of version control.
 - **Container orchestrators**: Map secrets to environment variables. For Kubernetes, use `envFrom` with ConfigMaps (non-secret) and Secrets (sensitive values).
-- **Systemd**: Place variables in `/etc/imgforge.env` and reference them via `EnvironmentFile=` in the unit. See [Deployment](10_deployment.md).
+- **Systemd**: Place variables in `/etc/imgforge.env` and reference them via `EnvironmentFile=` in the unit. See [Deployment](10.2_deployment_manual.md).
 
 ## Validating configuration
 

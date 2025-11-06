@@ -84,4 +84,4 @@ export IMGFORGE_CACHE_DISK_CAPACITY=50000
 - **Permission denied**: Ensure the disk directory is writable. In containers, mount with the correct UID/GID or use `chown` during image build.
 - **Unexpected eviction**: Increase `IMGFORGE_CACHE_*_CAPACITY` values and monitor resource usage. Also verify that `cache_buster` values are not changing unnecessarily.
 
-For broader operational strategies, see [Performance](9_performance.md) and [Deployment](10_deployment.md).
+For broader operational strategies, see [Performance](9_performance.md) and [Deployment](10.2_deployment_manual.md).
