@@ -8,6 +8,31 @@ imgforge exposes Prometheus-compatible metrics so you can observe throughput, la
 - **Dedicated listener** – Provide `IMGFORGE_PROMETHEUS_BIND` (for example `0.0.0.0:9600`) to expose metrics on a separate port. The endpoint remains `/metrics`.
 - **Authentication** – The metrics endpoint never requires URL signatures but inherits bearer-token protection when `IMGFORGE_SECRET` is set. Grant your scraper a token or whitelist the Prometheus network path at the proxy layer.
 
+## Metrics flow diagram
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│                    Prometheus Metrics Pipeline                           │
+└──────────────────────────────────────────────────────────────────────────┘
+    ┌─────────────────────────────────────────────────────────────────┐
+    │                                                                 │
+    │  Request arrives ──▶ Timer starts                               │
+    │         │                                                       │
+    │         ├──▶ Check cache ──▶ cache_hits_total++ OR              │
+    │         │                    cache_misses_total++               │
+    │         │                                                       │
+    │         ├──▶ Fetch source ──▶ source_image_fetch_duration_      │
+    │         │                     seconds (observe)                 │
+    │         │                                                       │
+    │         ├──▶ Transform ──▶ image_processing_duration_seconds    │
+    │         │                  (observe)                            │
+    │         │                                                       │
+    │         └──▶ Response ──▶ http_requests_duration_seconds        │
+    │                           status_codes_total{status="200"}++    │
+    │                           processed_images_total{format="..."}++│
+    └─────────────────────────────────────────────────────────────────┘
+```
+
 ## Core metrics
 
 | Metric name                               | Type      | Labels           | Insight                                                                                 |

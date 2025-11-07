@@ -13,9 +13,9 @@ imgforge reads configuration exclusively from environment variables. This docume
 
 ## Networking & binding
 
-| Variable                   | Default        | Description & tips                                                                                                                                                                            |
-|----------------------------|----------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `IMGFORGE_BIND`            | `0.0.0.0:3000` | Primary HTTP listener. Bind to `127.0.0.1` when running behind a reverse proxy locally.                                                                                                       |
+| Variable                   | Default        | Description & tips                                                                                                                                                                      |
+|----------------------------|----------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `IMGFORGE_BIND`            | `0.0.0.0:3000` | Primary HTTP listener. Bind to `127.0.0.1` when running behind a reverse proxy locally.                                                                                                 |
 | `IMGFORGE_PROMETHEUS_BIND` | unset          | Optional dedicated metrics listener (e.g., `0.0.0.0:9600`). When unset, metrics remain on the main listener under `/metrics`. See [Prometheus Monitoring](11_prometheus_monitoring.md). |
 
 ## Logging & observability
@@ -28,7 +28,7 @@ imgforge reads configuration exclusively from environment variables. This docume
 
 | Variable                          | Default    | Description & tips                                                                                                                                                  |
 |-----------------------------------|------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `IMGFORGE_KEY`                    | _required_ | Hex-encoded HMAC key. The decoded byte string is used to sign URLs (see [URL Structure](4_url_structure.md)). Minimum 32 bytes recommended.                    |
+| `IMGFORGE_KEY`                    | _required_ | Hex-encoded HMAC key. The decoded byte string is used to sign URLs (see [URL Structure](4_url_structure.md)). Minimum 32 bytes recommended.                         |
 | `IMGFORGE_SALT`                   | _required_ | Hex-encoded salt prepended to the signed path prior to hashing. Rotate alongside the key.                                                                           |
 | `IMGFORGE_ALLOW_UNSIGNED`         | `false`    | When `true`, accepts `unsafe/...` paths without signature validation. Restrict to development environments.                                                         |
 | `IMGFORGE_SECRET`                 | unset      | If provided, requests to `/info` and image endpoints must include `Authorization: Bearer <token>`. Combine with load balancer ACLs when exposing imgforge publicly. |

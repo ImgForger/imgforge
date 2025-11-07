@@ -52,7 +52,7 @@ cd imgforge
 cargo run
 ```
 
-By default the server listens on `http://0.0.0.0:3000`. Adjust the bind address with `IMGFORGE_BIND`.
+By default, the server listens on `http://0.0.0.0:3000`. Adjust the bind address with `IMGFORGE_BIND`.
 
 ## Issuing a transformation request
 
