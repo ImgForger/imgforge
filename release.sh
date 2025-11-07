@@ -64,7 +64,7 @@ read -r -p "Enter the version number: " version
 
 if validate_semver "$version"; then
     update_version_file "$version"
-    sleep 2
+    sleep 5
     create_version_commit "$version"
     create_and_push_git_tag "$version"
     echo "Created a new release $version"
