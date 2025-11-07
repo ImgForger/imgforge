@@ -9,6 +9,45 @@ http(s)://<host>/<signature>/<processing_options>/plain/<percent-encoded-source>
 http(s)://<host>/<signature>/<processing_options>/<base64url-source>.<extension>
 ```
 
+### URL structure visualization
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│                              URL Anatomy                                 │
+└──────────────────────────────────────────────────────────────────────────┘
+
+Plain format example:
+┌───────────┬────────────────┬──────────────────────┬──────────────────────┐
+│ https://  │ imgforge.com/  │ Q7j8K...NpM/         │ resize:fill:800:600/ │
+│ Protocol  │ Host           │ HMAC Signature       │ Processing Options   │
+└───────────┴────────────────┴──────────────────────┴──────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────┐
+│ plain/https%3A%2F%2Fexample.com%2Fcat.jpg@webp                           │
+│ Source URL (percent-encoded) + Output Format                             │
+└──────────────────────────────────────────────────────────────────────────┘
+
+
+Base64 format example:
+┌───────────┬────────────────┬──────────────────────┬──────────────────────┐
+│ https://  │ imgforge.com/  │ Q7j8K...NpM/         │ resize:fit:1024:0/   │
+│ Protocol  │ Host           │ HMAC Signature       │ Processing Options   │
+└───────────┴────────────────┴──────────────────────┴──────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────┐
+│ aHR0cHM6Ly9leGFtcGxlLmNvbS9jYXQzLmpwZw.webp                              │
+│ Base64URL-encoded source      + Output Format                            │
+└──────────────────────────────────────────────────────────────────────────┘
+
+
+Processing Options Chain:
+┌─────────────────────────────────────────────────────────────────────────┐
+│  resize:fill:800:600 / quality:85 / blur:2.5 / watermark:0.8:se         │
+│  ─────┬────────────   ────┬─────   ────┬────   ──────────┬──────        │
+│       │                   │            │                 │              │
+│       ▼                   ▼            ▼                 ▼              │
+│  Directive:args      Directive:arg  Directive:arg   Directive:args      │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
 | Segment                | Description                                                                                                                                 |
 |------------------------|---------------------------------------------------------------------------------------------------------------------------------------------|
 | `<signature>`          | Base64 URL-safe, unpadded HMAC-SHA256 digest generated from the path. Use `unsafe` when unsigned URLs are permitted.                        |

@@ -2,6 +2,69 @@
 
 This document zooms in on the transformation phase that runs after imgforge validates a request. Use it alongside [Processing Options](5_processing_options.md) to design URLs and reason about how directives interact inside libvips.
 
+## Pipeline visualization
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        Image Processing Pipeline                            │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+    ┌──────────────────────┐
+    │  Parsed Directives   │  → User request with processing options
+    └──────────┬───────────┘
+               │
+               ▼
+    ┌──────────────────────┐
+    │ 1. Plan              │  → Normalize defaults (quality→85, auto_rotate→true)
+    │    Normalization     │    Missing dimensions→0 (preserve aspect ratio)
+    └──────────┬───────────┘
+               │
+               ▼
+    ┌──────────────────────┐
+    │ 2. DPR Scaling       │  → Multiply dimensions by device-pixel-ratio
+    │    (if dpr present)  │    Affects width, height, padding before limits
+    └──────────┬───────────┘
+               │
+               ▼
+    ┌──────────────────────┐
+    │ 3. Image Loading     │  → libvips ingests source buffer
+    │    (libvips)         │    Color profile conversion + EXIF orientation
+    └──────────┬───────────┘
+               │
+               ▼
+    ┌──────────────────────┐
+    │ 4. Geometry          │  → Crop (absolute coords) → Resize (fit/fill/force)
+    │    Transforms        │    Gravity affects crop window & fill positioning
+    │                      │    Upscaling blocked unless enlarge:true
+    └──────────┬───────────┘
+               │
+               ▼
+    ┌──────────────────────┐
+    │ 5. Canvas            │  → Padding + extend + background (post-resize)
+    │    Adjustments       │    Padding inherits DPR scaling
+    │                      │    Alpha flattening for JPEG/non-alpha formats
+    └──────────┬───────────┘
+               │
+               ▼
+    ┌──────────────────────┐
+    │ 6. Effects &         │  → Blur/sharpen/pixelate/zoom
+    │    Safeguards        │    min_width/min_height checks → upscale if needed
+    │                      │    Watermark loading & compositing
+    └──────────┬───────────┘
+               │
+               ▼
+    ┌──────────────────────┐
+    │ 7. Encoding          │  → Format conversion (JPEG/WebP/AVIF/PNG)
+    │    (libvips)         │    Quality compression (default 85)
+    │                      │    Metadata stripping
+    └──────────┬───────────┘
+               │
+               ▼
+    ┌──────────────────────┐
+    │   Processed Image    │  → Ready for response & caching
+    └──────────────────────┘
+```
+
 ## High-level flow
 
 1. **Plan normalization** – Parsed directives are expanded into a structured plan with explicit defaults. Missing widths or heights default to `0`, which allows imgforge to preserve aspect ratio. Quality defaults to `85`, backgrounds default to transparent/black depending on the target format, and EXIF auto-rotation starts enabled.
