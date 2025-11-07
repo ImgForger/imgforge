@@ -91,56 +91,6 @@ Signed URLs prevent tampering. Anyone with write access to a CDN, cache, or brow
 
 ### How signing works
 
-```
-┌──────────────────────────────────────────────────────────────────────────┐
-│                       HMAC Signing Process                               │
-└──────────────────────────────────────────────────────────────────────────┘
-
-    ┌─────────────────────┐          ┌─────────────────────┐
-    │  IMGFORGE_KEY       │          │  IMGFORGE_SALT      │
-    │  (hex string)       │          │  (hex string)       │
-    └──────────┬──────────┘          └──────────┬──────────┘
-               │                                │
-               │ hex_decode()                   │ hex_decode()
-               ▼                                ▼
-    ┌─────────────────────┐          ┌─────────────────────┐
-    │   Key (bytes)       │          │   Salt (bytes)      │
-    └─────────┬───────────┘          └──────────┬──────────┘
-              │                                  │
-              │                                  │
-              │                    ┌─────────────▼──────────────┐
-              │                    │ Path to sign:              │
-              │                    │ /resize:fill:800:600/...   │
-              │                    └─────────────┬──────────────┘
-              │                                  │
-              │                                  │ Concatenate
-              │                    ┌─────────────▼──────────────┐
-              │                    │ salt_bytes + path_bytes    │
-              │                    └─────────────┬──────────────┘
-              │                                  │
-              └──────────────────────────────────┘
-                                   │
-                                   │ HMAC-SHA256
-                                   ▼
-                        ┌────────────────────────┐
-                        │  HMAC Digest (bytes)   │
-                        └──────────┬─────────────┘
-                                   │
-                                   │ Base64 URL-safe (no padding)
-                                   ▼
-                        ┌────────────────────────┐
-                        │  Signature String      │
-                        │  Q7j8K...NpM           │
-                        └──────────┬─────────────┘
-                                   │
-                                   │ Prepend to path
-                                   ▼
-                        ┌────────────────────────┐
-                        │ Signed URL:            │
-                        │ /Q7j8K...NpM/resize:...│
-                        └────────────────────────┘
-```
-
 1. Convert `IMGFORGE_KEY` and `IMGFORGE_SALT` from hex to raw bytes.
 2. Build the path portion beginning with the slash before the processing options (for example `/resize:fill:800:600/plain/...`).
 3. Concatenate the salt bytes with the path bytes.
