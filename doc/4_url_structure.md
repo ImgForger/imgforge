@@ -13,7 +13,7 @@ http(s)://<host>/<signature>/<processing_options>/<base64url-source>.<extension>
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
-│                          URL Anatomy                                     │
+│                              URL Anatomy                                 │
 └──────────────────────────────────────────────────────────────────────────┘
 
 Plain format example:
@@ -40,11 +40,11 @@ Base64 format example:
 
 Processing Options Chain:
 ┌─────────────────────────────────────────────────────────────────────────┐
-│  resize:fill:800:600 / quality:85 / blur:2.5 / watermark:0.8:se        │
-│  ─────┬────────────   ────┬─────   ───┬────   ──────────┬──────        │
+│  resize:fill:800:600 / quality:85 / blur:2.5 / watermark:0.8:se         │
+│  ─────┬────────────   ────┬─────   ────┬────   ──────────┬──────        │
 │       │                   │            │                 │              │
 │       ▼                   ▼            ▼                 ▼              │
-│  Directive:args      Directive:arg  Directive:arg   Directive:args     │
+│  Directive:args      Directive:arg  Directive:arg   Directive:args      │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 

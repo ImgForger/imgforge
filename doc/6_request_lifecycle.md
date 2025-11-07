@@ -7,7 +7,7 @@ Understanding imgforge’s internal workflow helps you reason about performance,
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                          Request Lifecycle                                  │
+│                             Request Lifecycle                               │
 └─────────────────────────────────────────────────────────────────────────────┘
 
     ┌──────────────────────┐
@@ -35,31 +35,31 @@ Understanding imgforge’s internal workflow helps you reason about performance,
                │                                     │ YES
                │ NO                                  │
                ▼                                     │
-    ┌──────────────────────┐                        │
-    │ Source Acquisition   │  → Acquire semaphore   │
-    │                      │    Download image      │
-    │                      │    Validate size/MIME  │
-    │                      │    Check resolution    │
-    │                      │    Fetch watermark     │
-    └──────────┬───────────┘                        │
+    ┌──────────────────────┐                         │
+    │ Source Acquisition   │  → Acquire semaphore    │
+    │                      │    Download image       │
+    │                      │    Validate size/MIME   │
+    │                      │    Check resolution     │
+    │                      │    Fetch watermark      │
+    └──────────┬───────────┘                         │
                │                                     │
                ▼                                     │
-    ┌──────────────────────┐                        │
-    │  Option Parsing      │  → Parse directives    │
-    │                      │    Validate ranges     │
-    └──────────┬───────────┘                        │
+    ┌──────────────────────┐                         │
+    │  Option Parsing      │  → Parse directives     │
+    │                      │    Validate ranges      │
+    └──────────┬───────────┘                         │
                │                                     │
                ▼                                     │
-    ┌──────────────────────┐                        │
-    │ Image Transformation │  → libvips pipeline    │
-    │ (see Pipeline doc)   │    7-stage process     │
-    └──────────┬───────────┘                        │
+    ┌──────────────────────┐                         │
+    │ Image Transformation │  → libvips pipeline     │
+    │ (see Pipeline doc)   │    7-stage process      │
+    └──────────┬───────────┘                         │
                │                                     │
                ▼                                     │
-    ┌──────────────────────┐                        │
-    │   Cache Populate     │  → Store in cache      │
-    │   (on success)       │                        │
-    └──────────┬───────────┘                        │
+    ┌──────────────────────┐                         │
+    │   Cache Populate     │  → Store in cache       │
+    │   (on success)       │                         │
+    └──────────┬───────────┘                         │
                │                                     │
                ├─────────────────────────────────────┘
                ▼
@@ -81,10 +81,10 @@ Understanding imgforge’s internal workflow helps you reason about performance,
     └──────────────────────┘
 
     Error Paths:
-    • 403 Forbidden ←─────────── Signature/auth failure
-    • 400 Bad Request ←────────── Invalid options, oversized, bad MIME
-    • 429 Too Many Requests ←──── Rate limit exceeded
-    • 504 Gateway Timeout ←────── Processing timeout
+    • 403 Forbidden ←───────────── Signature/auth failure
+    • 400 Bad Request ←─────────── Invalid options, oversized, bad MIME
+    • 429 Too Many Requests ←───── Rate limit exceeded
+    • 504 Gateway Timeout ←─────── Processing timeout
     • 500 Internal Error ←──────── Unhandled exceptions
 ```
 

@@ -2,48 +2,6 @@
 
 imgforge leverages libvips and Tokio to deliver high throughput with modest resources. This guide outlines configuration tweaks, architectural patterns, and monitoring strategies to keep latency low under load.
 
-## Performance optimization areas
-
-```
-┌──────────────────────────────────────────────────────────────────────────┐
-│                    Performance Optimization Map                          │
-└──────────────────────────────────────────────────────────────────────────┘
-
-    ┌─────────────────────────────────────────────────────────────────┐
-    │                       imgforge Server                           │
-    │                                                                 │
-    │  ┌────────────────┐    ┌────────────────┐    ┌──────────────┐ │
-    │  │  Concurrency   │    │    Caching     │    │  Timeouts    │ │
-    │  ├────────────────┤    ├────────────────┤    ├──────────────┤ │
-    │  │ • IMGFORGE_    │    │ • Memory/Disk/ │    │ • Download   │ │
-    │  │   WORKERS      │    │   Hybrid       │    │   timeout    │ │
-    │  │ • Semaphore    │    │ • Hit ratio    │    │ • Request    │ │
-    │  │   permits      │    │ • CDN layer    │    │   timeout    │ │
-    │  └────────────────┘    └────────────────┘    └──────────────┘ │
-    │                                                                 │
-    │  ┌────────────────┐    ┌────────────────┐    ┌──────────────┐ │
-    │  │  Monitoring    │    │   Hardware     │    │  Algorithm   │ │
-    │  ├────────────────┤    ├────────────────┤    ├──────────────┤ │
-    │  │ • Metrics      │    │ • CPU cores    │    │ • Lanczos3   │ │
-    │  │ • Dashboards   │    │ • Memory       │    │   vs linear  │ │
-    │  │ • Alerts       │    │ • SSD storage  │    │ • Quality    │ │
-    │  └────────────────┘    └────────────────┘    └──────────────┘ │
-    └─────────────────────────────────────────────────────────────────┘
-
-
-    Performance Impact Hierarchy:
-    ┌─────────────────────┬──────────────┬─────────────────────────┐
-    │     Optimization    │    Impact    │     Tradeoff            │
-    ├─────────────────────┼──────────────┼─────────────────────────┤
-    │  Cache Hit Ratio    │  Very High   │  Storage cost           │
-    │  CDN Layer          │  Very High   │  Cost, complexity       │
-    │  Worker Tuning      │  High        │  Memory usage           │
-    │  Timeout Tuning     │  Medium      │  Failure rate           │
-    │  Algorithm Choice   │  Medium      │  Quality vs speed       │
-    │  Hardware Upgrade   │  High        │  Cost                   │
-    └─────────────────────┴──────────────┴─────────────────────────┘
-```
-
 ## Tune concurrency thoughtfully
 
 - Start with the default worker count (`num_cpus * 2`). Observe CPU utilization and memory pressure under realistic workloads.

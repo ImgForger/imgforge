@@ -52,43 +52,9 @@ cd imgforge
 cargo run
 ```
 
-By default the server listens on `http://0.0.0.0:3000`. Adjust the bind address with `IMGFORGE_BIND`.
+By default, the server listens on `http://0.0.0.0:3000`. Adjust the bind address with `IMGFORGE_BIND`.
 
 ## Issuing a transformation request
-
-### Quick flow diagram
-
-```
-┌────────────────────────────────────────────────────────────────┐
-│               Quick Start Flow                                 │
-└────────────────────────────────────────────────────────────────┘
-
-    1. Generate secrets
-       ↓
-    ┌─────────────────────┐
-    │ IMGFORGE_KEY + SALT │
-    └──────────┬──────────┘
-               │
-    2. Start server
-       ↓
-    ┌─────────────────────┐
-    │ imgforge listening  │  http://localhost:3000
-    │ on port 3000        │
-    └──────────┬──────────┘
-               │
-    3. Test request
-       ↓
-    ┌───────────────────────────────────────────────────────┐
-    │  curl http://localhost:3000/unsafe/                   │
-    │       resize:fill:600:400/                            │
-    │       plain/https://example.com/photo.jpg@webp        │
-    └────────────────────────┬──────────────────────────────┘
-                             │
-                             ▼
-                    ┌─────────────────┐
-                    │ portrait.webp   │  600×400, WebP format
-                    └─────────────────┘
-```
 
 With the server running, craft a development URL that resizes and converts an image to WebP:
 

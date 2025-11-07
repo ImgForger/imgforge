@@ -14,67 +14,21 @@ imgforge exposes Prometheus-compatible metrics so you can observe throughput, la
 ┌──────────────────────────────────────────────────────────────────────────┐
 │                    Prometheus Metrics Pipeline                           │
 └──────────────────────────────────────────────────────────────────────────┘
-
-    ┌────────────────────────────────────────────────────────────────┐
-    │                    imgforge Server                             │
-    │                                                                │
-    │  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐    │
-    │  │   Request    │───▶│ Processing   │───▶│   Response   │    │
-    │  │   Handler    │    │   Pipeline   │    │   Sender     │    │
-    │  └───────┬──────┘    └──────┬───────┘    └──────┬───────┘    │
-    │          │                  │                    │            │
-    │          │ Record           │ Record             │ Record     │
-    │          ▼                  ▼                    ▼            │
-    │  ┌────────────────────────────────────────────────────────┐  │
-    │  │            Prometheus Metrics Registry                 │  │
-    │  │                                                        │  │
-    │  │  • http_requests_duration_seconds (Histogram)         │  │
-    │  │  • image_processing_duration_seconds (Histogram)      │  │
-    │  │  • processed_images_total (Counter)                   │  │
-    │  │  • source_image_fetch_duration_seconds (Histogram)    │  │
-    │  │  • source_images_fetched_total (Counter)              │  │
-    │  │  • cache_hits_total / cache_misses_total (Counter)    │  │
-    │  │  • status_codes_total (Counter)                       │  │
-    │  └────────────────────────┬───────────────────────────────┘  │
-    │                           │                                  │
-    │                  GET /metrics                                │
-    └───────────────────────────┼──────────────────────────────────┘
-                                │
-                                │ Scrape (every 15-30s)
-                                ▼
-                    ┌───────────────────────┐
-                    │   Prometheus Server   │
-                    │                       │
-                    │  • Stores time-series │
-                    │  • Evaluates alerts   │
-                    │  • Retention policy   │
-                    └───────────┬───────────┘
-                                │
-                ┌───────────────┼───────────────┐
-                │               │               │
-                ▼               ▼               ▼
-    ┌──────────────────┐  ┌─────────┐  ┌──────────────┐
-    │     Grafana      │  │ Alerts  │  │  PromQL API  │
-    │   Dashboards     │  │ Manager │  │   Queries    │
-    └──────────────────┘  └─────────┘  └──────────────┘
-
-
-    Metric Flow Example:
     ┌─────────────────────────────────────────────────────────────────┐
     │                                                                 │
-    │  Request arrives ──▶ Timer starts                              │
+    │  Request arrives ──▶ Timer starts                               │
     │         │                                                       │
-    │         ├──▶ Check cache ──▶ cache_hits_total++ OR             │
-    │         │                    cache_misses_total++              │
+    │         ├──▶ Check cache ──▶ cache_hits_total++ OR              │
+    │         │                    cache_misses_total++               │
     │         │                                                       │
-    │         ├──▶ Fetch source ──▶ source_image_fetch_duration_     │
-    │         │                     seconds (observe)                │
+    │         ├──▶ Fetch source ──▶ source_image_fetch_duration_      │
+    │         │                     seconds (observe)                 │
     │         │                                                       │
-    │         ├──▶ Transform ──▶ image_processing_duration_seconds   │
-    │         │                  (observe)                           │
+    │         ├──▶ Transform ──▶ image_processing_duration_seconds    │
+    │         │                  (observe)                            │
     │         │                                                       │
-    │         └──▶ Response ──▶ http_requests_duration_seconds       │
-    │                           status_codes_total{status="200"}++   │
+    │         └──▶ Response ──▶ http_requests_duration_seconds        │
+    │                           status_codes_total{status="200"}++    │
     │                           processed_images_total{format="..."}++│
     └─────────────────────────────────────────────────────────────────┘
 ```

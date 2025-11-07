@@ -28,20 +28,20 @@ Caching dramatically reduces repeated processing costs and shrinks latency for p
         ▼               ▼              ▼                ▼
     ┌────────┐    ┌─────────┐   ┌──────────┐     ┌──────────┐
     │  None  │    │ Memory  │   │   Disk   │     │  Hybrid  │
-    └────┬───┘    └────┬────┘   └────┬─────┘     └────┬─────┘
+    └────┬───┘    └────┬────┘   └─────┬────┘     └─────┬────┘
          │             │              │                │
          │             ▼              ▼                ▼
          │      ┌────────────┐  ┌──────────────┐  ┌──────────────────┐
          │      │Foyer       │  │Foyer Block   │  │Memory (hot) +    │
          │      │In-Memory   │  │Engine        │  │Disk (spillover)  │
          │      │LRU Cache   │  │Persistent    │  │                  │
-         │      └─────┬──────┘  └──────┬───────┘  └────────┬─────────┘
+         │      └─────┬──────┘  └──────┬───────┘  └─────────┬────────┘
          │            │                │                    │
-         │         HIT│    MISS        │HIT      MISS      │HIT    MISS
+         │         HIT│    MISS        │HIT      MISS       │HIT    MISS
          │            │                │                    │
          │            └────────────────┴────────────────────┘
          │                            │
-         │                         MISS
+         │                           MISS
          └────────────────────────────┘
                                       │
                                       ▼
