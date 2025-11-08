@@ -1,10 +1,56 @@
 use crate::caching::config::CacheConfig;
 use crate::caching::error::CacheError;
 use crate::monitoring::{increment_cache_hit, increment_cache_miss};
-use foyer::{BlockEngineBuilder, Cache, CacheBuilder, FsDeviceBuilder, HybridCache, HybridCacheBuilder};
+use bytes::Bytes;
+use foyer::{
+    BlockEngineBuilder, Cache, CacheBuilder, Code, CodeError, FsDeviceBuilder, HybridCache, HybridCacheBuilder,
+};
 use foyer::{DeviceBuilder, RecoverMode};
+use std::io::{Read, Write};
 use std::path::Path;
 use std::sync::Arc;
+use crate::utils::format_to_content_type;
+
+#[derive(Clone)]
+pub struct CachedImage {
+    pub bytes: Bytes,
+    pub content_type: &'static str,
+}
+
+impl Code for CachedImage {
+    fn encode(&self, writer: &mut impl Write) -> Result<(), CodeError> {
+        let data = self.bytes.as_ref();
+        data.len().encode(writer)?;
+        writer.write_all(data)?;
+
+        let content_type_bytes = self.content_type.as_bytes();
+        content_type_bytes.len().encode(writer)?;
+        writer.write_all(content_type_bytes)?;
+        Ok(())
+    }
+
+    fn decode(reader: &mut impl Read) -> Result<Self, CodeError> {
+        let len = usize::decode(reader)?;
+        let mut data = vec![0u8; len];
+        reader.read_exact(&mut data)?;
+
+        let content_len = usize::decode(reader)?;
+        let mut content_buf = vec![0u8; content_len];
+        reader.read_exact(&mut content_buf)?;
+        let content_vec = content_buf.clone();
+        let content_str = std::str::from_utf8(&content_buf).map_err(|_| CodeError::Unrecognized(content_vec))?;
+        let content_type = format_to_content_type(content_str);
+
+        Ok(CachedImage {
+            bytes: Bytes::from(data),
+            content_type,
+        })
+    }
+
+    fn estimated_size(&self) -> usize {
+        self.bytes.len() + self.content_type.len() + std::mem::size_of::<usize>() * 2
+    }
+}
 
 /// Represents the different cache backends for Imgforge.
 pub enum ImgforgeCache {
