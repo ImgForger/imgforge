@@ -1,6 +1,6 @@
 [package]
 name = "imgforge"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2021"
 repository = "https://github.com/ImgForger/imgforge"
 description = "Fast and secure image proxy and transformation server"
