@@ -1,5 +1,6 @@
 use crate::app::AppState;
 use crate::monitoring::increment_status_code;
+use crate::utils::format_to_content_type;
 use axum::body::Body;
 use axum::extract::State;
 use axum::{http::Request, http::StatusCode, middleware::Next, response::Response};
@@ -19,19 +20,6 @@ fn generate_request_id() -> String {
         .take(10)
         .map(char::from)
         .collect()
-}
-
-pub fn format_to_content_type(format: &str) -> &'static str {
-    match format {
-        "png" | "image/png" => "image/png",
-        "webp" | "image/webp" => "image/webp",
-        "gif" | "image/gif" => "image/gif",
-        "tiff" | "image/tiff" => "image/tiff",
-        "avif" | "image/avif" => "image/avif",
-        "heif" | "image/heif" => "image/heif",
-        "jpeg" | "jpg" | "image/jpeg" => "image/jpeg",
-        _ => "image/jpeg",
-    }
 }
 
 pub async fn request_id_middleware(mut req: Request<Body>, next: Next) -> Response {
