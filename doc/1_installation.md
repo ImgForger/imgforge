@@ -11,7 +11,7 @@ Docker is the fastest way to evaluate imgforge and mirrors the production deploy
    ```bash
    docker pull ghcr.io/imgforger/imgforge:latest
    ```
-   If you need a custom image (for example to bundle watermarks or presets), see [10_deployment.md](10_deployment.md) for building a derivative image.
+   If you need a custom image (for example to bundle watermarks or presets), see [Deployment](10.2_deployment_manual.md) for building a derivative image.
 3. **Generate secrets** – Generate random secrets for HMAC signing:
    ```bash
    openssl rand -hex 32
@@ -40,7 +40,7 @@ Docker is the fastest way to evaluate imgforge and mirrors the production deploy
      ghcr.io/imgforger/imgforge:latest
    ```
 
-Continue to [2_quick_start.md](2_quick_start.md) to run real transformations inside the container.
+Continue to [Quick Start](2_quick_start.md) to run real transformations inside the container.
 
 ## Native installation (for custom builds)
 
@@ -138,4 +138,4 @@ If libvips is marked as “not found,” add its library directory to `LD_LIBRAR
 
 ### Next steps
 
-Whether you chose Docker or a native build, proceed to [2_quick_start.md](2_quick_start.md) to configure secrets, start the server, and perform your first image transformation.
+Whether you chose Docker or a native build, proceed to [Quick Start](2_quickstart.md) to configure secrets, start the server, and perform your first image transformation.

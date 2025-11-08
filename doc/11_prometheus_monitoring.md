@@ -8,6 +8,31 @@ imgforge exposes Prometheus-compatible metrics so you can observe throughput, la
 - **Dedicated listener** – Provide `IMGFORGE_PROMETHEUS_BIND` (for example `0.0.0.0:9600`) to expose metrics on a separate port. The endpoint remains `/metrics`.
 - **Authentication** – The metrics endpoint never requires URL signatures but inherits bearer-token protection when `IMGFORGE_SECRET` is set. Grant your scraper a token or whitelist the Prometheus network path at the proxy layer.
 
+## Metrics flow diagram
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│                    Prometheus Metrics Pipeline                           │
+└──────────────────────────────────────────────────────────────────────────┘
+    ┌─────────────────────────────────────────────────────────────────┐
+    │                                                                 │
+    │  Request arrives ──▶ Timer starts                               │
+    │         │                                                       │
+    │         ├──▶ Check cache ──▶ cache_hits_total++ OR              │
+    │         │                    cache_misses_total++               │
+    │         │                                                       │
+    │         ├──▶ Fetch source ──▶ source_image_fetch_duration_      │
+    │         │                     seconds (observe)                 │
+    │         │                                                       │
+    │         ├──▶ Transform ──▶ image_processing_duration_seconds    │
+    │         │                  (observe)                            │
+    │         │                                                       │
+    │         └──▶ Response ──▶ http_requests_duration_seconds        │
+    │                           status_codes_total{status="200"}++    │
+    │                           processed_images_total{format="..."}++│
+    └─────────────────────────────────────────────────────────────────┘
+```
+
 ## Core metrics
 
 | Metric name                               | Type      | Labels           | Insight                                                                                 |
@@ -54,10 +79,10 @@ When running a dedicated metrics listener, adjust `targets` to the alternate por
 
 ## Connecting with tracing and logs
 
-Correlate request IDs emitted in logs (via the `X-Request-ID` header) with spikes in histogram buckets. Pair this document with [6_request_lifecycle.md](6_request_lifecycle.md) to map metrics anomalies back to lifecycle stages, and with infrastructure metrics (CPU, memory, I/O) for holistic visibility.
+Correlate request IDs emitted in logs (via the `X-Request-ID` header) with spikes in histogram buckets. Pair this document with [Request Lifecycle](6_request_lifecycle.md) to map metrics anomalies back to lifecycle stages, and with infrastructure metrics (CPU, memory, I/O) for holistic visibility.
 
 ## Next steps
 
 - Surface these dashboards in Grafana or your preferred visualization tool.
 - Feed alerts into your incident workflow (PagerDuty, Opsgenie, Slack). Use quiet hours and grouping strategies to avoid alert fatigue.
-- Share runbooks linking playbooks in [8_error_troubleshooting.md](8_error_troubleshooting.md) so responders can remediate issues quickly.
+- Share runbooks linking playbooks in [Error Troubleshooting](8_error_troubleshooting.md) so responders can remediate issues quickly.

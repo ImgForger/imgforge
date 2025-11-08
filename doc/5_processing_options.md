@@ -4,37 +4,71 @@ imgforge encodes image transformations directly in the URL path. Each directive 
 
 ## Quick reference
 
-| Option               | Aliases   | Arguments                              | Purpose & defaults                                                                    |
-|----------------------|-----------|----------------------------------------|---------------------------------------------------------------------------------------|
-| `resize`             | `rs`      | `type:width:height[:enlarge][:extend]` | Primary resize control. Defaults to no resize. `enlarge`/`extend` default to `false`. |
-| `size`               | `sz`, `s` | `width:height[:enlarge][:extend]`      | Convenience wrapper for `resize` with implicit `fit`.                                 |
-| `resizing_type`      | `rt`      | `type`                                 | Overrides the mode used by other resizing directives.                                 |
-| `resizing_algorithm` | `ra`      | `algorithm`                            | Interpolation kernel for resize operations. Defaults to `lanczos3`.                   |
-| `width`              | `w`       | `value`                                | Sets a target width (infers height). Implies `fit`.                                   |
-| `height`             | `h`       | `value`                                | Sets a target height (infers width). Implies `fit`.                                   |
-| `gravity`            | `g`       | `anchor`                               | Controls crop/fill anchoring (`center`, `north_east`, etc.). Defaults to `center`.    |
-| `enlarge`            | `el`      | `bool`                                 | Allows upscaling globally. Defaults to `false`.                                       |
-| `extend`             | `ex`      | `bool`                                 | Pads to target dimensions after resize. Defaults to `false`.                          |
-| `padding`            | `pd`      | `top[:right][:bottom][:left]`          | Adds padding after resizing. Defaults to zero padding.                                |
-| `min_width`          | `mw`      | `value`                                | Ensures result width meets minimum. Upscales if required.                             |
-| `min_height`         | `mh`      | `value`                                | Ensures result height meets minimum. Upscales if required.                            |
-| `zoom`               | `z`       | `factor`                               | Multiplies dimensions after resizing. Defaults to `1.0`.                              |
-| `crop`               | —         | `x:y:width:height`                     | Crops before resizing. No crop by default.                                            |
-| `rotate`             | `rot`     | `0                                     | 90                                                                                    |180|270`                             | Applies fixed rotation. Defaults to `0`.                                                                                           |
-| `auto_rotate`        | `ar`      | `bool`                                 | Honours EXIF orientation (`true` by default).                                         |
-| `blur`               | `bl`      | `sigma`                                | Gaussian blur (0 disables).                                                           |
-| `sharpen`            | `sh`      | `sigma`                                | Sharpens edges.                                                                       |
-| `pixelate`           | `px`      | `amount`                               | Pixelation strength.                                                                  |
-| `background`         | `bg`      | `RRGGBB[AA]`                           | Canvas colour for extend/padding/flatten. Defaults to transparent unless JPEG output. |
-| `quality`            | `q`       | `1-100`                                | Compression quality. Defaults to `85` for lossy formats.                              |
-| `format`             | —         | `jpeg                                  | png                                                                                   |webp|avif|...`                   | Output format override. Defaults to `jpeg` when unspecified.                                                                       |
-| `dpr`                | —         | `1.0-5.0`                              | Device pixel ratio multiplier. Defaults to `1.0`.                                     |
-| `raw`                | —         | —                                      | Skips the concurrency semaphore. Defaults to disabled.                                |
-| `cache_buster`       | —         | `token`                                | Alters the cache key.                                                                 |
-| `max_src_resolution` | —         | `megapixels`                           | Request-level override. Requires server opt-in.                                       |
-| `max_src_file_size`  | —         | `bytes`                                | Request-level override. Requires server opt-in.                                       |
-| `watermark`          | `wm`      | `opacity:position`                     | Enables watermarking. Requires watermark asset.                                       |
-| `watermark_url`      | `wmu`     | `base64url(url)`                       | Fetches watermark per request. Overrides server default path.                         |
+| Option               | Aliases   | Arguments                              | Purpose & defaults                                                                                 |
+|----------------------|-----------|----------------------------------------|----------------------------------------------------------------------------------------------------|
+| `preset`             | `pr`      | `name`                                 | References a named preset defined via `IMGFORGE_PRESETS`. See [Configuration](3_configuration.md). |
+| `resize`             | `rs`      | `type:width:height[:enlarge][:extend]` | Primary resize control. Defaults to no resize. `enlarge`/`extend` default to `false`.              |
+| `size`               | `sz`, `s` | `width:height[:enlarge][:extend]`      | Convenience wrapper for `resize` with implicit `fit`.                                              |
+| `resizing_type`      | `rt`      | `type`                                 | Overrides the mode used by other resizing directives.                                              |
+| `resizing_algorithm` | `ra`      | `algorithm`                            | Interpolation kernel for resize operations. Defaults to `lanczos3`.                                |
+| `width`              | `w`       | `value`                                | Sets a target width (infers height). Implies `fit`.                                                |
+| `height`             | `h`       | `value`                                | Sets a target height (infers width). Implies `fit`.                                                |
+| `gravity`            | `g`       | `anchor`                               | Controls crop/fill anchoring (`center`, `north_east`, etc.). Defaults to `center`.                 |
+| `enlarge`            | `el`      | `bool`                                 | Allows upscaling globally. Defaults to `false`.                                                    |
+| `extend`             | `ex`      | `bool`                                 | Pads to target dimensions after resize. Defaults to `false`.                                       |
+| `padding`            | `pd`      | `top[:right][:bottom][:left]`          | Adds padding after resizing. Defaults to zero padding.                                             |
+| `min_width`          | `mw`      | `value`                                | Ensures result width meets minimum. Upscales if required.                                          |
+| `min_height`         | `mh`      | `value`                                | Ensures result height meets minimum. Upscales if required.                                         |
+| `zoom`               | `z`       | `factor`                               | Multiplies dimensions after resizing. Defaults to `1.0`.                                           |
+| `crop`               | —         | `x:y:width:height`                     | Crops before resizing. No crop by default.                                                         |
+| `rotate`             | `rot`     | `0\|90\|180\|270`                      | Applies fixed rotation. Defaults to `0`.                                                           |
+| `auto_rotate`        | `ar`      | `bool`                                 | Honours EXIF orientation (`true` by default).                                                      |
+| `blur`               | `bl`      | `sigma`                                | Gaussian blur (0 disables).                                                                        |
+| `sharpen`            | `sh`      | `sigma`                                | Sharpens edges.                                                                                    |
+| `pixelate`           | `px`      | `amount`                               | Pixelation strength.                                                                               |
+| `background`         | `bg`      | `RRGGBB[AA]`                           | Canvas colour for extend/padding/flatten. Defaults to transparent unless JPEG output.              |
+| `quality`            | `q`       | `1-100`                                | Compression quality. Defaults to `85` for lossy formats.                                           |
+| `format`             | —         | `jpeg\|png\|webp\|avif\|...`           | Output format override. Defaults to `jpeg` when unspecified.                                       |
+| `dpr`                | —         | `1.0-5.0`                              | Device pixel ratio multiplier. Defaults to `1.0`.                                                  |
+| `raw`                | —         | —                                      | Skips the concurrency semaphore. Defaults to disabled.                                             |
+| `cache_buster`       | —         | `token`                                | Alters the cache key.                                                                              |
+| `max_src_resolution` | —         | `megapixels`                           | Request-level override. Requires server opt-in.                                                    |
+| `max_src_file_size`  | —         | `bytes`                                | Request-level override. Requires server opt-in.                                                    |
+| `watermark`          | `wm`      | `opacity:position`                     | Enables watermarking. Requires watermark asset.                                                    |
+| `watermark_url`      | `wmu`     | `base64url(url)`                       | Fetches watermark per request. Overrides server default path.                                      |
+
+## Presets
+
+### `preset:name`
+
+Presets provide a way to define reusable sets of processing options via the `IMGFORGE_PRESETS` environment variable. Instead of repeating complex transformation chains in every URL, reference a preset by name.
+
+**Example configuration:**
+
+```bash
+export IMGFORGE_PRESETS="thumbnail=resize:fit:150:150/quality:80,banner=resize:fill:1200:300/quality:90"
+```
+
+**URL usage:**
+
+```
+/signature/preset:thumbnail/aHR0cHM6Ly9leGFtcGxlLmNvbS9pbWFnZS5qcGc   # base64 URL-safe
+/signature/pr:banner/plain/https%3A%2F%2Fexample.com%2Fhero.jpg@webp  # plain URL with @extension
+```
+
+**Behavior:**
+- The `preset:name` (or `pr:name`) directive expands to the preset's defined options at processing time.
+- Multiple presets can be chained: `/preset:base/preset:quality_high/encoded_url`.
+- URL-specific options override preset values when the same parameter appears in both.
+- A preset named `default` automatically applies to every request before other options or presets.
+
+**Presets-only mode:**
+
+Set `IMGFORGE_ONLY_PRESETS=true` to restrict URLs to preset references only. Non-preset options will return `400 Bad Request`. This is useful for enforcing strict governance over allowed transformations.
+
+Both URL-safe base64 and `plain/` source references work with presets; choose whichever format fits your signing helper.
+
+See [Presets](5.2_presets.md) for comprehensive preset documentation including patterns, examples, and best practices. Configuration reference available in [Configuration](3_configuration.md).
 
 ## Geometry & resizing
 
@@ -67,7 +101,7 @@ Controls the interpolation kernel used during resize operations. The algorithm a
 - **`lanczos2`** – Lanczos with a=2. Good quality with less processing than lanczos3. Suitable for most use cases.
 - **`lanczos3`** – **Default**. Lanczos with a=3. Highest quality interpolation with the sharpest results. Best for final output where quality matters.
 
-The algorithm applies to all resize operations including `resize`, `size`, `width`, `height`, `min_width`, `min_height`, `zoom`, and `pixelate`. It also affects watermark scaling. More deep dive into the algorithms can be found [here](5.1_resizing_algorithms.md).
+The algorithm applies to all resize operations including `resize`, `size`, `width`, `height`, `min_width`, `min_height`, `zoom`, and `pixelate`. It also affects watermark scaling. More deep dive into the algorithms can be found in [Resizing Algorithms](5.1_resizing_algorithms.md).
 
 **Example:** `resizing_algorithm:cubic/resize:fit:800:600` uses bicubic interpolation for faster processing.
 
@@ -145,20 +179,20 @@ Listed earlier under geometry, but keep in mind it also affects the intensity of
 ## Watermarking
 
 1. Add `watermark:<opacity>:<position>` to enable overlay. Opacity ranges from `0.0` (invisible) to `1.0` (solid). Position accepts the same anchors as gravity (e.g., `south_east`).
-2. Supply the watermark image via `watermark_url:<base64url>` or configure `IMGFORGE_WATERMARK_PATH` on the server. When both are present, the URL value wins.
+2. Supply the watermark image via `watermark_url:<base64url>` or configure `IMGFORGE_WATERMARK_PATH` on the server (see [Configuration](3_configuration.md) for details). When both are present, the URL value wins.
 3. Watermarks render after resizing, padding, and effects. Oversized or missing watermark assets fail the request with `400 Bad Request`.
 
 ## Cache control & concurrency
 
-- `cache_buster:<token>` appends arbitrary data to the cache key. Change the token when you want to force reprocessing without altering transformations.
+- `cache_buster:<token>` appends arbitrary data to the cache key. Change the token when you want to force reprocessing without altering transformations. See [Caching](7_caching.md) for more details on cache behavior.
 - `raw` bypasses the concurrency semaphore that ordinarily limits the number of simultaneous libvips jobs. Reserve it for high-priority tasks; uncontrolled usage can starve other requests.
 
 ## Security overrides
 
-`max_src_resolution` and `max_src_file_size` relax server-wide safeguards for a single request. They only take effect when `IMGFORGE_ALLOW_SECURITY_OPTIONS=true` is set. Use cautiously, preferably on trusted internal URLs.
+`max_src_resolution` and `max_src_file_size` relax server-wide safeguards for a single request. They only take effect when `IMGFORGE_ALLOW_SECURITY_OPTIONS=true` is set (see [Configuration](3_configuration.md) for security settings). Use cautiously, preferably on trusted internal URLs.
 
 ## Validation tips
 
-- Use the signing guidance in [4_url_structure.md](4_url_structure.md) to confirm the encoded path matches the intended options.
-- Reference the lifecycle and processing order in [6_request_lifecycle.md](6_request_lifecycle.md) and [12_image_processing_pipeline.md](12_image_processing_pipeline.md) when debugging unexpected output.
+- Use the signing guidance in [URL Structure](4_url_structure.md) to confirm the encoded path matches the intended options.
+- Reference the lifecycle and processing order in [Request Lifecycle](6_request_lifecycle.md) and [Image Processing Pipeline](12_image_processing_pipeline.md) when debugging unexpected output.
 - Automate regression tests that call the processing endpoint with representative options to catch typos or changed defaults.

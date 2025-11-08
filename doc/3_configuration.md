@@ -13,10 +13,10 @@ imgforge reads configuration exclusively from environment variables. This docume
 
 ## Networking & binding
 
-| Variable                   | Default        | Description & tips                                                                                                                                                                            |
-|----------------------------|----------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `IMGFORGE_BIND`            | `0.0.0.0:3000` | Primary HTTP listener. Bind to `127.0.0.1` when running behind a reverse proxy locally.                                                                                                       |
-| `IMGFORGE_PROMETHEUS_BIND` | unset          | Optional dedicated metrics listener (e.g., `0.0.0.0:9600`). When unset, metrics remain on the main listener under `/metrics`. See [11_prometheus_monitoring.md](11_prometheus_monitoring.md). |
+| Variable                   | Default        | Description & tips                                                                                                                                                                      |
+|----------------------------|----------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `IMGFORGE_BIND`            | `0.0.0.0:3000` | Primary HTTP listener. Bind to `127.0.0.1` when running behind a reverse proxy locally.                                                                                                 |
+| `IMGFORGE_PROMETHEUS_BIND` | unset          | Optional dedicated metrics listener (e.g., `0.0.0.0:9600`). When unset, metrics remain on the main listener under `/metrics`. See [Prometheus Monitoring](11_prometheus_monitoring.md). |
 
 ## Logging & observability
 
@@ -28,7 +28,7 @@ imgforge reads configuration exclusively from environment variables. This docume
 
 | Variable                          | Default    | Description & tips                                                                                                                                                  |
 |-----------------------------------|------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `IMGFORGE_KEY`                    | _required_ | Hex-encoded HMAC key. The decoded byte string is used to sign URLs (see [4_url_structure.md](4_url_structure.md)). Minimum 32 bytes recommended.                    |
+| `IMGFORGE_KEY`                    | _required_ | Hex-encoded HMAC key. The decoded byte string is used to sign URLs (see [URL Structure](4_url_structure.md)). Minimum 32 bytes recommended.                         |
 | `IMGFORGE_SALT`                   | _required_ | Hex-encoded salt prepended to the signed path prior to hashing. Rotate alongside the key.                                                                           |
 | `IMGFORGE_ALLOW_UNSIGNED`         | `false`    | When `true`, accepts `unsafe/...` paths without signature validation. Restrict to development environments.                                                         |
 | `IMGFORGE_SECRET`                 | unset      | If provided, requests to `/info` and image endpoints must include `Authorization: Bearer <token>`. Combine with load balancer ACLs when exposing imgforge publicly. |
@@ -45,7 +45,7 @@ imgforge reads configuration exclusively from environment variables. This docume
 
 ## Cache configuration
 
-Caching is optional but highly recommended for hot content. Enable it via `IMGFORGE_CACHE_TYPE` and allied variables. Full guidance lives in [7_caching.md](7_caching.md). At a glance:
+Caching is optional but highly recommended for hot content. Enable it via `IMGFORGE_CACHE_TYPE` and allied variables. Full guidance lives in [Cache Configuration](7_caching.md). At a glance:
 
 | Variable                         | Default                    | Description                                                     |
 |----------------------------------|----------------------------|-----------------------------------------------------------------|
@@ -53,6 +53,16 @@ Caching is optional but highly recommended for hot content. Enable it via `IMGFO
 | `IMGFORGE_CACHE_MEMORY_CAPACITY` | `1000`                     | Maximum number of entries stored in memory.                     |
 | `IMGFORGE_CACHE_DISK_PATH`       | _required for disk/hybrid_ | Directory for on-disk storage. Must be writable and persistent. |
 | `IMGFORGE_CACHE_DISK_CAPACITY`   | `10000`                    | Maximum number of entries persisted on disk.                    |
+
+## Presets
+
+Presets are named sets of processing options that can be reused across multiple requests, simplifying URL management and enforcing consistency.
+
+| Variable                | Default | Description & tips                                                                                                                                                                                                                                                                     |
+|-------------------------|---------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `IMGFORGE_PRESETS`      | unset   | Comma-separated preset definitions in the format `name=options`. Options use `/` as separator and follow standard processing option syntax (e.g., `thumbnail=resize:fit:150:150/quality:80,banner=resize:fill:1200:300/quality:90`). A preset named `default` applies to all requests. |
+| `IMGFORGE_ONLY_PRESETS` | `false` | When `true`, enables presets-only mode. Only `preset:name` (or `pr:name`) references are allowed in URLs; other processing options are rejected. Use this to enforce strict governance over transformations.                                                                           |
+
 
 ## Advanced tuning
 
@@ -66,7 +76,7 @@ Caching is optional but highly recommended for hot content. Enable it via `IMGFO
 
 - **Dotenv files**: Store variables in `.env` and load them with `dotenvx` or `direnv`. Keep files out of version control.
 - **Container orchestrators**: Map secrets to environment variables. For Kubernetes, use `envFrom` with ConfigMaps (non-secret) and Secrets (sensitive values).
-- **Systemd**: Place variables in `/etc/imgforge.env` and reference them via `EnvironmentFile=` in the unit. See [10_deployment.md](10_deployment.md).
+- **Systemd**: Place variables in `/etc/imgforge.env` and reference them via `EnvironmentFile=` in the unit. See [Deployment](10.2_deployment_manual.md).
 
 ## Validating configuration
 
@@ -76,4 +86,4 @@ Run the binary with `IMGFORGE_LOG_LEVEL=debug` to log parsed values on startup. 
 IMGFORGE_KEY=... IMGFORGE_SALT=... cargo run
 ```
 
-Use `curl /status` to ensure the server started successfully, then test signed URLs following [4_url_structure.md](4_url_structure.md).
+Use `curl /status` to ensure the server started successfully, then test signed URLs following [URL Structure](4_url_structure.md).

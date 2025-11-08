@@ -1,6 +1,69 @@
 # 12. Image Processing Pipeline
 
-This document zooms in on the transformation phase that runs after imgforge validates a request. Use it alongside [5_processing_options.md](5_processing_options.md) to design URLs and reason about how directives interact inside libvips.
+This document zooms in on the transformation phase that runs after imgforge validates a request. Use it alongside [Processing Options](5_processing_options.md) to design URLs and reason about how directives interact inside libvips.
+
+## Pipeline visualization
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        Image Processing Pipeline                            │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+    ┌──────────────────────┐
+    │  Parsed Directives   │  → User request with processing options
+    └──────────┬───────────┘
+               │
+               ▼
+    ┌──────────────────────┐
+    │ 1. Plan              │  → Normalize defaults (quality→85, auto_rotate→true)
+    │    Normalization     │    Missing dimensions→0 (preserve aspect ratio)
+    └──────────┬───────────┘
+               │
+               ▼
+    ┌──────────────────────┐
+    │ 2. DPR Scaling       │  → Multiply dimensions by device-pixel-ratio
+    │    (if dpr present)  │    Affects width, height, padding before limits
+    └──────────┬───────────┘
+               │
+               ▼
+    ┌──────────────────────┐
+    │ 3. Image Loading     │  → libvips ingests source buffer
+    │    (libvips)         │    Color profile conversion + EXIF orientation
+    └──────────┬───────────┘
+               │
+               ▼
+    ┌──────────────────────┐
+    │ 4. Geometry          │  → Crop (absolute coords) → Resize (fit/fill/force)
+    │    Transforms        │    Gravity affects crop window & fill positioning
+    │                      │    Upscaling blocked unless enlarge:true
+    └──────────┬───────────┘
+               │
+               ▼
+    ┌──────────────────────┐
+    │ 5. Canvas            │  → Padding + extend + background (post-resize)
+    │    Adjustments       │    Padding inherits DPR scaling
+    │                      │    Alpha flattening for JPEG/non-alpha formats
+    └──────────┬───────────┘
+               │
+               ▼
+    ┌──────────────────────┐
+    │ 6. Effects &         │  → Blur/sharpen/pixelate/zoom
+    │    Safeguards        │    min_width/min_height checks → upscale if needed
+    │                      │    Watermark loading & compositing
+    └──────────┬───────────┘
+               │
+               ▼
+    ┌──────────────────────┐
+    │ 7. Encoding          │  → Format conversion (JPEG/WebP/AVIF/PNG)
+    │    (libvips)         │    Quality compression (default 85)
+    │                      │    Metadata stripping
+    └──────────┬───────────┘
+               │
+               ▼
+    ┌──────────────────────┐
+    │   Processed Image    │  → Ready for response & caching
+    └──────────────────────┘
+```
 
 ## High-level flow
 
@@ -30,6 +93,6 @@ This document zooms in on the transformation phase that runs after imgforge vali
 
 - `image_processing_duration_seconds` measures time spent inside this pipeline.
 - `processed_images_total{format="..."}` tracks throughput per output format.
-- Logging includes a request ID. Combine it with the detailed stages in [6_request_lifecycle.md](6_request_lifecycle.md) when debugging complex transformations.
+- Logging includes a request ID. Combine it with the detailed stages in [Request Lifecycle](6_request_lifecycle.md) when debugging complex transformations.
 
 Use this pipeline map when troubleshooting visual discrepancies, designing new directives, or reasoning about how multiple options compose.

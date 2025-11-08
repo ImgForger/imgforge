@@ -2,6 +2,92 @@
 
 Understanding imgforge’s internal workflow helps you reason about performance, error handling, and observability. Each request flows through the following stages:
 
+
+## Request flow diagram
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                             Request Lifecycle                               │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+    ┌──────────────────────┐
+    │  Incoming Request    │  → HTTP GET /<sig>/<options>/<source>
+    └──────────┬───────────┘
+               │
+               ▼
+    ┌──────────────────────┐
+    │ Routing & Middleware │  → Attach tracing spans
+    │                      │    Rate limiting check (429 if depleted)
+    └──────────┬───────────┘
+               │
+               ▼
+    ┌──────────────────────┐
+    │ URL Parsing &        │  → Split: signature | options | source
+    │ Authentication       │    HMAC validation (403 if invalid)
+    │                      │    Bearer token check (401 if required)
+    └──────────┬───────────┘
+               │
+               ▼
+    ┌──────────────────────┐         ┌─────────────┐
+    │   Cache Lookup       │────────▶│ Cache Hit?  │─┐
+    │ (Memory/Disk/Hybrid) │         └─────────────┘ │
+    └──────────────────────┘                         │
+               │                                     │ YES
+               │ NO                                  │
+               ▼                                     │
+    ┌──────────────────────┐                         │
+    │ Source Acquisition   │  → Acquire semaphore    │
+    │                      │    Download image       │
+    │                      │    Validate size/MIME   │
+    │                      │    Check resolution     │
+    │                      │    Fetch watermark      │
+    └──────────┬───────────┘                         │
+               │                                     │
+               ▼                                     │
+    ┌──────────────────────┐                         │
+    │  Option Parsing      │  → Parse directives     │
+    │                      │    Validate ranges      │
+    └──────────┬───────────┘                         │
+               │                                     │
+               ▼                                     │
+    ┌──────────────────────┐                         │
+    │ Image Transformation │  → libvips pipeline     │
+    │ (see Pipeline doc)   │    7-stage process      │
+    └──────────┬───────────┘                         │
+               │                                     │
+               ▼                                     │
+    ┌──────────────────────┐                         │
+    │   Cache Populate     │  → Store in cache       │
+    │   (on success)       │                         │
+    └──────────┬───────────┘                         │
+               │                                     │
+               ├─────────────────────────────────────┘
+               ▼
+    ┌──────────────────────┐
+    │ Response Composition │  → 200 OK + Content-Type
+    │                      │    X-Request-ID header
+    │                      │    Processed image bytes
+    └──────────┬───────────┘
+               │
+               ▼
+    ┌──────────────────────┐
+    │  Metrics & Logging   │  → Record durations & counters
+    │                      │    Update Prometheus metrics
+    └──────────┬───────────┘
+               │
+               ▼
+    ┌──────────────────────┐
+    │   Client Receives    │  → Image delivered
+    └──────────────────────┘
+
+    Error Paths:
+    • 403 Forbidden ←───────────── Signature/auth failure
+    • 400 Bad Request ←─────────── Invalid options, oversized, bad MIME
+    • 429 Too Many Requests ←───── Rate limit exceeded
+    • 504 Gateway Timeout ←─────── Processing timeout
+    • 500 Internal Error ←──────── Unhandled exceptions
+```
+
 ## 1. Routing & middleware
 
 1. **Ingress** – The Axum router accepts the HTTP request and attaches structured tracing spans so every hop can be correlated in logs.
@@ -11,7 +97,7 @@ Understanding imgforge’s internal workflow helps you reason about performance,
 ## 2. URL parsing & authentication
 
 1. **Path parsing** – imgforge splits the path into signature, processing directives, and the source segment. Invalid layouts fail fast with `400 Bad Request`.
-2. **Signature validation** – Unless the signature literal is `unsafe`, the server recomputes the HMAC using `IMGFORGE_KEY` and `IMGFORGE_SALT`. Mismatches return `403 Forbidden`. See the “Signing a URL” section in [4_url_structure.md](4_url_structure.md#signing-a-url).
+2. **Signature validation** – Unless the signature literal is `unsafe`, the server recomputes the HMAC using `IMGFORGE_KEY` and `IMGFORGE_SALT`. Mismatches return `403 Forbidden`. See the “Signing a URL” section in [URL Structure](4_url_structure.md#signing-a-url).
 3. **Bearer token** – When `IMGFORGE_SECRET` is configured, image and info endpoints require `Authorization: Bearer <token>` and return `401 Unauthorized` otherwise.
 
 ## 3. Cache lookup
@@ -32,11 +118,11 @@ With caching enabled, imgforge hashes the full request path and checks the confi
    - Resolution ceilings using EXIF dimensions and `IMGFORGE_MAX_SRC_RESOLUTION`.
 4. **Watermark assets** – When the URL specifies `watermark_url` or the server sets `IMGFORGE_WATERMARK_PATH`, the watermark image is fetched or read from disk alongside the source.
 
-Failures at this stage return `400 Bad Request` with descriptive messages (see [8_error_troubleshooting.md](8_error_troubleshooting.md)).
+Failures at this stage return `400 Bad Request` with descriptive messages (see [Error Troubleshooting](8_error_troubleshooting.md)).
 
 ## 5. Option parsing
 
-The processing directives are parsed into a structured plan. Out-of-range values, invalid booleans, or malformed numbers produce `400 Bad Request` responses. The full directive catalogue lives in [5_processing_options.md](5_processing_options.md).
+The processing directives are parsed into a structured plan. Out-of-range values, invalid booleans, or malformed numbers produce `400 Bad Request` responses. The full directive catalogue lives in [Processing Options](5_processing_options.md).
 
 ## 6. Image transformation
 
@@ -47,7 +133,7 @@ With a validated plan, imgforge executes the transformation chain:
 3. Transformations—crops, resizes, extension, padding, rotations, effects, watermarking, and background flattening—execute in a deterministic order.
 4. The processed image is encoded into the requested format and quality.
 
-For a deeper dive into the sequencing, defaults, and error surfaces inside this phase, see [12_image_processing_pipeline.md](12_image_processing_pipeline.md).
+For a deeper dive into the sequencing, defaults, and error surfaces inside this phase, see [Image Processing Pipeline](12_image_processing_pipeline.md).
 
 Processing duration is recorded in the `image_processing_duration_seconds` histogram and increments `processed_images_total`.
 
@@ -60,7 +146,7 @@ Processing duration is recorded in the `image_processing_duration_seconds` histo
 
 - Fetch durations feed `source_image_fetch_duration_seconds` and the `source_images_fetched_total` counter (labeled by outcome).
 - Request spans include method, URI, and a random request ID, making it easy to correlate logs, traces, and metrics.
-- `/metrics` aggregates all counters and histograms for scraping. Dashboards and alerting playbooks are documented in [11_prometheus_monitoring.md](11_prometheus_monitoring.md).
+- `/metrics` aggregates all counters and histograms for scraping. Dashboards and alerting playbooks are documented in [Prometheus Monitoring](11_prometheus_monitoring.md).
 
 ## Error pathways
 
