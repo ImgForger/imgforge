@@ -5,14 +5,16 @@ use axum::{
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use http_body_util::BodyExt;
 use image::{ImageBuffer, Rgba};
+use imgforge::app::AppState;
 use imgforge::caching::cache::ImgforgeCache;
 use imgforge::caching::config::CacheConfig;
 use imgforge::config::Config;
-use imgforge::handlers::{image_forge_handler, AppState};
+use imgforge::handlers::image_forge_handler;
 use imgforge::middleware::request_id_middleware;
 use lazy_static::lazy_static;
 use libvips::VipsApp;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::Semaphore;
 use tower::ServiceExt;
 use wiremock::{
@@ -39,33 +41,27 @@ fn create_test_image(width: u32, height: u32, color: [u8; 4]) -> Vec<u8> {
 
 /// Helper function to create test config
 fn create_test_config(key: Vec<u8>, salt: Vec<u8>, allow_unsigned: bool) -> Config {
-    Config {
-        workers: 4,
-        bind_address: "0.0.0.0:3000".to_string(),
-        prometheus_bind_address: None,
-        timeout: 30,
-        key,
-        salt,
-        allow_unsigned,
-        allow_security_options: true,
-        max_src_file_size: None,
-        max_src_resolution: None,
-        allowed_mime_types: None,
-        download_timeout: 10,
-        secret: None,
-        presets: std::collections::HashMap::new(),
-        only_presets: false,
-    }
+    let mut config = Config::new(key, salt);
+    config.workers = 4;
+    config.allow_unsigned = allow_unsigned;
+    config.allow_security_options = true;
+    config
 }
 
 /// Helper function to create test AppState with specific cache
 async fn create_test_state_with_cache(config: Config, cache: ImgforgeCache) -> Arc<AppState> {
+    let http_client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(config.download_timeout))
+        .build()
+        .expect("client builds");
+
     Arc::new(AppState {
         semaphore: Semaphore::new(config.workers),
         cache,
         rate_limiter: None,
         config,
         vips_app: VIPS_APP.clone(),
+        http_client,
     })
 }
 

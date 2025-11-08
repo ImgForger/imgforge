@@ -6,15 +6,17 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use hmac::{Hmac, Mac};
 use http_body_util::BodyExt;
 use image::{ImageBuffer, Rgba};
+use imgforge::app::AppState;
 use imgforge::caching::cache::ImgforgeCache;
 use imgforge::config::Config;
-use imgforge::handlers::{image_forge_handler, AppState};
+use imgforge::handlers::image_forge_handler;
 use imgforge::middleware::request_id_middleware;
 use lazy_static::lazy_static;
 use libvips::{VipsApp, VipsImage};
 use sha2::Sha256;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::Semaphore;
 use tower::ServiceExt;
 use wiremock::{
@@ -55,33 +57,29 @@ fn create_test_config(
     presets: HashMap<String, String>,
     only_presets: bool,
 ) -> Config {
-    Config {
-        workers: 4,
-        bind_address: "0.0.0.0:3000".to_string(),
-        prometheus_bind_address: None,
-        timeout: 30,
-        key,
-        salt,
-        allow_unsigned,
-        allow_security_options: true,
-        max_src_file_size: None,
-        max_src_resolution: None,
-        allowed_mime_types: None,
-        download_timeout: 10,
-        secret: None,
-        presets,
-        only_presets,
-    }
+    let mut config = Config::new(key, salt);
+    config.workers = 4;
+    config.allow_unsigned = allow_unsigned;
+    config.allow_security_options = true;
+    config.presets = presets;
+    config.only_presets = only_presets;
+    config
 }
 
 async fn create_test_state(config: Config) -> Arc<AppState> {
     let cache = ImgforgeCache::None;
+    let http_client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(config.download_timeout))
+        .build()
+        .expect("client builds");
+
     Arc::new(AppState {
         semaphore: Semaphore::new(config.workers),
         cache,
         rate_limiter: None,
         config,
         vips_app: VIPS_APP.clone(),
+        http_client,
     })
 }
 
