@@ -7,6 +7,33 @@
 
 imgforge is a fast, secure image proxy and transformation server written in Rust. Built with Rust and libvips, it delivers imgproxy-compatible URL semantics with an async-first architecture and optional, pluggable caching backends.
 
+## Use imgforge as a library
+
+`imgforge` now ships both as an HTTP server and as a reusable Rust crate. You can embed the processing engine directly into your application without starting the Axum server:
+
+```rust
+use imgforge::{config::Config, Imgforge};
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    // Provide your HMAC key and salt (hex encoded, truncated for brevity)
+    let mut config = Config::with_hex_keys("deadbeef", "cafebabe")?;
+    config.allow_unsigned = true;
+
+    // Optional: configure caches programmatically with CacheConfig
+    let imgforge = Imgforge::new(config, None).await?;
+
+    let result = imgforge
+        .process_path("unsafe/resize:fit:300:300/plain/https://example.com/image.jpg")
+        .await?;
+
+    std::fs::write("resized.jpg", result.bytes)?;
+    Ok(())
+}
+```
+
+The same API exposes metadata retrieval through `image_info` and accepts authenticated, signed paths just like the HTTP interface. Server deployments continue to work unchanged.
+
 ## Forge image with Imgforge
 
 - **Production-ready from day one** – Health checks, structured logging, and Prometheus metrics make imgforge easy to drop into modern platforms.

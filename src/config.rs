@@ -2,6 +2,7 @@ use crate::constants::*;
 use std::collections::HashMap;
 use std::env;
 
+#[derive(Clone, Debug)]
 pub struct Config {
     pub workers: usize,
     pub bind_address: String,
@@ -18,6 +19,8 @@ pub struct Config {
     pub secret: Option<String>,
     pub presets: HashMap<String, String>,
     pub only_presets: bool,
+    pub watermark_path: Option<String>,
+    pub rate_limit_per_minute: Option<u32>,
 }
 
 fn normalize_bind_address(raw: &str) -> String {
@@ -49,62 +52,81 @@ fn parse_presets(presets_str: &str) -> HashMap<String, String> {
 }
 
 impl Config {
+    /// Create a configuration with default values using raw key and salt bytes.
+    pub fn new(key: Vec<u8>, salt: Vec<u8>) -> Self {
+        Self {
+            workers: num_cpus::get() * 2,
+            bind_address: "0.0.0.0:3000".to_string(),
+            prometheus_bind_address: None,
+            timeout: 30,
+            key,
+            salt,
+            allow_unsigned: false,
+            allow_security_options: false,
+            max_src_file_size: None,
+            max_src_resolution: None,
+            allowed_mime_types: None,
+            download_timeout: 10,
+            secret: None,
+            presets: HashMap::new(),
+            only_presets: false,
+            watermark_path: None,
+            rate_limit_per_minute: None,
+        }
+    }
+
+    /// Create a configuration from hexadecimal key and salt strings.
+    pub fn with_hex_keys(key_hex: &str, salt_hex: &str) -> Result<Self, String> {
+        let key = hex::decode(key_hex).map_err(|_| "Invalid IMGFORGE_KEY".to_string())?;
+        let salt = hex::decode(salt_hex).map_err(|_| "Invalid IMGFORGE_SALT".to_string())?;
+        Ok(Self::new(key, salt))
+    }
+
     pub fn from_env() -> Result<Self, String> {
+        let key_str = env::var(ENV_KEY).unwrap_or_default();
+        let salt_str = env::var(ENV_SALT).unwrap_or_default();
+        let mut config = Config::with_hex_keys(&key_str, &salt_str)?;
+
         let workers = env::var(ENV_WORKERS)
             .unwrap_or_else(|_| "0".to_string())
             .parse()
             .unwrap_or(0);
-        let workers = if workers == 0 { num_cpus::get() * 2 } else { workers };
+        config.workers = if workers == 0 { num_cpus::get() * 2 } else { workers };
 
         let bind_address_raw = env::var(ENV_BIND).unwrap_or_else(|_| "0.0.0.0:3000".to_string());
-        let bind_address = normalize_bind_address(&bind_address_raw);
-        let prometheus_bind_address = env::var(ENV_PROMETHEUS_BIND)
+        config.bind_address = normalize_bind_address(&bind_address_raw);
+        config.prometheus_bind_address = env::var(ENV_PROMETHEUS_BIND)
             .ok()
             .map(|value| normalize_bind_address(&value));
-        let timeout = env::var(ENV_TIMEOUT)
+        config.timeout = env::var(ENV_TIMEOUT)
             .ok()
             .and_then(|s| s.parse::<u64>().ok())
             .unwrap_or(30);
 
-        let key_str = env::var(ENV_KEY).unwrap_or_default();
-        let salt_str = env::var(ENV_SALT).unwrap_or_default();
-        let key = hex::decode(key_str).map_err(|_| "Invalid IMGFORGE_KEY")?;
-        let salt = hex::decode(salt_str).map_err(|_| "Invalid IMGFORGE_SALT")?;
+        config.allow_unsigned = env::var(ENV_ALLOW_UNSIGNED).unwrap_or_default().to_lowercase() == "true";
+        config.allow_security_options =
+            env::var(ENV_ALLOW_SECURITY_OPTIONS).unwrap_or_default().to_lowercase() == "true";
 
-        let allow_unsigned = env::var(ENV_ALLOW_UNSIGNED).unwrap_or_default().to_lowercase() == "true";
-        let allow_security_options = env::var(ENV_ALLOW_SECURITY_OPTIONS).unwrap_or_default().to_lowercase() == "true";
-
-        let max_src_file_size = env::var(ENV_MAX_SRC_FILE_SIZE).ok().and_then(|s| s.parse().ok());
-        let max_src_resolution = env::var(ENV_MAX_SRC_RESOLUTION).ok().and_then(|s| s.parse().ok());
-        let allowed_mime_types = env::var(ENV_ALLOWED_MIME_TYPES)
+        config.max_src_file_size = env::var(ENV_MAX_SRC_FILE_SIZE).ok().and_then(|s| s.parse().ok());
+        config.max_src_resolution = env::var(ENV_MAX_SRC_RESOLUTION).ok().and_then(|s| s.parse().ok());
+        config.allowed_mime_types = env::var(ENV_ALLOWED_MIME_TYPES)
             .ok()
             .map(|s| s.split(',').map(|s| s.to_string()).collect());
-        let download_timeout = env::var(ENV_DOWNLOAD_TIMEOUT)
+        config.download_timeout = env::var(ENV_DOWNLOAD_TIMEOUT)
             .ok()
             .and_then(|s| s.parse::<u64>().ok())
             .unwrap_or(10);
-        let secret = env::var(ENV_SECRET).ok();
+        config.secret = env::var(ENV_SECRET).ok();
 
-        let presets = parse_presets(&env::var(ENV_PRESETS).unwrap_or_default());
-        let only_presets = env::var(ENV_ONLY_PRESETS).unwrap_or_default().to_lowercase() == "true";
+        config.presets = parse_presets(&env::var(ENV_PRESETS).unwrap_or_default());
+        config.only_presets = env::var(ENV_ONLY_PRESETS).unwrap_or_default().to_lowercase() == "true";
 
-        Ok(Self {
-            workers,
-            bind_address,
-            prometheus_bind_address,
-            timeout,
-            key,
-            salt,
-            allow_unsigned,
-            allow_security_options,
-            max_src_file_size,
-            max_src_resolution,
-            allowed_mime_types,
-            download_timeout,
-            secret,
-            presets,
-            only_presets,
-        })
+        config.watermark_path = env::var(ENV_WATERMARK_PATH).ok();
+        config.rate_limit_per_minute = env::var(ENV_RATE_LIMIT_PER_MINUTE)
+            .ok()
+            .and_then(|s| s.parse::<u32>().ok());
+
+        Ok(config)
     }
 }
 

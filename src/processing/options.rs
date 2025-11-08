@@ -3,7 +3,7 @@
 //! and applying various transformations to images.
 
 /// Represents a single image processing option from the URL path.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ProcessingOption {
     /// The name of the processing option (e.g., "resize", "quality").
     pub name: String,

@@ -1,24 +1,11 @@
-use crate::constants::*;
 use crate::monitoring::{increment_source_images_fetched, observe_source_image_fetch_duration};
-use axum::body::Bytes;
-use axum::http::header;
-use std::env;
-use std::time::Duration;
+use bytes::Bytes;
+use reqwest::header;
 use tracing::error;
 
-/// Fetches an image from a given URL.
-pub async fn fetch_image(url: &str) -> Result<(Bytes, Option<String>), String> {
+/// Fetches an image from a given URL using the provided HTTP client.
+pub async fn fetch_image(client: &reqwest::Client, url: &str) -> Result<(Bytes, Option<String>), String> {
     let fetch_start = std::time::Instant::now();
-
-    let download_timeout = env::var(ENV_DOWNLOAD_TIMEOUT)
-        .ok()
-        .and_then(|s| s.parse::<u64>().ok())
-        .map_or(Duration::from_secs(10), Duration::from_secs);
-
-    let client = reqwest::Client::builder()
-        .timeout(download_timeout)
-        .build()
-        .expect("Failed to build reqwest client");
 
     let response = match client.get(url).send().await {
         Ok(res) => {
@@ -63,58 +50,29 @@ pub async fn fetch_image(url: &str) -> Result<(Bytes, Option<String>), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
-    #[test]
-    fn test_download_timeout_from_env() {
-        let test_timeout = "30";
-        env::set_var(ENV_DOWNLOAD_TIMEOUT, test_timeout);
-
-        let timeout = env::var(ENV_DOWNLOAD_TIMEOUT)
-            .ok()
-            .and_then(|s| s.parse::<u64>().ok())
-            .map_or(Duration::from_secs(10), Duration::from_secs);
-
-        assert_eq!(timeout, Duration::from_secs(30));
-        env::remove_var(ENV_DOWNLOAD_TIMEOUT);
-    }
-
-    #[test]
-    fn test_download_timeout_default() {
-        env::remove_var(ENV_DOWNLOAD_TIMEOUT);
-
-        let timeout = env::var(ENV_DOWNLOAD_TIMEOUT)
-            .ok()
-            .and_then(|s| s.parse::<u64>().ok())
-            .map_or(Duration::from_secs(10), Duration::from_secs);
-
-        assert_eq!(timeout, Duration::from_secs(10));
-    }
-
-    #[test]
-    fn test_download_timeout_invalid() {
-        env::set_var(ENV_DOWNLOAD_TIMEOUT, "invalid");
-
-        let timeout = env::var(ENV_DOWNLOAD_TIMEOUT)
-            .ok()
-            .and_then(|s| s.parse::<u64>().ok())
-            .map_or(Duration::from_secs(10), Duration::from_secs);
-
-        assert_eq!(timeout, Duration::from_secs(10));
-        env::remove_var(ENV_DOWNLOAD_TIMEOUT);
+    fn client_with_timeout(timeout: Duration) -> reqwest::Client {
+        reqwest::Client::builder()
+            .timeout(timeout)
+            .build()
+            .expect("client builds")
     }
 
     #[tokio::test]
     async fn test_fetch_image_invalid_url() {
-        let result = fetch_image("not_a_valid_url").await;
+        let client = client_with_timeout(Duration::from_secs(5));
+        let result = fetch_image(&client, "not_a_valid_url").await;
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Error fetching image"));
     }
 
     #[tokio::test]
     async fn test_fetch_image_nonexistent_domain() {
-        let result = fetch_image("http://this-domain-does-not-exist-12345.com/image.jpg").await;
+        let client = client_with_timeout(Duration::from_secs(5));
+        let result = fetch_image(&client, "http://this-domain-does-not-exist-12345.com/image.jpg").await;
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Error fetching image"));
     }
@@ -132,7 +90,8 @@ mod tests {
             .mount(&server)
             .await;
 
-        let (bytes, content_type) = fetch_image(&format!("{}/image.jpg", server.uri()))
+        let client = client_with_timeout(Duration::from_secs(5));
+        let (bytes, content_type) = fetch_image(&client, &format!("{}/image.jpg", server.uri()))
             .await
             .expect("request should succeed");
 
@@ -149,7 +108,8 @@ mod tests {
             .mount(&server)
             .await;
 
-        let (bytes, _) = fetch_image(&format!("{}/missing.jpg", server.uri()))
+        let client = client_with_timeout(Duration::from_secs(5));
+        let (bytes, _) = fetch_image(&client, &format!("{}/missing.jpg", server.uri()))
             .await
             .expect("404 responses should still return bytes");
 
@@ -158,8 +118,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_fetch_image_with_custom_timeout() {
-        env::set_var(ENV_DOWNLOAD_TIMEOUT, "1");
-
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/slow.jpg"))
@@ -171,9 +129,9 @@ mod tests {
             .mount(&server)
             .await;
 
-        let result = fetch_image(&format!("{}/slow.jpg", server.uri())).await;
+        let client = client_with_timeout(Duration::from_secs(1));
+        let result = fetch_image(&client, &format!("{}/slow.jpg", server.uri())).await;
 
-        env::remove_var(ENV_DOWNLOAD_TIMEOUT);
         assert!(result.is_err());
     }
 
@@ -190,7 +148,8 @@ mod tests {
             .mount(&server)
             .await;
 
-        let (bytes, content_type) = fetch_image(&format!("{}/image.png", server.uri()))
+        let client = client_with_timeout(Duration::from_secs(5));
+        let (bytes, content_type) = fetch_image(&client, &format!("{}/image.png", server.uri()))
             .await
             .expect("request should succeed");
 
