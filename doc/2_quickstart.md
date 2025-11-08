@@ -44,7 +44,7 @@ Use `--env-file` to load additional configuration or mount volumes for caching. 
 
 ### Run from source (optional)
 
-Prefer a native workflow? Launch imgforge through Cargo:
+Prefer a native workflow? If you have `libvips` installed in your system, launch imgforge through Cargo:
 
 ```bash
 git clone https://github.com/imgforger/imgforge.git
