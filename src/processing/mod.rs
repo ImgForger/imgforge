@@ -9,27 +9,30 @@ use crate::processing::options::ParsedOptions;
 use bytes::Bytes;
 use libvips::VipsImage;
 use std::time::Instant;
-use tracing::{debug, error};
+use tracing::debug;
 
 /// Processes an image by applying the given `ParsedOptions`.
 ///
-/// This function takes raw image bytes and a set of parsed options, applies
-/// transformations like resizing, cropping, blurring, and format conversion,
-/// then returns the processed image bytes.
+/// This function takes a decoded `VipsImage`, the original source bytes, and a set of parsed options,
+/// applies transformations like resizing, cropping, blurring, and format conversion, then returns the
+/// processed image bytes.
 ///
 /// # Arguments
 ///
-/// * `image_bytes` - The raw bytes of the image to process.
+/// * `img` - The decoded source image to transform.
 /// * `parsed_options` - A `ParsedOptions` struct containing the desired transformations.
+/// * `source_bytes` - The original image bytes used for EXIF and metadata-driven operations.
+/// * `watermark_bytes` - Optional watermark image bytes to overlay on the source image.
 ///
 /// # Returns
 ///
 /// A `Result` containing the processed image bytes on success, or an error message as a `String`.
 pub async fn process_image(
-    image_bytes: Vec<u8>,
+    mut img: VipsImage,
     mut parsed_options: ParsedOptions,
+    source_bytes: &Bytes,
     watermark_bytes: Option<&Bytes>,
-) -> Result<Vec<u8>, String> {
+) -> Result<Bytes, String> {
     let start = Instant::now();
     debug!("Starting image processing with options: {:?}", parsed_options);
 
@@ -67,18 +70,12 @@ pub async fn process_image(
         }
     }
 
-    // Load image from bytes
-    let mut img = VipsImage::new_from_buffer(&image_bytes, "").map_err(|e| {
-        error!("Error loading image from memory: {}", e);
-        format!("Error loading image from memory: {}", e)
-    })?;
-
     debug!("Loaded image: {}x{}", img.get_width(), img.get_height());
 
     // Apply EXIF auto-rotation if enabled
     if parsed_options.auto_rotate {
         debug!("Applying EXIF auto-rotation");
-        img = transform::apply_exif_rotation(&image_bytes, img)?;
+        img = transform::apply_exif_rotation(source_bytes.as_ref(), img)?;
     }
 
     // Apply crop if specified
@@ -194,7 +191,8 @@ pub async fn process_image(
 
     // Save image to bytes
     let quality = parsed_options.quality.unwrap_or(85);
-    let output_bytes = save::save_image(img, output_format, quality)?;
+    let output_vec = save::save_image(img, output_format, quality)?;
+    let output_bytes = Bytes::from(output_vec);
 
     debug!("Image processing complete");
 

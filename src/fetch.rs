@@ -27,7 +27,11 @@ pub async fn fetch_image(client: &reqwest::Client, url: &str) -> Result<(Bytes, 
         }
     };
 
-    let headers = response.headers().clone();
+    let content_type = response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|ct| ct.to_str().ok())
+        .map(|ct| ct.to_string());
 
     let image_bytes = match response.bytes().await {
         Ok(bytes) => bytes,
@@ -36,13 +40,6 @@ pub async fn fetch_image(client: &reqwest::Client, url: &str) -> Result<(Bytes, 
             return Err(format!("Error reading image bytes: {}", e));
         }
     };
-
-    let mut content_type: Option<String> = None;
-    if let Some(ct) = headers.get(header::CONTENT_TYPE) {
-        if let Ok(ct_str) = ct.to_str() {
-            content_type = Some(ct_str.to_string());
-        }
-    }
 
     Ok((image_bytes, content_type))
 }

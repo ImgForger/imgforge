@@ -1,17 +1,72 @@
 use crate::caching::config::CacheConfig;
 use crate::caching::error::CacheError;
 use crate::monitoring::{increment_cache_hit, increment_cache_miss};
-use foyer::{BlockEngineBuilder, Cache, CacheBuilder, FsDeviceBuilder, HybridCache, HybridCacheBuilder};
+use bytes::Bytes;
+use foyer::{
+    BlockEngineBuilder, Cache, CacheBuilder, Code, CodeError, FsDeviceBuilder, HybridCache, HybridCacheBuilder,
+};
 use foyer::{DeviceBuilder, RecoverMode};
+use std::io::{Read, Write};
 use std::path::Path;
 use std::sync::Arc;
+
+#[derive(Clone)]
+pub struct CachedImage {
+    pub bytes: Bytes,
+    pub content_type: &'static str,
+}
+
+impl Code for CachedImage {
+    fn encode(&self, writer: &mut impl Write) -> Result<(), CodeError> {
+        let data = self.bytes.as_ref();
+        data.len().encode(writer)?;
+        writer.write_all(data)?;
+
+        let content_type_bytes = self.content_type.as_bytes();
+        content_type_bytes.len().encode(writer)?;
+        writer.write_all(content_type_bytes)?;
+        Ok(())
+    }
+
+    fn decode(reader: &mut impl Read) -> Result<Self, CodeError> {
+        let len = usize::decode(reader)?;
+        let mut data = vec![0u8; len];
+        reader.read_exact(&mut data)?;
+
+        let content_len = usize::decode(reader)?;
+        let mut content_buf = vec![0u8; content_len];
+        reader.read_exact(&mut content_buf)?;
+        let content_vec = content_buf.clone();
+        let content_str = std::str::from_utf8(&content_buf).map_err(|_| CodeError::Unrecognized(content_vec))?;
+
+        let content_type = match content_str {
+            "image/png" => "image/png",
+            "image/webp" => "image/webp",
+            "image/gif" => "image/gif",
+            "image/tiff" => "image/tiff",
+            "image/avif" => "image/avif",
+            "image/heif" => "image/heif",
+            "image/jpeg" => "image/jpeg",
+            _ => return Err(CodeError::Unrecognized(content_buf)),
+        };
+
+        Ok(CachedImage {
+            bytes: Bytes::from(data),
+            content_type,
+        })
+    }
+
+    fn estimated_size(&self) -> usize {
+        self.bytes.len() + self.content_type.len() + std::mem::size_of::<usize>() * 2
+    }
+}
 
 /// Represents the different cache backends for Imgforge.
 pub enum ImgforgeCache {
     None,
-    Memory(Arc<Cache<String, Vec<u8>>>),
-    Disk(Arc<HybridCache<String, Vec<u8>>>),
-    Hybrid(Arc<HybridCache<String, Vec<u8>>>),
+    Memory(Arc<Cache<String, CachedImage>>),
+    Disk(Arc<HybridCache<String, CachedImage>>),
+    Hybrid(Arc<HybridCache<String, CachedImage>>),
 }
 
 impl ImgforgeCache {
@@ -64,7 +119,7 @@ impl ImgforgeCache {
     }
 
     /// Retrieve a value from the cache by key.
-    pub async fn get(&self, key: &str) -> Option<Vec<u8>> {
+    pub async fn get(&self, key: &str) -> Option<CachedImage> {
         let result = match self {
             ImgforgeCache::None => None,
             ImgforgeCache::Memory(cache) => {
@@ -97,7 +152,7 @@ impl ImgforgeCache {
     }
 
     /// Insert a value into the cache.
-    pub async fn insert(&self, key: String, value: Vec<u8>) -> Result<(), CacheError> {
+    pub async fn insert(&self, key: String, value: CachedImage) -> Result<(), CacheError> {
         match self {
             ImgforgeCache::None => Ok(()),
             ImgforgeCache::Memory(cache) => {
@@ -167,11 +222,15 @@ mod tests {
         let cache = ImgforgeCache::new(config).await.unwrap();
 
         let key = "test_key".to_string();
-        let value = vec![1, 2, 3];
+        let value = CachedImage {
+            bytes: Bytes::from(vec![1, 2, 3]),
+            content_type: "image/jpeg",
+        };
 
         cache.insert(key.clone(), value.clone()).await.unwrap();
         let retrieved = cache.get(&key).await.unwrap();
-        assert_eq!(retrieved, value);
+        assert_eq!(retrieved.bytes, value.bytes);
+        assert_eq!(retrieved.content_type, value.content_type);
     }
 
     #[tokio::test]
@@ -181,9 +240,13 @@ mod tests {
         let config = Some(CacheConfig::Disk { path, capacity: 10000 });
         let cache = ImgforgeCache::new(config).await.unwrap();
         let key = "test_key".to_string();
-        let value = vec![1, 2, 3];
+        let value = CachedImage {
+            bytes: Bytes::from(vec![1, 2, 3]),
+            content_type: "image/jpeg",
+        };
         cache.insert(key.clone(), value.clone()).await.unwrap();
         let retrieved = cache.get(&key).await.unwrap();
-        assert_eq!(retrieved, value);
+        assert_eq!(retrieved.bytes, value.bytes);
+        assert_eq!(retrieved.content_type, value.content_type);
     }
 }

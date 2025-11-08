@@ -1,4 +1,5 @@
-use crate::app::AppState;
+use crate::app::{AppState, DefaultWatermark};
+use crate::caching::cache::CachedImage;
 use crate::fetch::fetch_image;
 use crate::middleware::format_to_content_type;
 use crate::processing::options::{parse_all_options, ParsedOptions};
@@ -11,7 +12,6 @@ use libvips::VipsImage;
 use std::error::Error;
 use std::fmt::Display;
 use std::sync::Arc;
-use tokio::fs;
 use tracing::{debug, error, info};
 
 /// Indicates whether the response was served from cache.
@@ -32,8 +32,8 @@ impl CacheStatus {
 
 /// Result of processing an image request.
 pub struct ProcessedImage {
-    pub bytes: Vec<u8>,
-    pub content_type: String,
+    pub bytes: Bytes,
+    pub content_type: &'static str,
     pub cache_status: CacheStatus,
 }
 
@@ -92,12 +92,9 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
 
     if let Some(cached_image) = state.cache.get(path).await {
         debug!("Image found in cache for path={}", path);
-        let content_type =
-            infer_content_type(config, &url_parts).unwrap_or_else(|| "application/octet-stream".to_string());
-
         return Ok(ProcessedImage {
-            bytes: cached_image,
-            content_type,
+            bytes: cached_image.bytes,
+            content_type: cached_image.content_type,
             cache_status: CacheStatus::Hit,
         });
     }
@@ -124,18 +121,34 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
         ServiceError::new(StatusCode::BAD_REQUEST, e)
     })?;
 
-    let (image_bytes, source_content_type) = fetch_image(&state.http_client, &decoded_url)
-        .await
-        .map_err(|e| {
-            error!("Error fetching image: {}", e);
-            ServiceError::new(StatusCode::BAD_REQUEST, format!("Error fetching image: {}", e))
-        })?;
+    let (image_bytes, source_content_type) = fetch_image(&state.http_client, &decoded_url).await.map_err(|e| {
+        error!("Error fetching image: {}", e);
+        ServiceError::new(StatusCode::BAD_REQUEST, format!("Error fetching image: {}", e))
+    })?;
 
-    debug!("Source image MIME type: {:?}, size: {} bytes", source_content_type, image_bytes.len());
+    debug!(
+        "Source image MIME type: {:?}, size: {} bytes",
+        source_content_type,
+        image_bytes.len()
+    );
 
-    enforce_security_constraints(&state, &parsed_options, &image_bytes, source_content_type.as_deref())?;
+    let source_image = VipsImage::new_from_buffer(&image_bytes, "").map_err(|e| {
+        let detail = format!("Error loading image from memory: {}", e);
+        error!("{}", detail);
+        let response = format!("Error processing image: {}", detail);
+        error!("{}", response);
+        ServiceError::new(StatusCode::BAD_REQUEST, response)
+    })?;
 
-    let watermark_bytes = resolve_watermark(&parsed_options, &state.config, &state.http_client).await?;
+    enforce_security_constraints(
+        state.as_ref(),
+        &parsed_options,
+        &image_bytes,
+        source_content_type.as_deref(),
+        Some(&source_image),
+    )?;
+
+    let watermark_bytes = resolve_watermark(&state, &parsed_options).await?;
 
     let _permit = if parsed_options.raw {
         None
@@ -151,24 +164,30 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
 
     let output_format = parsed_options.format.clone().unwrap_or_else(|| "jpeg".to_string());
 
-    let processed_image_bytes = process_image(image_bytes.clone().into(), parsed_options, watermark_bytes.as_ref())
+    let processed_image_bytes = process_image(source_image, parsed_options, &image_bytes, watermark_bytes.as_ref())
         .await
         .map_err(|e| {
             error!("Error processing image: {}", e);
             ServiceError::new(StatusCode::BAD_REQUEST, format!("Error processing image: {}", e))
         })?;
 
+    let content_type = format_to_content_type(&output_format);
+
     if !matches!(state.cache, crate::caching::cache::ImgforgeCache::None) {
         if let Err(err) = state
             .cache
-            .insert(path.to_string(), processed_image_bytes.clone())
+            .insert(
+                path.to_string(),
+                CachedImage {
+                    bytes: processed_image_bytes.clone(),
+                    content_type,
+                },
+            )
             .await
         {
             error!("Failed to cache image: {}", err);
         }
     }
-
-    let content_type = format_to_content_type(&output_format).to_string();
 
     info!(
         "Imgforge processed path={} output_format={} bytes={}",
@@ -276,23 +295,12 @@ fn build_path_to_sign(path: &str) -> Option<String> {
     path.find('/').map(|idx| format!("/{}", &path[idx + 1..]))
 }
 
-fn infer_content_type(config: &crate::config::Config, url_parts: &ImgforgeUrl) -> Option<String> {
-    let expanded = expand_presets(
-        url_parts.processing_options.clone(),
-        &config.presets,
-        config.only_presets,
-    )
-    .ok()?;
-    let parsed = parse_all_options(expanded).ok()?;
-    let output_format = parsed.format.unwrap_or_else(|| "jpeg".to_string());
-    Some(format_to_content_type(&output_format).to_string())
-}
-
 fn enforce_security_constraints(
     state: &AppState,
     parsed_options: &ParsedOptions,
     image_bytes: &Bytes,
     source_content_type: Option<&str>,
+    decoded_image: Option<&VipsImage>,
 ) -> Result<(), ServiceError> {
     let config = &state.config;
 
@@ -331,26 +339,27 @@ fn enforce_security_constraints(
     };
 
     if let Some(max_res) = max_src_resolution {
-        match VipsImage::new_from_buffer(image_bytes, "") {
-            Ok(img) => {
-                let (w, h) = (img.get_width(), img.get_height());
-                debug!("Image resolution: {}x{}", w, h);
-                let res_mp = (w * h) as f32 / 1_000_000.0;
-                if res_mp > max_res {
-                    error!("Source image resolution is too large");
+        let (w, h) = match decoded_image {
+            Some(img) => (img.get_width(), img.get_height()),
+            None => match VipsImage::new_from_buffer(image_bytes, "") {
+                Ok(img) => (img.get_width(), img.get_height()),
+                Err(_) => {
+                    error!("Failed to load image for resolution check");
                     return Err(ServiceError::new(
                         StatusCode::BAD_REQUEST,
-                        "Source image resolution is too large",
+                        "Failed to load image for resolution check",
                     ));
                 }
-            }
-            Err(_) => {
-                error!("Failed to load image for resolution check");
-                return Err(ServiceError::new(
-                    StatusCode::BAD_REQUEST,
-                    "Failed to load image for resolution check",
-                ));
-            }
+            },
+        };
+        debug!("Image resolution: {}x{}", w, h);
+        let res_mp = (w * h) as f32 / 1_000_000.0;
+        if res_mp > max_res {
+            error!("Source image resolution is too large");
+            return Err(ServiceError::new(
+                StatusCode::BAD_REQUEST,
+                "Source image resolution is too large",
+            ));
         }
     }
 
@@ -358,35 +367,49 @@ fn enforce_security_constraints(
 }
 
 async fn resolve_watermark(
+    state: &Arc<AppState>,
     parsed_options: &ParsedOptions,
-    config: &crate::config::Config,
-    client: &reqwest::Client,
 ) -> Result<Option<Bytes>, ServiceError> {
     if let Some(url) = &parsed_options.watermark_url {
+        if let Some(cached) = {
+            let cache = state.remote_watermarks.read().await;
+            cache.get(url).cloned()
+        } {
+            return match cached {
+                Ok(bytes) => {
+                    debug!("Using cached watermark for URL: {}", url);
+                    Ok(Some(bytes))
+                }
+                Err(message) => {
+                    debug!("Cached watermark failure for URL {}: {}", url, message);
+                    Err(ServiceError::new(StatusCode::BAD_REQUEST, message))
+                }
+            };
+        }
+
         debug!("Fetching watermark from URL: {}", url);
-        match crate::fetch::fetch_image(client, url).await {
-            Ok((bytes, _)) => Ok(Some(bytes)),
+        match crate::fetch::fetch_image(&state.http_client, url).await {
+            Ok((bytes, _)) => {
+                let mut cache = state.remote_watermarks.write().await;
+                cache.insert(url.clone(), Ok(bytes.clone()));
+                Ok(Some(bytes))
+            }
             Err(e) => {
                 error!("Failed to fetch watermark image: {}", e);
-                Err(ServiceError::new(
-                    StatusCode::BAD_REQUEST,
-                    "Failed to fetch watermark image",
-                ))
-            }
-        }
-    } else if let Some(path) = &config.watermark_path {
-        debug!("Loading watermark from path: {}", path);
-        match fs::read(path).await {
-            Ok(bytes) => Ok(Some(Bytes::from(bytes))),
-            Err(e) => {
-                error!("Failed to read watermark image from path: {}", e);
-                Err(ServiceError::new(
-                    StatusCode::BAD_REQUEST,
-                    "Failed to read watermark image from path",
-                ))
+                let message = "Failed to fetch watermark image".to_string();
+                let mut cache = state.remote_watermarks.write().await;
+                cache.insert(url.clone(), Err(message.clone()));
+                Err(ServiceError::new(StatusCode::BAD_REQUEST, message))
             }
         }
     } else {
-        Ok(None)
+        match &state.default_watermark {
+            DefaultWatermark::Unset => Ok(None),
+            DefaultWatermark::Ready(bytes) => Ok(Some(bytes.clone())),
+            DefaultWatermark::Error(message) => {
+                error!("Default watermark unavailable: {}", message);
+                Err(ServiceError::new(StatusCode::BAD_REQUEST, message.clone()))
+            }
+        }
     }
 }

@@ -6,7 +6,7 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use hmac::{Hmac, Mac};
 use http_body_util::BodyExt;
 use image::{ImageBuffer, Rgba};
-use imgforge::app::AppState;
+use imgforge::app::{AppState, DefaultWatermark};
 use imgforge::caching::cache::ImgforgeCache;
 use imgforge::config::Config;
 use imgforge::handlers::{image_forge_handler, info_handler, status_handler};
@@ -15,9 +15,9 @@ use lazy_static::lazy_static;
 use libvips::VipsApp;
 use serde_json::Value;
 use sha2::Sha256;
-use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::Semaphore;
+use std::{collections::HashMap, sync::Arc};
+use tokio::sync::{RwLock, Semaphore};
 use tower::ServiceExt;
 use wiremock::{
     matchers::{method, path},
@@ -88,6 +88,8 @@ async fn create_test_state(config: Config) -> Arc<AppState> {
         config,
         vips_app: VIPS_APP.clone(),
         http_client,
+        default_watermark: DefaultWatermark::Unset,
+        remote_watermarks: RwLock::new(HashMap::new()),
     })
 }
 

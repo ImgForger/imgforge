@@ -1,7 +1,7 @@
 use crate::app::AppState;
 use crate::service::{self, CacheStatus, ProcessRequest};
 use axum::extract::{Path, State};
-use axum::http::{header, StatusCode};
+use axum::http::{header, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Json};
 use axum_extra::headers::{authorization::Bearer, Authorization};
 use axum_extra::TypedHeader;
@@ -65,11 +65,11 @@ pub async fn image_forge_handler(
     {
         Ok(result) => {
             let mut headers = header::HeaderMap::new();
-            headers.insert(header::CONTENT_TYPE, result.content_type.parse().unwrap());
+            headers.insert(header::CONTENT_TYPE, HeaderValue::from_static(result.content_type));
             if result.cache_status == CacheStatus::Hit {
                 headers.insert(
                     header::CACHE_STATUS,
-                    CacheStatus::Hit.as_header_value().parse().unwrap(),
+                    HeaderValue::from_static(CacheStatus::Hit.as_header_value()),
                 );
             }
 

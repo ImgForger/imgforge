@@ -3,18 +3,28 @@ use crate::caching::config::CacheConfig;
 use crate::caching::error::CacheError;
 use crate::config::Config;
 use crate::monitoring;
+use bytes::Bytes;
 use governor::clock::DefaultClock;
 use governor::state::{InMemoryState, NotKeyed};
 use governor::{Quota, RateLimiter};
 use libvips::VipsApp;
+use std::collections::HashMap;
 use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::time::Duration;
 use thiserror::Error;
-use tokio::sync::Semaphore;
+use tokio::fs;
+use tokio::sync::{RwLock, Semaphore};
 use tracing::{info, warn};
 
 pub type RequestRateLimiter = RateLimiter<NotKeyed, InMemoryState, DefaultClock>;
+
+#[derive(Clone)]
+pub enum DefaultWatermark {
+    Unset,
+    Ready(Bytes),
+    Error(String),
+}
 
 /// Shared application state for imgforge.
 pub struct AppState {
@@ -24,6 +34,8 @@ pub struct AppState {
     pub config: Config,
     pub vips_app: Arc<VipsApp>,
     pub http_client: reqwest::Client,
+    pub default_watermark: DefaultWatermark,
+    pub remote_watermarks: RwLock<HashMap<String, Result<Bytes, String>>>,
 }
 
 #[derive(Clone)]
@@ -53,6 +65,16 @@ impl Imgforge {
         let vips_app = Arc::new(init_vips()?);
         let http_client = build_http_client(config.download_timeout)?;
         let rate_limiter = build_rate_limiter(config.rate_limit_per_minute);
+        let default_watermark = match config.watermark_path.clone() {
+            Some(path) => match fs::read(&path).await {
+                Ok(bytes) => DefaultWatermark::Ready(Bytes::from(bytes)),
+                Err(err) => {
+                    warn!("Failed to read watermark image from path {path}: {err}");
+                    DefaultWatermark::Error("Failed to read watermark image from path".to_string())
+                }
+            },
+            None => DefaultWatermark::Unset,
+        };
 
         let state = Arc::new(AppState {
             semaphore,
@@ -61,6 +83,8 @@ impl Imgforge {
             config,
             vips_app,
             http_client,
+            default_watermark,
+            remote_watermarks: RwLock::new(HashMap::new()),
         });
 
         Ok(Self { state })
