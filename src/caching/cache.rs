@@ -1,6 +1,7 @@
 use crate::caching::config::CacheConfig;
 use crate::caching::error::CacheError;
 use crate::monitoring::{increment_cache_hit, increment_cache_miss};
+use crate::utils::format_to_content_type;
 use bytes::Bytes;
 use foyer::{
     BlockEngineBuilder, Cache, CacheBuilder, Code, CodeError, FsDeviceBuilder, HybridCache, HybridCacheBuilder,
@@ -9,7 +10,6 @@ use foyer::{DeviceBuilder, RecoverMode};
 use std::io::{Read, Write};
 use std::path::Path;
 use std::sync::Arc;
-use crate::utils::format_to_content_type;
 
 #[derive(Clone)]
 pub struct CachedImage {
