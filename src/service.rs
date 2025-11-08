@@ -1,4 +1,5 @@
 use crate::app::AppState;
+use crate::fetch::fetch_image;
 use crate::middleware::format_to_content_type;
 use crate::processing::options::{parse_all_options, ParsedOptions};
 use crate::processing::presets::expand_presets;
@@ -7,6 +8,8 @@ use crate::url::{parse_path, validate_signature, ImgforgeUrl};
 use axum::http::StatusCode;
 use bytes::Bytes;
 use libvips::VipsImage;
+use std::error::Error;
+use std::fmt::Display;
 use std::sync::Arc;
 use tokio::fs;
 use tracing::{debug, error, info};
@@ -70,20 +73,19 @@ impl ServiceError {
     }
 }
 
-impl std::fmt::Display for ServiceError {
+impl Display for ServiceError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.message)
     }
 }
 
-impl std::error::Error for ServiceError {}
+impl Error for ServiceError {}
 
 /// Process an imgproxy-compatible path using the provided application state.
 pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> Result<ProcessedImage, ServiceError> {
     let config = &state.config;
     let path = request.path;
 
-    debug!("Full path captured: {}", path);
     info!("Imgforge request received path={}", path);
 
     let url_parts = parse_and_authorize(config, path, request.bearer_token)?;
@@ -122,15 +124,14 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
         ServiceError::new(StatusCode::BAD_REQUEST, e)
     })?;
 
-    let (image_bytes, source_content_type) = crate::fetch::fetch_image(&state.http_client, &decoded_url)
+    let (image_bytes, source_content_type) = fetch_image(&state.http_client, &decoded_url)
         .await
         .map_err(|e| {
             error!("Error fetching image: {}", e);
             ServiceError::new(StatusCode::BAD_REQUEST, format!("Error fetching image: {}", e))
         })?;
 
-    debug!("Source image MIME type: {:?}", source_content_type);
-    debug!("Image size: {} bytes", image_bytes.len());
+    debug!("Source image MIME type: {:?}, size: {} bytes", source_content_type, image_bytes.len());
 
     enforce_security_constraints(&state, &parsed_options, &image_bytes, source_content_type.as_deref())?;
 
