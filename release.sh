@@ -31,11 +31,34 @@ check_git_branch() {
 # Update version in Cargo.toml
 update_version_file() {
     local version=$1
-    local file="Cargo.toml"
-    if [[ -f $file ]]; then
-        sed -i '' "s/^version = \".*\"/version = \"$version\"/" "$file"
+    local toml_file="Cargo.toml"
+    local lock_file="Cargo.lock"
+
+    if [[ -f $toml_file ]]; then
+        sed -i '' "s/^version = \".*\"/version = \"$version\"/" "$toml_file"
     else
-        echo "File $file does not exist."
+        echo "File $toml_file does not exist."
+        exit 1
+    fi
+
+    if [[ -f $lock_file ]]; then
+        python3 - "$version" "$lock_file" <<'PY'
+import pathlib
+import re
+import sys
+
+version = sys.argv[1]
+lock_path = pathlib.Path(sys.argv[2])
+text = lock_path.read_text()
+pattern = r'(\[\[package\]\]\nname = "imgforge"\nversion = )"[^"]+"'
+new_text, count = re.subn(pattern, r'\1"' + version + '"', text, count=1)
+if count == 0:
+    print("Failed to update version in Cargo.lock: could not find imgforge package.", file=sys.stderr)
+    sys.exit(1)
+lock_path.write_text(new_text)
+PY
+    else
+        echo "File $lock_file does not exist."
         exit 1
     fi
     sleep 2
@@ -64,7 +87,6 @@ read -r -p "Enter the version number: " version
 
 if validate_semver "$version"; then
     update_version_file "$version"
-    sleep 5
     create_version_commit "$version"
     create_and_push_git_tag "$version"
     echo "Created a new release $version"
