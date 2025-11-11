@@ -3,6 +3,7 @@ use axum::{
     http::{Request, StatusCode},
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use bytes::Bytes;
 use hmac::{Hmac, Mac};
 use http_body_util::BodyExt;
 use image::{ImageBuffer, Rgba};
@@ -97,6 +98,16 @@ async fn make_request(
     uri: &str,
     auth_token: Option<&str>,
 ) -> (StatusCode, String, axum::http::HeaderMap) {
+    let (status, body_bytes, headers) = make_request_bytes(app, uri, auth_token).await;
+    let body_str = String::from_utf8_lossy(&body_bytes).to_string();
+    (status, body_str, headers)
+}
+
+async fn make_request_bytes(
+    app: axum::Router,
+    uri: &str,
+    auth_token: Option<&str>,
+) -> (StatusCode, Bytes, axum::http::HeaderMap) {
     let mut request_builder = Request::builder().uri(uri);
 
     if let Some(token) = auth_token {
@@ -108,9 +119,7 @@ async fn make_request(
     let status = response.status();
     let headers = response.headers().clone();
     let body = response.into_body().collect().await.unwrap().to_bytes();
-    let body_str = String::from_utf8_lossy(&body).to_string();
-
-    (status, body_str, headers)
+    (status, body, headers)
 }
 
 #[tokio::test]
@@ -514,12 +523,14 @@ async fn test_image_forge_handler_raw_option() {
         .with_state(state)
         .layer(axum::middleware::from_fn(request_id_middleware));
 
-    let (status, body, _) = make_request(app, &path, None).await;
+    let (status, body, headers) = make_request_bytes(app, &path, None).await;
 
-    if status != StatusCode::OK {
-        eprintln!("Error body: {}", body);
-    }
     assert_eq!(status, StatusCode::OK);
+    assert_eq!(body.as_ref(), test_image.as_slice());
+    assert_eq!(
+        headers.get("content-type").and_then(|value| value.to_str().ok()),
+        Some("image/jpeg")
+    );
 }
 
 #[tokio::test]

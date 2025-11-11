@@ -137,20 +137,18 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
         image_bytes.len()
     );
 
+    if parsed_options.raw {
+        return serve_raw_response(state.as_ref(), path, image_bytes, source_content_type).await;
+    }
+
     let watermark_bytes = resolve_watermark(&parsed_options, &state.config, &state.http_client).await?;
 
-    let _permit = if parsed_options.raw {
-        None
-    } else {
-        Some(
-            state
-                .semaphore
-                .clone()
-                .acquire_owned()
-                .await
-                .map_err(|_| ServiceError::new(StatusCode::INTERNAL_SERVER_ERROR, "Semaphore closed"))?,
-        )
-    };
+    let _permit = state
+        .semaphore
+        .clone()
+        .acquire_owned()
+        .await
+        .map_err(|_| ServiceError::new(StatusCode::INTERNAL_SERVER_ERROR, "Semaphore closed"))?;
 
     let output_format = parsed_options.format.clone().unwrap_or_else(|| "jpeg".to_string());
 
@@ -406,4 +404,40 @@ async fn resolve_watermark(
     } else {
         Ok(None)
     }
+}
+
+async fn serve_raw_response(
+    state: &AppState,
+    path: &str,
+    image_bytes: Bytes,
+    source_content_type: Option<String>,
+) -> Result<ProcessedImage, ServiceError> {
+    let content_type = source_content_type
+        .as_deref()
+        .map(format_to_content_type)
+        .unwrap_or("image/jpeg");
+
+    if !matches!(state.cache, ImgforgeCache::None) {
+        if let Err(err) = state
+            .cache
+            .insert(
+                path.to_string(),
+                CachedImage {
+                    bytes: image_bytes.clone(),
+                    content_type,
+                },
+            )
+            .await
+        {
+            error!("Failed to cache raw image: {}", err);
+        }
+    }
+
+    info!("Imgforge served raw path={} bytes={}", path, image_bytes.len());
+
+    Ok(ProcessedImage {
+        bytes: image_bytes,
+        content_type,
+        cache_status: CacheStatus::Miss,
+    })
 }
