@@ -134,8 +134,6 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
         image_bytes.len()
     );
 
-    enforce_security_constraints(&state, &parsed_options, &image_bytes, source_content_type.as_deref())?;
-
     let watermark_bytes = resolve_watermark(&parsed_options, &state.config, &state.http_client).await?;
 
     let _permit = if parsed_options.raw {
@@ -144,7 +142,8 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
         Some(
             state
                 .semaphore
-                .acquire()
+                .clone()
+                .acquire_owned()
                 .await
                 .map_err(|_| ServiceError::new(StatusCode::INTERNAL_SERVER_ERROR, "Semaphore closed"))?,
         )
@@ -152,12 +151,26 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
 
     let output_format = parsed_options.format.clone().unwrap_or_else(|| "jpeg".to_string());
 
-    let processed_image_bytes = process_image(image_bytes.clone().into(), parsed_options, watermark_bytes.as_ref())
-        .await
-        .map_err(|e| {
+    let processed_image_bytes = {
+        let source_image = VipsImage::new_from_buffer(&image_bytes, "").map_err(|e| {
+            let response = format!("Error loading image from memory: {}", e);
+            error!("{}", response);
+            ServiceError::new(StatusCode::INTERNAL_SERVER_ERROR, response)
+        })?;
+
+        enforce_security_constraints(
+            state.as_ref(),
+            &parsed_options,
+            &image_bytes,
+            source_content_type.as_deref(),
+            Some(&source_image),
+        )?;
+
+        process_image(source_image, parsed_options, &image_bytes, watermark_bytes.as_ref()).map_err(|e| {
             error!("Error processing image: {}", e);
             ServiceError::new(StatusCode::BAD_REQUEST, format!("Error processing image: {}", e))
-        })?;
+        })?
+    };
 
     let content_type = format_to_content_type(&output_format);
     if !matches!(state.cache, ImgforgeCache::None) {
@@ -166,7 +179,7 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
             .insert(
                 path.to_string(),
                 CachedImage {
-                    bytes: Bytes::from(processed_image_bytes.clone()),
+                    bytes: processed_image_bytes.clone(),
                     content_type,
                 },
             )
@@ -184,7 +197,7 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
     );
 
     Ok(ProcessedImage {
-        bytes: Bytes::from(processed_image_bytes),
+        bytes: processed_image_bytes,
         content_type,
         cache_status: CacheStatus::Miss,
     })
@@ -287,6 +300,7 @@ fn enforce_security_constraints(
     parsed_options: &ParsedOptions,
     image_bytes: &Bytes,
     source_content_type: Option<&str>,
+    decoded_image: Option<&VipsImage>,
 ) -> Result<(), ServiceError> {
     let config = &state.config;
 
@@ -325,26 +339,24 @@ fn enforce_security_constraints(
     };
 
     if let Some(max_res) = max_src_resolution {
-        match VipsImage::new_from_buffer(image_bytes, "") {
-            Ok(img) => {
-                let (w, h) = (img.get_width(), img.get_height());
-                debug!("Image resolution: {}x{}", w, h);
-                let res_mp = (w * h) as f32 / 1_000_000.0;
-                if res_mp > max_res {
-                    error!("Source image resolution is too large");
-                    return Err(ServiceError::new(
-                        StatusCode::BAD_REQUEST,
-                        "Source image resolution is too large",
-                    ));
-                }
-            }
-            Err(_) => {
+        let (w, h) = match decoded_image {
+            Some(img) => (img.get_width(), img.get_height()),
+            None => {
                 error!("Failed to load image for resolution check");
                 return Err(ServiceError::new(
                     StatusCode::BAD_REQUEST,
                     "Failed to load image for resolution check",
                 ));
             }
+        };
+        debug!("Image resolution: {}x{}", w, h);
+        let res_mp = (w * h) as f32 / 1_000_000.0;
+        if res_mp > max_res {
+            error!("Source image resolution is too large");
+            return Err(ServiceError::new(
+                StatusCode::BAD_REQUEST,
+                "Source image resolution is too large",
+            ));
         }
     }
 
