@@ -55,9 +55,9 @@ impl Code for CachedImage {
 /// Represents the different cache backends for Imgforge.
 pub enum ImgforgeCache {
     None,
-    Memory(Arc<Cache<String, Vec<u8>>>),
-    Disk(Arc<HybridCache<String, Vec<u8>>>),
-    Hybrid(Arc<HybridCache<String, Vec<u8>>>),
+    Memory(Arc<Cache<String, CachedImage>>),
+    Disk(Arc<HybridCache<String, CachedImage>>),
+    Hybrid(Arc<HybridCache<String, CachedImage>>),
 }
 
 impl ImgforgeCache {
@@ -110,7 +110,7 @@ impl ImgforgeCache {
     }
 
     /// Retrieve a value from the cache by key.
-    pub async fn get(&self, key: &str) -> Option<Vec<u8>> {
+    pub async fn get(&self, key: &str) -> Option<CachedImage> {
         let result = match self {
             ImgforgeCache::None => None,
             ImgforgeCache::Memory(cache) => {
@@ -143,7 +143,7 @@ impl ImgforgeCache {
     }
 
     /// Insert a value into the cache.
-    pub async fn insert(&self, key: String, value: Vec<u8>) -> Result<(), CacheError> {
+    pub async fn insert(&self, key: String, value: CachedImage) -> Result<(), CacheError> {
         match self {
             ImgforgeCache::None => Ok(()),
             ImgforgeCache::Memory(cache) => {
@@ -213,11 +213,15 @@ mod tests {
         let cache = ImgforgeCache::new(config).await.unwrap();
 
         let key = "test_key".to_string();
-        let value = vec![1, 2, 3];
+        let value = CachedImage {
+            bytes: Bytes::from(vec![1, 2, 3]),
+            content_type: "image/jpeg",
+        };
 
         cache.insert(key.clone(), value.clone()).await.unwrap();
         let retrieved = cache.get(&key).await.unwrap();
-        assert_eq!(retrieved, value);
+        assert_eq!(retrieved.bytes, value.bytes);
+        assert_eq!(retrieved.content_type, value.content_type);
     }
 
     #[tokio::test]
@@ -227,9 +231,13 @@ mod tests {
         let config = Some(CacheConfig::Disk { path, capacity: 10000 });
         let cache = ImgforgeCache::new(config).await.unwrap();
         let key = "test_key".to_string();
-        let value = vec![1, 2, 3];
+        let value = CachedImage {
+            bytes: Bytes::from(vec![1, 2, 3]),
+            content_type: "image/jpeg",
+        };
         cache.insert(key.clone(), value.clone()).await.unwrap();
         let retrieved = cache.get(&key).await.unwrap();
-        assert_eq!(retrieved, value);
+        assert_eq!(retrieved.bytes, value.bytes);
+        assert_eq!(retrieved.content_type, value.content_type);
     }
 }

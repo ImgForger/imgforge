@@ -1,4 +1,5 @@
 use crate::app::AppState;
+use crate::caching::cache::{CachedImage, ImgforgeCache};
 use crate::fetch::fetch_image;
 use crate::processing::options::{parse_all_options, ParsedOptions};
 use crate::processing::presets::expand_presets;
@@ -32,8 +33,8 @@ impl CacheStatus {
 
 /// Result of processing an image request.
 pub struct ProcessedImage {
-    pub bytes: Vec<u8>,
-    pub content_type: String,
+    pub bytes: Bytes,
+    pub content_type: &'static str,
     pub cache_status: CacheStatus,
 }
 
@@ -92,12 +93,10 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
 
     if let Some(cached_image) = state.cache.get(path).await {
         debug!("Image found in cache for path={}", path);
-        let content_type =
-            infer_content_type(config, &url_parts).unwrap_or_else(|| "application/octet-stream".to_string());
 
         return Ok(ProcessedImage {
-            bytes: cached_image,
-            content_type,
+            bytes: cached_image.bytes,
+            content_type: cached_image.content_type,
             cache_status: CacheStatus::Hit,
         });
     }
@@ -160,17 +159,22 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
             ServiceError::new(StatusCode::BAD_REQUEST, format!("Error processing image: {}", e))
         })?;
 
-    if !matches!(state.cache, crate::caching::cache::ImgforgeCache::None) {
+    let content_type = format_to_content_type(&output_format);
+    if !matches!(state.cache, ImgforgeCache::None) {
         if let Err(err) = state
             .cache
-            .insert(path.to_string(), processed_image_bytes.clone())
+            .insert(
+                path.to_string(),
+                CachedImage {
+                    bytes: Bytes::from(processed_image_bytes.clone()),
+                    content_type,
+                },
+            )
             .await
         {
             error!("Failed to cache image: {}", err);
         }
     }
-
-    let content_type = format_to_content_type(&output_format).to_string();
 
     info!(
         "Imgforge processed path={} output_format={} bytes={}",
@@ -180,7 +184,7 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
     );
 
     Ok(ProcessedImage {
-        bytes: processed_image_bytes,
+        bytes: Bytes::from(processed_image_bytes),
         content_type,
         cache_status: CacheStatus::Miss,
     })
@@ -276,18 +280,6 @@ fn parse_and_authorize(
 
 fn build_path_to_sign(path: &str) -> Option<String> {
     path.find('/').map(|idx| format!("/{}", &path[idx + 1..]))
-}
-
-fn infer_content_type(config: &crate::config::Config, url_parts: &ImgforgeUrl) -> Option<String> {
-    let expanded = expand_presets(
-        url_parts.processing_options.clone(),
-        &config.presets,
-        config.only_presets,
-    )
-    .ok()?;
-    let parsed = parse_all_options(expanded).ok()?;
-    let output_format = parsed.format.unwrap_or_else(|| "jpeg".to_string());
-    Some(format_to_content_type(&output_format).to_string())
 }
 
 fn enforce_security_constraints(
