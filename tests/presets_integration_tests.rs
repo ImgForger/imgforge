@@ -11,13 +11,14 @@ use imgforge::caching::cache::ImgforgeCache;
 use imgforge::config::Config;
 use imgforge::handlers::image_forge_handler;
 use imgforge::middleware::request_id_middleware;
+use imgforge::processing::{options::ProcessingOption, presets::parse_options_string};
 use lazy_static::lazy_static;
 use libvips::{VipsApp, VipsImage};
 use sha2::Sha256;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::Semaphore;
+use tokio::sync::{Mutex, Semaphore};
 use tower::ServiceExt;
 use wiremock::{
     matchers::{method, path},
@@ -54,7 +55,7 @@ fn create_test_config(
     key: Vec<u8>,
     salt: Vec<u8>,
     allow_unsigned: bool,
-    presets: HashMap<String, String>,
+    presets: HashMap<String, Vec<ProcessingOption>>,
     only_presets: bool,
 ) -> Config {
     let mut config = Config::new(key, salt);
@@ -74,12 +75,13 @@ async fn create_test_state(config: Config) -> Arc<AppState> {
         .expect("client builds");
 
     Arc::new(AppState {
-        semaphore: Semaphore::new(config.workers),
+        semaphore: Arc::new(Semaphore::new(config.workers)),
         cache,
         rate_limiter: None,
         config,
         vips_app: VIPS_APP.clone(),
         http_client,
+        watermark_cache: Mutex::new(None),
     })
 }
 
@@ -111,7 +113,10 @@ async fn test_preset_basic() {
     let salt = b"test_salt".to_vec();
 
     let mut presets = HashMap::new();
-    presets.insert("thumbnail".to_string(), "resize:fit:150:150/quality:80".to_string());
+    presets.insert(
+        "thumbnail".to_string(),
+        parse_options_string("resize:fit:150:150/quality:80").unwrap(),
+    );
 
     let config = create_test_config(key.clone(), salt.clone(), false, presets, false);
     let state = create_test_state(config).await;
@@ -155,8 +160,8 @@ async fn test_preset_with_default() {
     let salt = b"test_salt".to_vec();
 
     let mut presets = HashMap::new();
-    presets.insert("default".to_string(), "quality:90/dpr:1".to_string());
-    presets.insert("small".to_string(), "resize:fit:200:200".to_string());
+    presets.insert("default".to_string(), parse_options_string("quality:90/dpr:1").unwrap());
+    presets.insert("small".to_string(), parse_options_string("resize:fit:200:200").unwrap());
 
     let config = create_test_config(key.clone(), salt.clone(), false, presets, false);
     let state = create_test_state(config).await;
@@ -200,7 +205,10 @@ async fn test_preset_default_only() {
     let salt = b"test_salt".to_vec();
 
     let mut presets = HashMap::new();
-    presets.insert("default".to_string(), "resize:fit:100:100".to_string());
+    presets.insert(
+        "default".to_string(),
+        parse_options_string("resize:fit:100:100").unwrap(),
+    );
 
     let config = create_test_config(key.clone(), salt.clone(), false, presets, false);
     let state = create_test_state(config).await;
@@ -281,7 +289,10 @@ async fn test_only_presets_mode_allows_presets() {
     let salt = b"test_salt".to_vec();
 
     let mut presets = HashMap::new();
-    presets.insert("thumbnail".to_string(), "resize:fit:150:150".to_string());
+    presets.insert(
+        "thumbnail".to_string(),
+        parse_options_string("resize:fit:150:150").unwrap(),
+    );
 
     let config = create_test_config(key.clone(), salt.clone(), false, presets, true);
     let state = create_test_state(config).await;
@@ -362,7 +373,7 @@ async fn test_only_presets_mode_allows_default() {
     let salt = b"test_salt".to_vec();
 
     let mut presets = HashMap::new();
-    presets.insert("default".to_string(), "resize:fit:50:50".to_string());
+    presets.insert("default".to_string(), parse_options_string("resize:fit:50:50").unwrap());
 
     let config = create_test_config(key.clone(), salt.clone(), false, presets, true);
     let state = create_test_state(config).await;
@@ -406,7 +417,7 @@ async fn test_preset_short_form() {
     let salt = b"test_salt".to_vec();
 
     let mut presets = HashMap::new();
-    presets.insert("thumb".to_string(), "resize:fit:100:100".to_string());
+    presets.insert("thumb".to_string(), parse_options_string("resize:fit:100:100").unwrap());
 
     let config = create_test_config(key.clone(), salt.clone(), false, presets, false);
     let state = create_test_state(config).await;
@@ -450,7 +461,7 @@ async fn test_preset_with_url_override() {
     let salt = b"test_salt".to_vec();
 
     let mut presets = HashMap::new();
-    presets.insert("default".to_string(), "quality:80".to_string());
+    presets.insert("default".to_string(), parse_options_string("quality:80").unwrap());
 
     let config = create_test_config(key.clone(), salt.clone(), false, presets, false);
     let state = create_test_state(config).await;

@@ -1,4 +1,6 @@
 use crate::constants::*;
+use crate::processing::options::ProcessingOption;
+use crate::processing::presets::parse_options_string;
 use std::collections::HashMap;
 use std::env;
 
@@ -17,7 +19,7 @@ pub struct Config {
     pub allowed_mime_types: Option<Vec<String>>,
     pub download_timeout: u64,
     pub secret: Option<String>,
-    pub presets: HashMap<String, String>,
+    pub presets: HashMap<String, Vec<ProcessingOption>>,
     pub only_presets: bool,
     pub watermark_path: Option<String>,
     pub rate_limit_per_minute: Option<u32>,
@@ -32,23 +34,35 @@ fn normalize_bind_address(raw: &str) -> String {
     }
 }
 
-fn parse_presets(presets_str: &str) -> HashMap<String, String> {
+fn parse_presets(presets_str: &str) -> Result<HashMap<String, Vec<ProcessingOption>>, String> {
     let mut presets = HashMap::new();
     if presets_str.is_empty() {
-        return presets;
+        return Ok(presets);
     }
 
     for preset_def in presets_str.split(',') {
-        if let Some((name, options)) = preset_def.split_once('=') {
-            let name = name.trim().to_string();
-            let options = options.trim().to_string();
-            if !name.is_empty() && !options.is_empty() {
-                presets.insert(name, options);
-            }
+        let preset_def = preset_def.trim();
+        if preset_def.is_empty() {
+            continue;
         }
+
+        let Some((name, options)) = preset_def.split_once('=') else {
+            return Err(format!("invalid preset definition: {}", preset_def));
+        };
+
+        let name = name.trim();
+        let options = options.trim();
+        if name.is_empty() || options.is_empty() {
+            return Err(format!("invalid preset definition: {}", preset_def));
+        }
+
+        let parsed_options =
+            parse_options_string(options).map_err(|e| format!("invalid preset definition '{}': {}", name, e))?;
+
+        presets.insert(name.to_string(), parsed_options);
     }
 
-    presets
+    Ok(presets)
 }
 
 impl Config {
@@ -118,7 +132,7 @@ impl Config {
             .unwrap_or(10);
         config.secret = env::var(ENV_SECRET).ok();
 
-        config.presets = parse_presets(&env::var(ENV_PRESETS).unwrap_or_default());
+        config.presets = parse_presets(&env::var(ENV_PRESETS).unwrap_or_default())?;
         config.only_presets = env::var(ENV_ONLY_PRESETS).unwrap_or_default().to_lowercase() == "true";
 
         config.watermark_path = env::var(ENV_WATERMARK_PATH).ok();
@@ -182,72 +196,60 @@ mod tests {
     #[test]
     fn test_parse_presets_single() {
         let presets_str = "thumbnail=resize:fit:150:150/quality:80";
-        let presets = parse_presets(presets_str);
+        let presets = parse_presets(presets_str).expect("parses");
         assert_eq!(presets.len(), 1);
-        assert_eq!(
-            presets.get("thumbnail"),
-            Some(&"resize:fit:150:150/quality:80".to_string())
-        );
+        assert_eq!(presets.get("thumbnail").map(|opts| opts.len()), Some(2));
     }
 
     #[test]
     fn test_parse_presets_multiple() {
         let presets_str = "thumbnail=resize:fit:150:150/quality:80,small=resize:fit:300:300/quality:85";
-        let presets = parse_presets(presets_str);
+        let presets = parse_presets(presets_str).expect("parses");
         assert_eq!(presets.len(), 2);
-        assert_eq!(
-            presets.get("thumbnail"),
-            Some(&"resize:fit:150:150/quality:80".to_string())
-        );
-        assert_eq!(presets.get("small"), Some(&"resize:fit:300:300/quality:85".to_string()));
+        assert_eq!(presets.get("thumbnail").map(|opts| opts.len()), Some(2));
+        assert_eq!(presets.get("small").map(|opts| opts.len()), Some(2));
     }
 
     #[test]
     fn test_parse_presets_empty() {
         let presets_str = "";
-        let presets = parse_presets(presets_str);
+        let presets = parse_presets(presets_str).expect("parses");
         assert_eq!(presets.len(), 0);
     }
 
     #[test]
     fn test_parse_presets_with_spaces() {
         let presets_str = "thumbnail = resize:fit:150:150/quality:80 , small = resize:fit:300:300";
-        let presets = parse_presets(presets_str);
+        let presets = parse_presets(presets_str).expect("parses");
         assert_eq!(presets.len(), 2);
-        assert_eq!(
-            presets.get("thumbnail"),
-            Some(&"resize:fit:150:150/quality:80".to_string())
-        );
-        assert_eq!(presets.get("small"), Some(&"resize:fit:300:300".to_string()));
+        assert_eq!(presets.get("thumbnail").map(|opts| opts.len()), Some(2));
+        assert_eq!(presets.get("small").map(|opts| opts.len()), Some(1));
     }
 
     #[test]
     fn test_parse_presets_default() {
         let presets_str = "default=quality:90/dpr:2";
-        let presets = parse_presets(presets_str);
+        let presets = parse_presets(presets_str).expect("parses");
         assert_eq!(presets.len(), 1);
-        assert_eq!(presets.get("default"), Some(&"quality:90/dpr:2".to_string()));
+        assert_eq!(presets.get("default").map(|opts| opts.len()), Some(2));
     }
 
     #[test]
     fn test_parse_presets_invalid_format() {
         let presets_str = "thumbnail:resize:fit:150:150";
-        let presets = parse_presets(presets_str);
-        assert_eq!(presets.len(), 0);
+        assert!(parse_presets(presets_str).is_err());
     }
 
     #[test]
     fn test_parse_presets_missing_name() {
         let presets_str = "=resize:fit:150:150";
-        let presets = parse_presets(presets_str);
-        assert_eq!(presets.len(), 0);
+        assert!(parse_presets(presets_str).is_err());
     }
 
     #[test]
     fn test_parse_presets_missing_options() {
         let presets_str = "thumbnail=";
-        let presets = parse_presets(presets_str);
-        assert_eq!(presets.len(), 0);
+        assert!(parse_presets(presets_str).is_err());
     }
 
     #[test]
@@ -262,8 +264,8 @@ mod tests {
         let config = Config::from_env().expect("config loads");
 
         assert_eq!(config.presets.len(), 2);
-        assert_eq!(config.presets.get("thumbnail"), Some(&"resize:fit:150:150".to_string()));
-        assert_eq!(config.presets.get("default"), Some(&"quality:90".to_string()));
+        assert_eq!(config.presets.get("thumbnail").map(|opts| opts.len()), Some(1));
+        assert_eq!(config.presets.get("default").map(|opts| opts.len()), Some(1));
         assert!(config.only_presets);
 
         restore_env_var(ENV_PRESETS, original_presets);
