@@ -123,10 +123,13 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
         ServiceError::new(StatusCode::BAD_REQUEST, e)
     })?;
 
-    let (image_bytes, source_content_type) = fetch_image(&state.http_client, &decoded_url).await.map_err(|e| {
-        error!("Error fetching image: {}", e);
-        ServiceError::new(StatusCode::BAD_REQUEST, format!("Error fetching image: {}", e))
-    })?;
+    let max_src_file_size = resolve_max_src_file_size(config, &parsed_options);
+    let (image_bytes, source_content_type) = fetch_image(&state.http_client, &decoded_url, max_src_file_size)
+        .await
+        .map_err(|e| {
+            error!("Error fetching image: {}", e);
+            ServiceError::new(StatusCode::BAD_REQUEST, format!("Error fetching image: {}", e))
+        })?;
 
     debug!(
         "Source image MIME type: {:?}, size: {} bytes",
@@ -216,7 +219,7 @@ pub async fn image_info(state: Arc<AppState>, request: ProcessRequest<'_>) -> Re
         ServiceError::new(StatusCode::BAD_REQUEST, format!("Error decoding URL: {}", e))
     })?;
 
-    let (image_bytes, _content_type) = crate::fetch::fetch_image(&state.http_client, &decoded_url)
+    let (image_bytes, _content_type) = crate::fetch::fetch_image(&state.http_client, &decoded_url, None)
         .await
         .map_err(|e| {
             error!("Error fetching image: {}", e);
@@ -304,11 +307,7 @@ fn enforce_security_constraints(
 ) -> Result<(), ServiceError> {
     let config = &state.config;
 
-    let max_src_file_size = if config.allow_security_options {
-        parsed_options.max_src_file_size.or(config.max_src_file_size)
-    } else {
-        config.max_src_file_size
-    };
+    let max_src_file_size = resolve_max_src_file_size(config, parsed_options);
 
     if let Some(max_size) = max_src_file_size {
         if image_bytes.len() > max_size {
@@ -332,11 +331,7 @@ fn enforce_security_constraints(
         }
     }
 
-    let max_src_resolution = if config.allow_security_options {
-        parsed_options.max_src_resolution.or(config.max_src_resolution)
-    } else {
-        config.max_src_resolution
-    };
+    let max_src_resolution = resolve_max_src_resolution(config, parsed_options);
 
     if let Some(max_res) = max_src_resolution {
         let (w, h) = match decoded_image {
@@ -363,6 +358,22 @@ fn enforce_security_constraints(
     Ok(())
 }
 
+fn resolve_max_src_file_size(config: &crate::config::Config, parsed_options: &ParsedOptions) -> Option<usize> {
+    if config.allow_security_options {
+        parsed_options.max_src_file_size.or(config.max_src_file_size)
+    } else {
+        config.max_src_file_size
+    }
+}
+
+fn resolve_max_src_resolution(config: &crate::config::Config, parsed_options: &ParsedOptions) -> Option<f32> {
+    if config.allow_security_options {
+        parsed_options.max_src_resolution.or(config.max_src_resolution)
+    } else {
+        config.max_src_resolution
+    }
+}
+
 async fn resolve_watermark(
     parsed_options: &ParsedOptions,
     config: &crate::config::Config,
@@ -370,7 +381,7 @@ async fn resolve_watermark(
 ) -> Result<Option<Bytes>, ServiceError> {
     if let Some(url) = &parsed_options.watermark_url {
         debug!("Fetching watermark from URL: {}", url);
-        match crate::fetch::fetch_image(client, url).await {
+        match crate::fetch::fetch_image(client, url, None).await {
             Ok((bytes, _)) => Ok(Some(bytes)),
             Err(e) => {
                 error!("Failed to fetch watermark image: {}", e);

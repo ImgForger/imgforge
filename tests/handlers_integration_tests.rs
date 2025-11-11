@@ -585,7 +585,7 @@ async fn test_image_forge_handler_max_file_size_exceeded() {
     let (status, body, _) = make_request(app, &path, None).await;
 
     assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert!(body.contains("Source image file size is too large"));
+    assert!(body.contains("Source image exceeds the maximum allowed size of"));
 }
 
 #[tokio::test]
