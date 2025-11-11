@@ -74,7 +74,7 @@ async fn create_test_state(config: Config) -> Arc<AppState> {
         .expect("client builds");
 
     Arc::new(AppState {
-        semaphore: Semaphore::new(config.workers),
+        semaphore: Arc::new(Semaphore::new(config.workers)),
         cache,
         rate_limiter: None,
         config,

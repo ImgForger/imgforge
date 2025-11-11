@@ -18,7 +18,7 @@ pub type RequestRateLimiter = RateLimiter<NotKeyed, InMemoryState, DefaultClock>
 
 /// Shared application state for imgforge.
 pub struct AppState {
-    pub semaphore: Semaphore,
+    pub semaphore: Arc<Semaphore>,
     pub cache: Cache,
     pub rate_limiter: Option<RequestRateLimiter>,
     pub config: Config,
@@ -48,7 +48,7 @@ impl Imgforge {
     pub async fn new(config: Config, cache_config: Option<CacheConfig>) -> Result<Self, InitError> {
         monitoring::register_metrics();
 
-        let semaphore = Semaphore::new(config.workers);
+        let semaphore = Arc::new(Semaphore::new(config.workers));
         let cache = Cache::new(cache_config).await?;
         let vips_app = Arc::new(init_vips()?);
         let http_client = build_http_client(config.download_timeout)?;
