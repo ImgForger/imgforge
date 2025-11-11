@@ -15,7 +15,7 @@ use lazy_static::lazy_static;
 use libvips::VipsApp;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::Semaphore;
+use tokio::sync::{Mutex, Semaphore};
 use tower::ServiceExt;
 use wiremock::{
     matchers::{method, path},
@@ -62,6 +62,7 @@ async fn create_test_state_with_cache(config: Config, cache: ImgforgeCache) -> A
         config,
         vips_app: VIPS_APP.clone(),
         http_client,
+        watermark_cache: Mutex::new(None),
     })
 }
 

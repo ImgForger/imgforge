@@ -3,6 +3,7 @@ use crate::caching::config::CacheConfig;
 use crate::caching::error::CacheError;
 use crate::config::Config;
 use crate::monitoring;
+use bytes::Bytes;
 use governor::clock::DefaultClock;
 use governor::state::{InMemoryState, NotKeyed};
 use governor::{Quota, RateLimiter};
@@ -11,7 +12,7 @@ use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::time::Duration;
 use thiserror::Error;
-use tokio::sync::Semaphore;
+use tokio::sync::{Mutex, Semaphore};
 use tracing::{info, warn};
 
 pub type RequestRateLimiter = RateLimiter<NotKeyed, InMemoryState, DefaultClock>;
@@ -24,6 +25,7 @@ pub struct AppState {
     pub config: Config,
     pub vips_app: Arc<VipsApp>,
     pub http_client: reqwest::Client,
+    pub watermark_cache: Mutex<Option<Bytes>>,
 }
 
 #[derive(Clone)]
@@ -53,6 +55,7 @@ impl Imgforge {
         let vips_app = Arc::new(init_vips()?);
         let http_client = build_http_client(config.download_timeout)?;
         let rate_limiter = build_rate_limiter(config.rate_limit_per_minute);
+        let watermark_cache = Mutex::new(None);
 
         let state = Arc::new(AppState {
             semaphore,
@@ -61,6 +64,7 @@ impl Imgforge {
             config,
             vips_app,
             http_client,
+            watermark_cache,
         });
 
         Ok(Self { state })

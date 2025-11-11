@@ -141,7 +141,11 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
         return serve_raw_response(state.as_ref(), path, image_bytes, source_content_type).await;
     }
 
-    let watermark_bytes = resolve_watermark(&parsed_options, &state.config, &state.http_client).await?;
+    let watermark_bytes = if needs_watermark(&parsed_options) {
+        resolve_watermark(state.as_ref(), &parsed_options).await?
+    } else {
+        None
+    };
 
     let _permit = state
         .semaphore
@@ -372,14 +376,14 @@ fn resolve_max_src_resolution(config: &crate::config::Config, parsed_options: &P
     }
 }
 
-async fn resolve_watermark(
-    parsed_options: &ParsedOptions,
-    config: &crate::config::Config,
-    client: &reqwest::Client,
-) -> Result<Option<Bytes>, ServiceError> {
+fn needs_watermark(parsed_options: &ParsedOptions) -> bool {
+    parsed_options.watermark.is_some() || parsed_options.watermark_url.is_some()
+}
+
+async fn resolve_watermark(state: &AppState, parsed_options: &ParsedOptions) -> Result<Option<Bytes>, ServiceError> {
     if let Some(url) = &parsed_options.watermark_url {
         debug!("Fetching watermark from URL: {}", url);
-        match crate::fetch::fetch_image(client, url, None).await {
+        match crate::fetch::fetch_image(&state.http_client, url, None).await {
             Ok((bytes, _)) => Ok(Some(bytes)),
             Err(e) => {
                 error!("Failed to fetch watermark image: {}", e);
@@ -389,17 +393,33 @@ async fn resolve_watermark(
                 ))
             }
         }
-    } else if let Some(path) = &config.watermark_path {
-        debug!("Loading watermark from path: {}", path);
-        match fs::read(path).await {
-            Ok(bytes) => Ok(Some(Bytes::from(bytes))),
-            Err(e) => {
-                error!("Failed to read watermark image from path: {}", e);
-                Err(ServiceError::new(
-                    StatusCode::BAD_REQUEST,
-                    "Failed to read watermark image from path",
-                ))
+    } else if parsed_options.watermark.is_some() {
+        if let Some(path) = &state.config.watermark_path {
+            {
+                let cache = state.watermark_cache.lock().await;
+                if let Some(cached) = cache.as_ref() {
+                    return Ok(Some(cached.clone()));
+                }
             }
+
+            debug!("Loading watermark from path: {} (cached on first load)", path);
+            match fs::read(path).await {
+                Ok(bytes) => {
+                    let bytes = Bytes::from(bytes);
+                    let mut cache = state.watermark_cache.lock().await;
+                    *cache = Some(bytes.clone());
+                    Ok(Some(bytes))
+                }
+                Err(e) => {
+                    error!("Failed to read watermark image from path: {}", e);
+                    Err(ServiceError::new(
+                        StatusCode::BAD_REQUEST,
+                        "Failed to read watermark image from path",
+                    ))
+                }
+            }
+        } else {
+            Ok(None)
         }
     } else {
         Ok(None)
