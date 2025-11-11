@@ -22,7 +22,7 @@ const PRESET_SHORT: &str = "pr";
 /// A `Result` containing the expanded processing options, or an error message.
 pub fn expand_presets(
     options: Vec<ProcessingOption>,
-    presets: &HashMap<String, String>,
+    presets: &HashMap<String, Vec<ProcessingOption>>,
     only_presets: bool,
 ) -> Result<Vec<ProcessingOption>, String> {
     let mut expanded = Vec::new();
@@ -30,9 +30,8 @@ pub fn expand_presets(
 
     // First, apply the default preset if it exists
     if let Some(default_options) = presets.get("default") {
-        debug!("Applying default preset: {}", default_options);
-        let default_opts = parse_options_string(default_options)?;
-        expanded.extend(default_opts);
+        debug!("Applying default preset with {} options", default_options.len());
+        expanded.extend(default_options.iter().cloned());
     }
 
     // Then process the URL options
@@ -46,9 +45,12 @@ pub fn expand_presets(
             let preset_options = presets
                 .get(preset_name)
                 .ok_or_else(|| format!("unknown preset: {}", preset_name))?;
-            debug!("Expanding preset '{}': {}", preset_name, preset_options);
-            let preset_opts = parse_options_string(preset_options)?;
-            expanded.extend(preset_opts);
+            debug!(
+                "Expanding preset '{}' with {} options",
+                preset_name,
+                preset_options.len()
+            );
+            expanded.extend(preset_options.iter().cloned());
         } else if only_presets {
             return Err(format!(
                 "only preset references are allowed in only_presets mode, found: {}",
@@ -72,7 +74,7 @@ pub fn expand_presets(
 ///
 /// Preset options are separated by '/' and follow the same format as URL options.
 /// Example: "resize:fit:300:300/dpr:3/quality:85"
-fn parse_options_string(options_str: &str) -> Result<Vec<ProcessingOption>, String> {
+pub fn parse_options_string(options_str: &str) -> Result<Vec<ProcessingOption>, String> {
     let mut options = Vec::new();
 
     for part in options_str.split('/') {
@@ -128,7 +130,10 @@ mod tests {
     #[test]
     fn test_expand_presets_simple() {
         let mut presets = HashMap::new();
-        presets.insert("thumbnail".to_string(), "resize:fit:150:150/quality:80".to_string());
+        presets.insert(
+            "thumbnail".to_string(),
+            parse_options_string("resize:fit:150:150/quality:80").unwrap(),
+        );
 
         let options = vec![ProcessingOption {
             name: "preset".to_string(),
@@ -144,8 +149,11 @@ mod tests {
     #[test]
     fn test_expand_presets_with_default() {
         let mut presets = HashMap::new();
-        presets.insert("default".to_string(), "quality:90".to_string());
-        presets.insert("thumbnail".to_string(), "resize:fit:150:150".to_string());
+        presets.insert("default".to_string(), parse_options_string("quality:90").unwrap());
+        presets.insert(
+            "thumbnail".to_string(),
+            parse_options_string("resize:fit:150:150").unwrap(),
+        );
 
         let options = vec![ProcessingOption {
             name: "preset".to_string(),
@@ -161,7 +169,7 @@ mod tests {
     #[test]
     fn test_expand_presets_default_only() {
         let mut presets = HashMap::new();
-        presets.insert("default".to_string(), "quality:90/dpr:2".to_string());
+        presets.insert("default".to_string(), parse_options_string("quality:90/dpr:2").unwrap());
 
         let options = vec![ProcessingOption {
             name: "blur".to_string(),
@@ -177,7 +185,7 @@ mod tests {
 
     #[test]
     fn test_expand_presets_unknown_preset() {
-        let presets = HashMap::new();
+        let presets: HashMap<String, Vec<ProcessingOption>> = HashMap::new();
         let options = vec![ProcessingOption {
             name: "preset".to_string(),
             args: vec!["unknown".to_string()],
@@ -191,7 +199,10 @@ mod tests {
     #[test]
     fn test_expand_presets_only_presets_mode_allows_presets() {
         let mut presets = HashMap::new();
-        presets.insert("thumbnail".to_string(), "resize:fit:150:150".to_string());
+        presets.insert(
+            "thumbnail".to_string(),
+            parse_options_string("resize:fit:150:150").unwrap(),
+        );
 
         let options = vec![ProcessingOption {
             name: "preset".to_string(),
@@ -205,7 +216,7 @@ mod tests {
 
     #[test]
     fn test_expand_presets_only_presets_mode_rejects_non_presets() {
-        let presets = HashMap::new();
+        let presets: HashMap<String, Vec<ProcessingOption>> = HashMap::new();
         let options = vec![ProcessingOption {
             name: "blur".to_string(),
             args: vec!["5".to_string()],
@@ -219,7 +230,7 @@ mod tests {
     #[test]
     fn test_expand_presets_only_presets_mode_allows_default() {
         let mut presets = HashMap::new();
-        presets.insert("default".to_string(), "quality:90".to_string());
+        presets.insert("default".to_string(), parse_options_string("quality:90").unwrap());
 
         let options = vec![];
 
@@ -231,7 +242,7 @@ mod tests {
     #[test]
     fn test_expand_presets_preset_short() {
         let mut presets = HashMap::new();
-        presets.insert("thumb".to_string(), "resize:fit:100:100".to_string());
+        presets.insert("thumb".to_string(), parse_options_string("resize:fit:100:100").unwrap());
 
         let options = vec![ProcessingOption {
             name: "pr".to_string(),
@@ -245,7 +256,7 @@ mod tests {
 
     #[test]
     fn test_expand_presets_empty_preset_name() {
-        let presets = HashMap::new();
+        let presets: HashMap<String, Vec<ProcessingOption>> = HashMap::new();
         let options = vec![ProcessingOption {
             name: "preset".to_string(),
             args: vec![],

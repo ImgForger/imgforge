@@ -1,80 +1,34 @@
-use crate::caching::cache::ImgforgeCache as Cache;
+use crate::app::Imgforge;
 use crate::caching::config::CacheConfig;
 use crate::config::Config;
 use crate::constants::*;
-use crate::handlers::{image_forge_handler, info_handler, status_handler, AppState};
+use crate::handlers::{image_forge_handler, info_handler, status_handler};
 use crate::middleware;
 use crate::monitoring;
 use axum::{extract::Request, routing::get, Router};
 use axum_prometheus::PrometheusMetricLayer;
-
-use governor::{Quota, RateLimiter};
-use libvips::VipsApp;
-use std::env;
-use std::num::NonZeroU32;
-use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;
-use tokio::sync::Semaphore;
 use tower_http::timeout::TimeoutLayer;
 use tower_http::trace::TraceLayer;
 use tracing::{info, info_span, warn};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
-fn init_vips() -> VipsApp {
-    match VipsApp::new("imgforge", false) {
-        Ok(app) => app,
-        Err(e) => {
-            panic!("Failed to initialize libvips: {}", e);
-        }
-    }
-}
-
 pub async fn start() {
-    let config = Config::from_env().expect("Failed to load config");
-    let semaphore = Semaphore::new(config.workers);
-    let cache_config = CacheConfig::from_env().expect("Failed to load cache config");
-    let cache = Cache::new(cache_config).await.expect("Failed to initialize cache");
-
-    let rate_limiter = match env::var(ENV_RATE_LIMIT_PER_MINUTE) {
-        Ok(s) => {
-            let limit = s
-                .parse::<u32>()
-                .expect("IMGFORGE_RATE_LIMIT_PER_MINUTE must be a valid integer");
-            if limit > 0 {
-                info!("Rate limiting enabled: {} requests per minute", limit);
-                Some(RateLimiter::direct(Quota::per_minute(
-                    NonZeroU32::new(limit).expect("Rate limit must be greater than 0"),
-                )))
-            } else {
-                info!("Rate limiting disabled: IMGFORGE_RATE_LIMIT_PER_MINUTE set to 0");
-                None
-            }
-        }
-        Err(_) => {
-            info!("Rate limiting disabled: IMGFORGE_RATE_LIMIT_PER_MINUTE not set");
-            None
-        }
-    };
-
-    // Initialize tracing
     let subscriber = FmtSubscriber::builder()
         .with_env_filter(EnvFilter::from_env(ENV_LOG_LEVEL))
         .finish();
     tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
 
-    info!("Starting imgforge server with {} workers...", config.workers);
+    let config = Config::from_env().expect("Failed to load config");
+    let cache_config = CacheConfig::from_env().expect("Failed to load cache config");
 
-    // Initialize libvips once for the whole process
-    let vips_app = Arc::new(init_vips());
+    let imgforge = Imgforge::new(config, cache_config)
+        .await
+        .expect("Failed to initialize imgforge");
+    let state = imgforge.state();
 
-    let state = Arc::new(AppState {
-        semaphore,
-        cache,
-        rate_limiter,
-        config,
-        vips_app,
-    });
+    info!("Starting imgforge server with {} workers...", state.config.workers);
 
     let (prometheus_layer, metric_handle) = PrometheusMetricLayer::pair();
     monitoring::register_metrics();
@@ -125,7 +79,6 @@ pub async fn start() {
 
     let main_server = axum::serve(listener, app);
 
-    // Conditionally start Prometheus server
     if let Some(prometheus_bind_address) = &state.config.prometheus_bind_address {
         match TcpListener::bind(prometheus_bind_address).await {
             Ok(prometheus_listener) => {

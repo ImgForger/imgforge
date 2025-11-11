@@ -1,26 +1,17 @@
-use crate::constants::*;
 use crate::monitoring::{increment_source_images_fetched, observe_source_image_fetch_duration};
-use axum::body::Bytes;
-use axum::http::header;
-use std::env;
-use std::time::Duration;
+use bytes::{Bytes, BytesMut};
+use reqwest::header;
 use tracing::error;
 
-/// Fetches an image from a given URL.
-pub async fn fetch_image(url: &str) -> Result<(Bytes, Option<String>), String> {
+/// Fetches an image from a given URL using the provided HTTP client.
+pub async fn fetch_image(
+    client: &reqwest::Client,
+    url: &str,
+    max_bytes: Option<usize>,
+) -> Result<(Bytes, Option<String>), String> {
     let fetch_start = std::time::Instant::now();
 
-    let download_timeout = env::var(ENV_DOWNLOAD_TIMEOUT)
-        .ok()
-        .and_then(|s| s.parse::<u64>().ok())
-        .map_or(Duration::from_secs(10), Duration::from_secs);
-
-    let client = reqwest::Client::builder()
-        .timeout(download_timeout)
-        .build()
-        .expect("Failed to build reqwest client");
-
-    let response = match client.get(url).send().await {
+    let mut response = match client.get(url).send().await {
         Ok(res) => {
             let fetch_duration = fetch_start.elapsed().as_secs_f64();
             observe_source_image_fetch_duration(fetch_duration);
@@ -40,81 +31,68 @@ pub async fn fetch_image(url: &str) -> Result<(Bytes, Option<String>), String> {
         }
     };
 
-    let headers = response.headers().clone();
+    let content_type = response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|ct| ct.to_str().ok())
+        .map(|ct| ct.to_string());
 
-    let image_bytes = match response.bytes().await {
-        Ok(bytes) => bytes,
-        Err(e) => {
-            error!("Error reading image bytes: {}", e);
-            return Err(format!("Error reading image bytes: {}", e));
-        }
-    };
+    let mut image_bytes = BytesMut::new();
+    loop {
+        match response.chunk().await {
+            Ok(Some(chunk)) => {
+                if let Some(limit) = max_bytes {
+                    if image_bytes.len() + chunk.len() > limit {
+                        error!(
+                            "Fetched image exceeds configured max size limit ({} bytes) for url={}",
+                            limit, url
+                        );
+                        return Err(format!(
+                            "Source image exceeds the maximum allowed size of {} bytes",
+                            limit
+                        ));
+                    }
+                }
 
-    let mut content_type: Option<String> = None;
-    if let Some(ct) = headers.get(header::CONTENT_TYPE) {
-        if let Ok(ct_str) = ct.to_str() {
-            content_type = Some(ct_str.to_string());
+                image_bytes.extend_from_slice(&chunk);
+            }
+            Ok(None) => break,
+            Err(e) => {
+                error!("Error reading image bytes: {}", e);
+                return Err(format!("Error reading image bytes: {}", e));
+            }
         }
     }
 
-    Ok((image_bytes, content_type))
+    Ok((image_bytes.freeze(), content_type))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
-    #[test]
-    fn test_download_timeout_from_env() {
-        let test_timeout = "30";
-        env::set_var(ENV_DOWNLOAD_TIMEOUT, test_timeout);
-
-        let timeout = env::var(ENV_DOWNLOAD_TIMEOUT)
-            .ok()
-            .and_then(|s| s.parse::<u64>().ok())
-            .map_or(Duration::from_secs(10), Duration::from_secs);
-
-        assert_eq!(timeout, Duration::from_secs(30));
-        env::remove_var(ENV_DOWNLOAD_TIMEOUT);
-    }
-
-    #[test]
-    fn test_download_timeout_default() {
-        env::remove_var(ENV_DOWNLOAD_TIMEOUT);
-
-        let timeout = env::var(ENV_DOWNLOAD_TIMEOUT)
-            .ok()
-            .and_then(|s| s.parse::<u64>().ok())
-            .map_or(Duration::from_secs(10), Duration::from_secs);
-
-        assert_eq!(timeout, Duration::from_secs(10));
-    }
-
-    #[test]
-    fn test_download_timeout_invalid() {
-        env::set_var(ENV_DOWNLOAD_TIMEOUT, "invalid");
-
-        let timeout = env::var(ENV_DOWNLOAD_TIMEOUT)
-            .ok()
-            .and_then(|s| s.parse::<u64>().ok())
-            .map_or(Duration::from_secs(10), Duration::from_secs);
-
-        assert_eq!(timeout, Duration::from_secs(10));
-        env::remove_var(ENV_DOWNLOAD_TIMEOUT);
+    fn client_with_timeout(timeout: Duration) -> reqwest::Client {
+        reqwest::Client::builder()
+            .timeout(timeout)
+            .build()
+            .expect("client builds")
     }
 
     #[tokio::test]
     async fn test_fetch_image_invalid_url() {
-        let result = fetch_image("not_a_valid_url").await;
+        let client = client_with_timeout(Duration::from_secs(5));
+        let result = fetch_image(&client, "not_a_valid_url", None).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Error fetching image"));
     }
 
     #[tokio::test]
     async fn test_fetch_image_nonexistent_domain() {
-        let result = fetch_image("http://this-domain-does-not-exist-12345.com/image.jpg").await;
+        let client = client_with_timeout(Duration::from_secs(5));
+        let result = fetch_image(&client, "http://this-domain-does-not-exist-12345.com/image.jpg", None).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Error fetching image"));
     }
@@ -132,7 +110,8 @@ mod tests {
             .mount(&server)
             .await;
 
-        let (bytes, content_type) = fetch_image(&format!("{}/image.jpg", server.uri()))
+        let client = client_with_timeout(Duration::from_secs(5));
+        let (bytes, content_type) = fetch_image(&client, &format!("{}/image.jpg", server.uri()), None)
             .await
             .expect("request should succeed");
 
@@ -149,7 +128,8 @@ mod tests {
             .mount(&server)
             .await;
 
-        let (bytes, _) = fetch_image(&format!("{}/missing.jpg", server.uri()))
+        let client = client_with_timeout(Duration::from_secs(5));
+        let (bytes, _) = fetch_image(&client, &format!("{}/missing.jpg", server.uri()), None)
             .await
             .expect("404 responses should still return bytes");
 
@@ -158,8 +138,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_fetch_image_with_custom_timeout() {
-        env::set_var(ENV_DOWNLOAD_TIMEOUT, "1");
-
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/slow.jpg"))
@@ -171,9 +149,9 @@ mod tests {
             .mount(&server)
             .await;
 
-        let result = fetch_image(&format!("{}/slow.jpg", server.uri())).await;
+        let client = client_with_timeout(Duration::from_secs(1));
+        let result = fetch_image(&client, &format!("{}/slow.jpg", server.uri()), None).await;
 
-        env::remove_var(ENV_DOWNLOAD_TIMEOUT);
         assert!(result.is_err());
     }
 
@@ -190,12 +168,29 @@ mod tests {
             .mount(&server)
             .await;
 
-        let (bytes, content_type) = fetch_image(&format!("{}/image.png", server.uri()))
+        let client = client_with_timeout(Duration::from_secs(5));
+        let (bytes, content_type) = fetch_image(&client, &format!("{}/image.png", server.uri()), None)
             .await
             .expect("request should succeed");
 
         assert_eq!(bytes.len(), 3);
         assert_eq!(content_type.as_deref(), Some("image/png"));
+    }
+
+    #[tokio::test]
+    async fn test_fetch_image_enforces_max_size() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/large.jpg"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(vec![0u8; 5]))
+            .mount(&server)
+            .await;
+
+        let client = client_with_timeout(Duration::from_secs(5));
+        let result = fetch_image(&client, &format!("{}/large.jpg", server.uri()), Some(3)).await;
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("maximum allowed size"));
     }
 
     #[test]
