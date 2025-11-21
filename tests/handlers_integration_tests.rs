@@ -77,6 +77,7 @@ fn create_test_config(key: Vec<u8>, salt: Vec<u8>, allow_unsigned: bool) -> Conf
 /// Helper function to create test AppState
 async fn create_test_state(config: Config) -> Arc<AppState> {
     let cache = ImgforgeCache::None;
+    let metadata_cache = imgforge::caching::cache::MetadataCache::None;
     let http_client = reqwest::Client::builder()
         .timeout(Duration::from_secs(config.download_timeout))
         .build()
@@ -85,6 +86,7 @@ async fn create_test_state(config: Config) -> Arc<AppState> {
     Arc::new(AppState {
         semaphore: Arc::new(Semaphore::new(config.workers)),
         cache,
+        metadata_cache,
         rate_limiter: None,
         config,
         vips_app: VIPS_APP.clone(),

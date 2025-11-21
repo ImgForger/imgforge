@@ -55,9 +55,12 @@ async fn create_test_state_with_cache(config: Config, cache: ImgforgeCache) -> A
         .build()
         .expect("client builds");
 
+    let metadata_cache = imgforge::caching::cache::MetadataCache::None;
+
     Arc::new(AppState {
         semaphore: Arc::new(Semaphore::new(config.workers)),
         cache,
+        metadata_cache,
         rate_limiter: None,
         config,
         vips_app: VIPS_APP.clone(),

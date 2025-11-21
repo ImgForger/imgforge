@@ -1,5 +1,5 @@
 use crate::app::AppState;
-use crate::caching::cache::{CachedImage, ImgforgeCache};
+use crate::caching::cache::{CachedImage, CachedMetadata, ImgforgeCache, MetadataCache};
 use crate::fetch::fetch_image;
 use crate::processing::options::{parse_all_options, ParsedOptions};
 use crate::processing::presets::expand_presets;
@@ -216,6 +216,15 @@ pub async fn image_info(state: Arc<AppState>, request: ProcessRequest<'_>) -> Re
     debug!("Info path captured: {}", path);
     let url_parts = parse_and_authorize(config, path, request.bearer_token)?;
 
+    if let Some(cached_metadata) = state.metadata_cache.get(path).await {
+        debug!("Metadata found in cache for path={}", path);
+        return Ok(ImageInfo {
+            width: cached_metadata.width,
+            height: cached_metadata.height,
+            format: cached_metadata.format,
+        });
+    }
+
     let decoded_url = url_parts.source_url.decode().map_err(|e| {
         error!("Error decoding URL: {}", e);
         ServiceError::new(StatusCode::BAD_REQUEST, format!("Error decoding URL: {}", e))
@@ -228,6 +237,13 @@ pub async fn image_info(state: Arc<AppState>, request: ProcessRequest<'_>) -> Re
             ServiceError::new(StatusCode::BAD_REQUEST, format!("Error fetching image: {}", e))
         })?;
 
+    let _permit = state
+        .semaphore
+        .clone()
+        .acquire_owned()
+        .await
+        .map_err(|_| ServiceError::new(StatusCode::INTERNAL_SERVER_ERROR, "Semaphore closed"))?;
+
     let (width, height, image_format) = match VipsImage::new_from_buffer(&image_bytes, "") {
         Ok(img) => {
             let format_str = "unknown";
@@ -235,6 +251,18 @@ pub async fn image_info(state: Arc<AppState>, request: ProcessRequest<'_>) -> Re
         }
         Err(_) => (0, 0, "unknown".to_string()),
     };
+
+    let metadata = CachedMetadata {
+        width,
+        height,
+        format: image_format.clone(),
+    };
+
+    if !matches!(state.metadata_cache, MetadataCache::None) {
+        if let Err(err) = state.metadata_cache.insert(path.to_string(), metadata).await {
+            error!("Failed to cache metadata: {}", err);
+        }
+    }
 
     info!(
         "Imgforge info served path={} width={} height={} format={}",
