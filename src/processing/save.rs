@@ -24,10 +24,15 @@ pub fn save_image(img: VipsImage, format: &str, quality: u8) -> Result<Vec<u8>, 
             ops::pngsave_buffer_with_opts(&img, &opts).map_err(|e| format!("Error encoding PNG: {}", e))
         }
         "webp" => {
+            let mut opts = ops::WebpsaveBufferOptions::default();
+
+            // Set quality for WebP
+            opts.q = quality as i32;
+            opts.lossless = false;
+
             // Note: WebpsaveBufferOptions in libvips 1.7.1 causes crashes when used with _with_opts.
             // Using default save for WebP until the library is updated.
-            // JPEG quality control is fully working as requested in the ticket.
-            ops::webpsave_buffer(&img).map_err(|e| format!("Error encoding WebP: {}", e))
+            ops::webpsave_buffer_with_opts(&img, &opts).map_err(|e| format!("Error encoding WebP: {}", e))
         }
         "tiff" => ops::tiffsave_buffer(&img).map_err(|e| format!("Error encoding TIFF: {}", e)),
         "gif" => ops::gifsave_buffer(&img).map_err(|e| format!("Error encoding GIF: {}", e)),
