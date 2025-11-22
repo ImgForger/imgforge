@@ -17,6 +17,12 @@ use tracing::{info, warn};
 
 pub type RequestRateLimiter = RateLimiter<NotKeyed, InMemoryState, DefaultClock>;
 
+/// Cached watermark data: raw bytes + metadata
+pub struct CachedWatermark {
+    pub raw_bytes: Bytes,
+    pub metadata: crate::processing::transform::WatermarkMetadata,
+}
+
 /// Shared application state for imgforge.
 pub struct AppState {
     pub semaphore: Arc<Semaphore>,
@@ -26,7 +32,7 @@ pub struct AppState {
     pub config: Config,
     pub vips_app: Arc<VipsApp>,
     pub http_client: reqwest::Client,
-    pub watermark_cache: Mutex<Option<Bytes>>,
+    pub watermark_cache: Mutex<Option<CachedWatermark>>,
 }
 
 #[derive(Clone)]

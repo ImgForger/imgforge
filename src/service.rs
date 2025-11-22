@@ -141,7 +141,7 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
         return serve_raw_response(state.as_ref(), path, image_bytes, source_content_type).await;
     }
 
-    let watermark_bytes = if needs_watermark(&parsed_options) {
+    let watermark_data = if needs_watermark(&parsed_options) {
         resolve_watermark(state.as_ref(), &parsed_options).await?
     } else {
         None
@@ -171,7 +171,7 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
             Some(&source_image),
         )?;
 
-        process_image(source_image, parsed_options, &image_bytes, watermark_bytes.as_ref()).map_err(|e| {
+        process_image(source_image, parsed_options, &image_bytes, watermark_data.as_ref()).map_err(|e| {
             error!("Error processing image: {}", e);
             ServiceError::new(StatusCode::BAD_REQUEST, format!("Error processing image: {}", e))
         })?
@@ -408,11 +408,26 @@ fn needs_watermark(parsed_options: &ParsedOptions) -> bool {
     parsed_options.watermark.is_some() || parsed_options.watermark_url.is_some()
 }
 
-async fn resolve_watermark(state: &AppState, parsed_options: &ParsedOptions) -> Result<Option<Bytes>, ServiceError> {
+async fn resolve_watermark(
+    state: &AppState,
+    parsed_options: &ParsedOptions,
+) -> Result<Option<crate::processing::WatermarkData>, ServiceError> {
     if let Some(url) = &parsed_options.watermark_url {
         debug!("Fetching watermark from URL: {}", url);
         match crate::fetch::fetch_image(&state.http_client, url, None).await {
-            Ok((bytes, _)) => Ok(Some(bytes)),
+            Ok((bytes, _)) => {
+                // Prepare watermark metadata (decode once to check alpha, no caching for URL sources)
+                match crate::processing::transform::prepare_watermark(&bytes) {
+                    Ok(metadata) => Ok(Some((bytes, metadata))),
+                    Err(e) => {
+                        error!("Failed to prepare watermark: {}", e);
+                        Err(ServiceError::new(
+                            StatusCode::BAD_REQUEST,
+                            "Failed to prepare watermark",
+                        ))
+                    }
+                }
+            }
             Err(e) => {
                 error!("Failed to fetch watermark image: {}", e);
                 Err(ServiceError::new(
@@ -426,17 +441,32 @@ async fn resolve_watermark(state: &AppState, parsed_options: &ParsedOptions) -> 
             {
                 let cache = state.watermark_cache.lock().await;
                 if let Some(cached) = cache.as_ref() {
-                    return Ok(Some(cached.clone()));
+                    return Ok(Some((cached.raw_bytes.clone(), cached.metadata.clone())));
                 }
             }
 
             debug!("Loading watermark from path: {} (cached on first load)", path);
             match fs::read(path).await {
                 Ok(bytes) => {
-                    let bytes = Bytes::from(bytes);
-                    let mut cache = state.watermark_cache.lock().await;
-                    *cache = Some(bytes.clone());
-                    Ok(Some(bytes))
+                    let raw_bytes = Bytes::from(bytes);
+                    // Prepare watermark metadata (decode once to check alpha)
+                    match crate::processing::transform::prepare_watermark(&raw_bytes) {
+                        Ok(metadata) => {
+                            let mut cache = state.watermark_cache.lock().await;
+                            *cache = Some(crate::app::CachedWatermark {
+                                raw_bytes: raw_bytes.clone(),
+                                metadata: metadata.clone(),
+                            });
+                            Ok(Some((raw_bytes, metadata)))
+                        }
+                        Err(e) => {
+                            error!("Failed to prepare watermark: {}", e);
+                            Err(ServiceError::new(
+                                StatusCode::BAD_REQUEST,
+                                "Failed to prepare watermark",
+                            ))
+                        }
+                    }
                 }
                 Err(e) => {
                     error!("Failed to read watermark image from path: {}", e);
