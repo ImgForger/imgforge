@@ -6,6 +6,12 @@ use tracing::debug;
 
 const SCALE_EPSILON: f64 = 1e-6;
 
+/// Watermark metadata about its format and alpha channel
+#[derive(Clone, Debug)]
+pub struct WatermarkMetadata {
+    pub has_alpha: bool,
+}
+
 /// Converts a resizing algorithm string to a libvips Kernel enum.
 fn get_resize_kernel(algorithm: &Option<String>) -> ops::Kernel {
     match algorithm.as_deref().unwrap_or("lanczos3") {
@@ -412,13 +418,30 @@ pub fn apply_pixelate(img: VipsImage, amount: u32, resizing_algorithm: &Option<S
     )
 }
 
+/// Prepares watermark metadata by decoding once to check if it has alpha.
+/// This avoids redundant alpha channel detection on every request.
+/// The raw bytes are kept unchanged for quick re-decode without format conversion.
+pub fn prepare_watermark(watermark_bytes: &[u8]) -> Result<WatermarkMetadata, String> {
+    let watermark_img = VipsImage::new_from_buffer(watermark_bytes, "")
+        .map_err(|e| format!("Failed to load watermark image from buffer: {}", e))?;
+
+    let bands = watermark_img.get_bands();
+    let has_alpha = bands == 4 || bands == 2;
+
+    Ok(WatermarkMetadata { has_alpha })
+}
+
 /// Applies a watermark to an image.
+/// watermark_bytes are the raw image bytes from the source (typically PNG/JPEG)
+/// metadata contains cached information to avoid redundant checks (has_alpha flag)
 pub fn apply_watermark(
     img: VipsImage,
     watermark_bytes: &[u8],
+    watermark_metadata: &WatermarkMetadata,
     watermark_opts: &Watermark,
     resizing_algorithm: &Option<String>,
 ) -> Result<VipsImage, String> {
+    // Decode watermark - this is the only expensive operation
     let watermark_img = VipsImage::new_from_buffer(watermark_bytes, "")
         .map_err(|e| format!("Failed to load watermark image from buffer: {}", e))?;
 
@@ -432,8 +455,8 @@ pub fn apply_watermark(
         "Failed to resize watermark",
     )?;
 
-    // Add alpha channel to watermark if it doesn't have one
-    let watermark_with_alpha = if watermark_resized.get_bands() == 4 || watermark_resized.get_bands() == 2 {
+    // Add alpha channel if needed (skip if metadata says it already has it)
+    let watermark_with_alpha = if watermark_metadata.has_alpha {
         watermark_resized
     } else {
         ops::bandjoin_const(&watermark_resized, &mut [255.0])

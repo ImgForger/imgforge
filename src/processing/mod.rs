@@ -6,10 +6,14 @@ pub mod utils;
 
 use crate::monitoring::{increment_processed_images, observe_image_processing_duration};
 use crate::processing::options::ParsedOptions;
+use crate::processing::transform::WatermarkMetadata;
 use bytes::Bytes;
 use libvips::VipsImage;
 use std::time::Instant;
 use tracing::debug;
+
+/// Watermark data: (raw watermark bytes, metadata about format)
+pub type WatermarkData = (Bytes, WatermarkMetadata);
 
 /// Processes an image by applying the given `ParsedOptions`.
 ///
@@ -22,7 +26,7 @@ use tracing::debug;
 /// * `img` - The decoded source image to transform.
 /// * `parsed_options` - A `ParsedOptions` struct containing the desired transformations.
 /// * `source_bytes` - The original image bytes used for EXIF and metadata-driven operations.
-/// * `watermark_bytes` - Optional watermark image bytes to overlay on the source image.
+/// * `watermark_data` - Optional prepared watermark data (RGBA bytes + metadata) to overlay on the source image.
 ///
 /// # Returns
 ///
@@ -31,7 +35,7 @@ pub fn process_image(
     mut img: VipsImage,
     mut parsed_options: ParsedOptions,
     source_bytes: &Bytes,
-    watermark_bytes: Option<&Bytes>,
+    watermark_data: Option<&WatermarkData>,
 ) -> Result<Bytes, String> {
     let start = Instant::now();
     debug!("Starting image processing with options: {:?}", parsed_options);
@@ -174,9 +178,15 @@ pub fn process_image(
 
     // Apply watermark if specified
     if let Some(ref watermark_opts) = parsed_options.watermark {
-        if let Some(watermark_bytes) = watermark_bytes {
+        if let Some((watermark_bytes, watermark_metadata)) = watermark_data {
             debug!("Applying watermark with options: {:?}", watermark_opts);
-            img = transform::apply_watermark(img, watermark_bytes, watermark_opts, &parsed_options.resizing_algorithm)?;
+            img = transform::apply_watermark(
+                img,
+                watermark_bytes,
+                watermark_metadata,
+                watermark_opts,
+                &parsed_options.resizing_algorithm,
+            )?;
         }
     }
 
