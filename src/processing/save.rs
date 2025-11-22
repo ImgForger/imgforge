@@ -29,7 +29,8 @@ pub fn save_image(img: VipsImage, format: &str, quality: u8) -> Result<Vec<u8>, 
             // Set quality for WebP
             opts.q = quality as i32;
             opts.lossless = false;
-            opts.effort = effort;
+            // libvips caps WebP effort at 6 (0-6 range)
+            opts.effort = effort.min(6);
 
             ops::webpsave_buffer_with_opts(&img, &opts).map_err(|e| format!("Error encoding WebP: {}", e))
         }
