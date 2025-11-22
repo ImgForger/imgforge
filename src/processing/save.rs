@@ -40,7 +40,12 @@ pub fn save_image(img: VipsImage, format: &str, quality: u8) -> Result<Vec<u8>, 
 
             ops::tiffsave_buffer_with_opts(&img, &opts).map_err(|e| format!("Error encoding TIFF: {}", e))
         }
-        "gif" => ops::gifsave_buffer(&img).map_err(|e| format!("Error encoding GIF: {}", e)),
+        "gif" => {
+            let mut opts = ops::GifsaveBufferOptions::default();
+            opts.effort = effort;
+
+            ops::gifsave_buffer_with_opts(&img, &opts).map_err(|e| format!("Error encoding GIF: {}", e))
+        }
         _ => Err(format!("Unsupported output format: {}", format)),
     }
 }
