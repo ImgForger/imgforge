@@ -4,6 +4,7 @@ mod test_processing {
     use crate::processing::options::{parse_all_options, Crop, ProcessingOption, Resize, Watermark};
     use crate::processing::transform;
     use crate::processing::utils;
+    use crate::processing::watermark;
     use bytes::Bytes;
     use image::{ImageBuffer, Rgba};
     use lazy_static::lazy_static;
@@ -227,8 +228,8 @@ mod test_processing {
         bytes
     }
 
-    fn cached_watermark_from_bytes(bytes: Vec<u8>) -> transform::CachedWatermark {
-        transform::CachedWatermark::from_bytes(Bytes::from(bytes))
+    fn cached_watermark_from_bytes(bytes: Vec<u8>) -> watermark::CachedWatermark {
+        watermark::CachedWatermark::from_bytes(Bytes::from(bytes))
     }
 
     #[test]
@@ -507,7 +508,7 @@ mod test_processing {
             opacity: 0.5,
             position: "center".to_string(),
         };
-        let watermarked_img = transform::apply_watermark(img, &watermark, &watermark_opts, &None).unwrap();
+        let watermarked_img = watermark::apply_watermark(img, &watermark, &watermark_opts, &None).unwrap();
 
         assert_eq!(watermarked_img.get_width(), 200);
         assert_eq!(watermarked_img.get_height(), 200);
@@ -940,7 +941,7 @@ mod test_processing {
                 opacity: 0.5,
                 position: position.to_string(),
             };
-            let watermarked = transform::apply_watermark(img, &watermark, &watermark_opts, &None).unwrap();
+            let watermarked = watermark::apply_watermark(img, &watermark, &watermark_opts, &None).unwrap();
             assert_eq!(watermarked.get_width(), 200);
             assert_eq!(watermarked.get_height(), 200);
         }
@@ -955,7 +956,7 @@ mod test_processing {
             opacity: 1.0,
             position: "center".to_string(),
         };
-        let watermarked = transform::apply_watermark(img, &watermark, &watermark_opts, &None).unwrap();
+        let watermarked = watermark::apply_watermark(img, &watermark, &watermark_opts, &None).unwrap();
         assert_eq!(watermarked.get_width(), 200);
         assert_eq!(watermarked.get_height(), 200);
     }
@@ -969,7 +970,7 @@ mod test_processing {
             opacity: 0.0,
             position: "center".to_string(),
         };
-        let watermarked = transform::apply_watermark(img, &watermark, &watermark_opts, &None).unwrap();
+        let watermarked = watermark::apply_watermark(img, &watermark, &watermark_opts, &None).unwrap();
         assert_eq!(watermarked.get_width(), 200);
         assert_eq!(watermarked.get_height(), 200);
     }
@@ -1242,7 +1243,7 @@ mod test_processing {
             opacity: 0.7,
             position: "south_east".to_string(),
         };
-        let img = transform::apply_watermark(img, &watermark, &watermark_opts, &None).unwrap();
+        let img = watermark::apply_watermark(img, &watermark, &watermark_opts, &None).unwrap();
         assert_eq!(img.get_width(), 170);
     }
 

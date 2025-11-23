@@ -4,7 +4,7 @@ use crate::fetch::fetch_image;
 use crate::processing::options::{parse_all_options, ParsedOptions};
 use crate::processing::presets::expand_presets;
 use crate::processing::process_image;
-use crate::processing::transform::{self, CachedWatermark};
+use crate::processing::watermark::{self, CachedWatermark};
 use crate::url::{parse_path, validate_signature, ImgforgeUrl};
 use crate::utils::format_to_content_type;
 use axum::http::StatusCode;
@@ -443,7 +443,7 @@ async fn resolve_watermark(
                 }
             };
 
-            let watermark = transform::prepare_cached_watermark(bytes.clone()).map_err(|e| {
+            let watermark = watermark::prepare_cached_watermark(bytes.clone()).map_err(|e| {
                 error!("Failed to decode watermark image: {}", e);
                 ServiceError::new(StatusCode::BAD_REQUEST, "Failed to decode watermark image")
             })?;

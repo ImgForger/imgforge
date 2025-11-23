@@ -3,7 +3,7 @@ use crate::caching::config::CacheConfig;
 use crate::caching::error::CacheError;
 use crate::config::Config;
 use crate::monitoring;
-use crate::processing::transform::CachedWatermark;
+use crate::processing::watermark::CachedWatermark;
 use governor::clock::DefaultClock;
 use governor::state::{InMemoryState, NotKeyed};
 use governor::{Quota, RateLimiter};

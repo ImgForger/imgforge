@@ -3,10 +3,11 @@ pub mod presets;
 pub mod save;
 pub mod transform;
 pub mod utils;
+pub mod watermark;
 
 use crate::monitoring::{increment_processed_images, observe_image_processing_duration};
 use crate::processing::options::ParsedOptions;
-use crate::processing::transform::CachedWatermark;
+use crate::processing::watermark::CachedWatermark;
 use bytes::Bytes;
 use libvips::VipsImage;
 use std::time::Instant;
@@ -177,7 +178,7 @@ pub fn process_image(
     if let Some(ref watermark_opts) = parsed_options.watermark {
         if let Some(watermark) = watermark {
             debug!("Applying watermark with options: {:?}", watermark_opts);
-            img = transform::apply_watermark(img, watermark, watermark_opts, &parsed_options.resizing_algorithm)?;
+            img = watermark::apply_watermark(img, watermark, watermark_opts, &parsed_options.resizing_algorithm)?;
         }
     }
 
