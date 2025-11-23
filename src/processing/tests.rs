@@ -4,6 +4,7 @@ mod test_processing {
     use crate::processing::options::{parse_all_options, Crop, ProcessingOption, Resize, Watermark};
     use crate::processing::transform;
     use crate::processing::utils;
+    use bytes::Bytes;
     use image::{ImageBuffer, Rgba};
     use lazy_static::lazy_static;
     use libvips::{VipsApp, VipsImage};
@@ -224,6 +225,10 @@ mod test_processing {
         img.write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Jpeg)
             .unwrap();
         bytes
+    }
+
+    fn cached_watermark_from_bytes(bytes: Vec<u8>) -> transform::CachedWatermark {
+        transform::CachedWatermark::from_bytes(Bytes::from(bytes))
     }
 
     #[test]
@@ -492,9 +497,9 @@ mod test_processing {
     fn test_apply_watermark() {
         let _ = &*APP;
         // Create a dummy watermark image
-        let watermark_bytes = create_test_image(50, 50);
+        let watermark = cached_watermark_from_bytes(create_test_image(50, 50));
         let watermark_path = "/tmp/test_watermark.png";
-        std::fs::write(watermark_path, &watermark_bytes).unwrap();
+        std::fs::write(watermark_path, watermark.bytes.clone()).unwrap();
         std::env::set_var(ENV_WATERMARK_PATH, watermark_path);
 
         let img = VipsImage::new_from_buffer(&create_test_image(200, 200), "").unwrap();
@@ -502,7 +507,7 @@ mod test_processing {
             opacity: 0.5,
             position: "center".to_string(),
         };
-        let watermarked_img = transform::apply_watermark(img, &watermark_bytes, &watermark_opts, &None).unwrap();
+        let watermarked_img = transform::apply_watermark(img, &watermark, &watermark_opts, &None).unwrap();
 
         assert_eq!(watermarked_img.get_width(), 200);
         assert_eq!(watermarked_img.get_height(), 200);
@@ -916,7 +921,7 @@ mod test_processing {
     #[test]
     fn test_watermark_all_positions() {
         let _ = &*APP;
-        let watermark_bytes = create_test_image(50, 50);
+        let watermark = cached_watermark_from_bytes(create_test_image(50, 50));
         let positions = vec![
             "north",
             "south",
@@ -935,7 +940,7 @@ mod test_processing {
                 opacity: 0.5,
                 position: position.to_string(),
             };
-            let watermarked = transform::apply_watermark(img, &watermark_bytes, &watermark_opts, &None).unwrap();
+            let watermarked = transform::apply_watermark(img, &watermark, &watermark_opts, &None).unwrap();
             assert_eq!(watermarked.get_width(), 200);
             assert_eq!(watermarked.get_height(), 200);
         }
@@ -945,12 +950,12 @@ mod test_processing {
     fn test_watermark_full_opacity() {
         let _ = &*APP;
         let img = VipsImage::new_from_buffer(&create_test_image(200, 200), "").unwrap();
-        let watermark_bytes = create_test_image(50, 50);
+        let watermark = cached_watermark_from_bytes(create_test_image(50, 50));
         let watermark_opts = Watermark {
             opacity: 1.0,
             position: "center".to_string(),
         };
-        let watermarked = transform::apply_watermark(img, &watermark_bytes, &watermark_opts, &None).unwrap();
+        let watermarked = transform::apply_watermark(img, &watermark, &watermark_opts, &None).unwrap();
         assert_eq!(watermarked.get_width(), 200);
         assert_eq!(watermarked.get_height(), 200);
     }
@@ -959,12 +964,12 @@ mod test_processing {
     fn test_watermark_zero_opacity() {
         let _ = &*APP;
         let img = VipsImage::new_from_buffer(&create_test_image(200, 200), "").unwrap();
-        let watermark_bytes = create_test_image(50, 50);
+        let watermark = cached_watermark_from_bytes(create_test_image(50, 50));
         let watermark_opts = Watermark {
             opacity: 0.0,
             position: "center".to_string(),
         };
-        let watermarked = transform::apply_watermark(img, &watermark_bytes, &watermark_opts, &None).unwrap();
+        let watermarked = transform::apply_watermark(img, &watermark, &watermark_opts, &None).unwrap();
         assert_eq!(watermarked.get_width(), 200);
         assert_eq!(watermarked.get_height(), 200);
     }
@@ -1232,12 +1237,12 @@ mod test_processing {
         assert_eq!(img.get_height(), 170);
 
         // Watermark
-        let watermark_bytes = create_test_image(30, 30);
+        let watermark = cached_watermark_from_bytes(create_test_image(30, 30));
         let watermark_opts = Watermark {
             opacity: 0.7,
             position: "south_east".to_string(),
         };
-        let img = transform::apply_watermark(img, &watermark_bytes, &watermark_opts, &None).unwrap();
+        let img = transform::apply_watermark(img, &watermark, &watermark_opts, &None).unwrap();
         assert_eq!(img.get_width(), 170);
     }
 

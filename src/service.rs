@@ -4,6 +4,7 @@ use crate::fetch::fetch_image;
 use crate::processing::options::{parse_all_options, ParsedOptions};
 use crate::processing::presets::expand_presets;
 use crate::processing::process_image;
+use crate::processing::transform::{self, CachedWatermark};
 use crate::url::{parse_path, validate_signature, ImgforgeUrl};
 use crate::utils::format_to_content_type;
 use axum::http::StatusCode;
@@ -141,7 +142,7 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
         return serve_raw_response(state.as_ref(), path, image_bytes, source_content_type).await;
     }
 
-    let watermark_bytes = if needs_watermark(&parsed_options) {
+    let watermark = if needs_watermark(&parsed_options) {
         resolve_watermark(state.as_ref(), &parsed_options).await?
     } else {
         None
@@ -171,7 +172,7 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
             Some(&source_image),
         )?;
 
-        process_image(source_image, parsed_options, &image_bytes, watermark_bytes.as_ref()).map_err(|e| {
+        process_image(source_image, parsed_options, &image_bytes, watermark.as_ref()).map_err(|e| {
             error!("Error processing image: {}", e);
             ServiceError::new(StatusCode::BAD_REQUEST, format!("Error processing image: {}", e))
         })?
@@ -408,11 +409,14 @@ fn needs_watermark(parsed_options: &ParsedOptions) -> bool {
     parsed_options.watermark.is_some() || parsed_options.watermark_url.is_some()
 }
 
-async fn resolve_watermark(state: &AppState, parsed_options: &ParsedOptions) -> Result<Option<Bytes>, ServiceError> {
+async fn resolve_watermark(
+    state: &AppState,
+    parsed_options: &ParsedOptions,
+) -> Result<Option<CachedWatermark>, ServiceError> {
     if let Some(url) = &parsed_options.watermark_url {
         debug!("Fetching watermark from URL: {}", url);
         match crate::fetch::fetch_image(&state.http_client, url, None).await {
-            Ok((bytes, _)) => Ok(Some(bytes)),
+            Ok((bytes, _)) => Ok(Some(CachedWatermark::from_bytes(bytes))),
             Err(e) => {
                 error!("Failed to fetch watermark image: {}", e);
                 Err(ServiceError::new(
@@ -423,29 +427,29 @@ async fn resolve_watermark(state: &AppState, parsed_options: &ParsedOptions) -> 
         }
     } else if parsed_options.watermark.is_some() {
         if let Some(path) = &state.config.watermark_path {
-            {
-                let cache = state.watermark_cache.lock().await;
-                if let Some(cached) = cache.as_ref() {
-                    return Ok(Some(cached.clone()));
-                }
+            if let Some(cached) = state.watermark_cache.lock().await.clone() {
+                return Ok(Some(cached));
             }
 
             debug!("Loading watermark from path: {} (cached on first load)", path);
-            match fs::read(path).await {
-                Ok(bytes) => {
-                    let bytes = Bytes::from(bytes);
-                    let mut cache = state.watermark_cache.lock().await;
-                    *cache = Some(bytes.clone());
-                    Ok(Some(bytes))
-                }
+            let bytes = match fs::read(path).await {
+                Ok(bytes) => Bytes::from(bytes),
                 Err(e) => {
                     error!("Failed to read watermark image from path: {}", e);
-                    Err(ServiceError::new(
+                    return Err(ServiceError::new(
                         StatusCode::BAD_REQUEST,
                         "Failed to read watermark image from path",
-                    ))
+                    ));
                 }
-            }
+            };
+
+            let watermark = transform::prepare_cached_watermark(bytes.clone()).map_err(|e| {
+                error!("Failed to decode watermark image: {}", e);
+                ServiceError::new(StatusCode::BAD_REQUEST, "Failed to decode watermark image")
+            })?;
+            let mut cache = state.watermark_cache.lock().await;
+            *cache = Some(watermark.clone());
+            Ok(Some(watermark))
         } else {
             Ok(None)
         }

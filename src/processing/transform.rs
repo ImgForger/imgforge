@@ -1,10 +1,49 @@
 use crate::processing::options::{Crop, Resize, Watermark};
+use bytes::Bytes;
 use exif::{In, Tag};
 use libvips::{ops, VipsImage};
 use std::io::Cursor;
 use tracing::debug;
 
 const SCALE_EPSILON: f64 = 1e-6;
+
+#[derive(Clone)]
+pub struct PreparedWatermark {
+    bytes: Bytes,
+    width: i32,
+    height: i32,
+    bands: i32,
+    format: ops::BandFormat,
+}
+
+impl PreparedWatermark {
+    fn to_image(&self) -> Result<VipsImage, String> {
+        VipsImage::new_from_memory(&self.bytes, self.width, self.height, self.bands, self.format)
+            .map_err(|e| format!("Failed to load watermark from prepared bytes: {}", e))
+    }
+}
+
+#[derive(Clone)]
+pub struct CachedWatermark {
+    pub bytes: Bytes,
+    pub prepared_rgba: Option<PreparedWatermark>,
+}
+
+impl CachedWatermark {
+    pub fn from_bytes(bytes: Bytes) -> Self {
+        Self {
+            bytes,
+            prepared_rgba: None,
+        }
+    }
+
+    pub fn from_prepared(bytes: Bytes, prepared_rgba: PreparedWatermark) -> Self {
+        Self {
+            bytes,
+            prepared_rgba: Some(prepared_rgba),
+        }
+    }
+}
 
 /// Converts a resizing algorithm string to a libvips Kernel enum.
 fn get_resize_kernel(algorithm: &Option<String>) -> ops::Kernel {
@@ -412,15 +451,57 @@ pub fn apply_pixelate(img: VipsImage, amount: u32, resizing_algorithm: &Option<S
     )
 }
 
+pub fn load_watermark_image(watermark_bytes: &[u8]) -> Result<VipsImage, String> {
+    let watermark_img = VipsImage::new_from_buffer(watermark_bytes, "")
+        .map_err(|e| format!("Failed to load watermark image from buffer: {}", e))?;
+    ensure_alpha_channel(watermark_img)
+}
+
+pub fn prepare_cached_watermark(bytes: Bytes) -> Result<CachedWatermark, String> {
+    let watermark_img = load_watermark_image(bytes.as_ref())?;
+    let prepared_rgba = build_prepared_watermark_image(watermark_img)?;
+    Ok(CachedWatermark::from_prepared(bytes, prepared_rgba))
+}
+
+fn build_prepared_watermark_image(watermark_img: VipsImage) -> Result<PreparedWatermark, String> {
+    let format = watermark_img
+        .get_format()
+        .map_err(|e| format!("Failed to determine watermark format: {}", e))?;
+    let prepared = PreparedWatermark {
+        bytes: Bytes::from(watermark_img.image_write_to_memory()),
+        width: watermark_img.get_width(),
+        height: watermark_img.get_height(),
+        bands: watermark_img.get_bands(),
+        format,
+    };
+
+    Ok(prepared)
+}
+
+fn resolve_watermark_image(watermark: &CachedWatermark) -> Result<VipsImage, String> {
+    if let Some(prepared_rgba) = &watermark.prepared_rgba {
+        return prepared_rgba.to_image();
+    }
+
+    load_watermark_image(watermark.bytes.as_ref())
+}
+
+fn ensure_alpha_channel(watermark_img: VipsImage) -> Result<VipsImage, String> {
+    if watermark_img.get_bands() == 4 || watermark_img.get_bands() == 2 {
+        return Ok(watermark_img);
+    }
+
+    ops::bandjoin_const(&watermark_img, &mut [255.0]).map_err(|e| format!("Failed to add alpha to watermark: {}", e))
+}
+
 /// Applies a watermark to an image.
 pub fn apply_watermark(
     img: VipsImage,
-    watermark_bytes: &[u8],
+    watermark: &CachedWatermark,
     watermark_opts: &Watermark,
     resizing_algorithm: &Option<String>,
 ) -> Result<VipsImage, String> {
-    let watermark_img = VipsImage::new_from_buffer(watermark_bytes, "")
-        .map_err(|e| format!("Failed to load watermark image from buffer: {}", e))?;
+    let watermark_img = resolve_watermark_image(watermark)?;
 
     // Resize watermark to be 1/4 of the main image's width, maintaining aspect ratio
     let factor = (img.get_width() as f64 / 4.0) / watermark_img.get_width() as f64;
@@ -433,12 +514,7 @@ pub fn apply_watermark(
     )?;
 
     // Add alpha channel to watermark if it doesn't have one
-    let watermark_with_alpha = if watermark_resized.get_bands() == 4 || watermark_resized.get_bands() == 2 {
-        watermark_resized
-    } else {
-        ops::bandjoin_const(&watermark_resized, &mut [255.0])
-            .map_err(|e| format!("Failed to add alpha to watermark: {}", e))?
-    };
+    let watermark_with_alpha = ensure_alpha_channel(watermark_resized)?;
 
     // Apply opacity
     let multipliers = &mut [1.0, 1.0, 1.0, watermark_opts.opacity as f64];
