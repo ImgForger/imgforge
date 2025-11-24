@@ -1,7 +1,7 @@
 # Dockerfile for imgforge
 
 # Builder stage
-FROM rust:1.90 AS builder
+FROM rust:1.91 AS builder
 
 RUN apt-get update && apt-get install -y libvips-dev pkg-config
 
