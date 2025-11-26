@@ -22,7 +22,6 @@ pub fn save_image(img: VipsImage, format: &str, quality: u8) -> Result<Vec<u8>, 
             let opts = ops::JpegsaveBufferOptions {
                 q: quality as i32,
                 optimize_coding: true,
-                keep: ops::ForeignKeep::None,
                 ..Default::default()
             };
             ops::jpegsave_buffer_with_opts(&img, &opts)
@@ -31,21 +30,14 @@ pub fn save_image(img: VipsImage, format: &str, quality: u8) -> Result<Vec<u8>, 
             let opts = ops::PngsaveBufferOptions {
                 compression: 9,
                 effort,
-                keep: ops::ForeignKeep::None,
                 ..Default::default()
             };
             ops::pngsave_buffer_with_opts(&img, &opts)
         }),
         "webp" => encode_image("WebP", || {
-            // libvips caps WebP effort at 6 (0-6 range)
-            let opts = ops::WebpsaveBufferOptions {
-                q: quality as i32,
-                lossless: false,
-                effort: effort.min(6),
-                ..Default::default()
-            };
-
-            ops::webpsave_buffer_with_opts(&img, &opts)
+            // Note: WebpsaveBufferOptions in libvips 1.7.1 causes crashes when used with _with_opts.
+            // Using default save for WebP until the library is updated.
+            ops::webpsave_buffer(&img)
         }),
         "tiff" => encode_image("TIFF", || {
             let opts = ops::TiffsaveBufferOptions {
