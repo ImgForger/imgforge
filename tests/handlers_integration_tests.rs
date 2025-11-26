@@ -16,6 +16,7 @@ use lazy_static::lazy_static;
 use libvips::VipsApp;
 use serde_json::Value;
 use sha2::Sha256;
+use std::ffi::CString;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{Mutex, Semaphore};
@@ -30,6 +31,25 @@ type HmacSha256 = Hmac<Sha256>;
 lazy_static! {
     static ref VIPS_APP: Arc<VipsApp> =
         Arc::new(VipsApp::new("imgforge-test", false).expect("Failed to initialize libvips"));
+}
+
+fn libvips_supports_format(format: &str) -> bool {
+    let lower = format.to_lowercase();
+    let candidates = [lower.clone(), format!(".{}", lower), format!("output.{}", lower)];
+
+    for candidate in candidates {
+        if let Ok(c_str) = CString::new(candidate) {
+            unsafe {
+                if !libvips::bindings::vips_foreign_find_save_buffer(c_str.as_ptr()).is_null()
+                    || !libvips::bindings::vips_foreign_find_save(c_str.as_ptr()).is_null()
+                {
+                    return true;
+                }
+            }
+        }
+    }
+
+    false
 }
 
 /// Helper function to create a test PNG image
@@ -77,6 +97,7 @@ fn create_test_config(key: Vec<u8>, salt: Vec<u8>, allow_unsigned: bool) -> Conf
 /// Helper function to create test AppState
 async fn create_test_state(config: Config) -> Arc<AppState> {
     let cache = ImgforgeCache::None;
+    let metadata_cache = imgforge::caching::cache::MetadataCache::None;
     let http_client = reqwest::Client::builder()
         .timeout(Duration::from_secs(config.download_timeout))
         .build()
@@ -85,6 +106,7 @@ async fn create_test_state(config: Config) -> Arc<AppState> {
     Arc::new(AppState {
         semaphore: Arc::new(Semaphore::new(config.workers)),
         cache,
+        metadata_cache,
         rate_limiter: None,
         config,
         vips_app: VIPS_APP.clone(),
@@ -922,9 +944,14 @@ async fn test_image_forge_handler_with_extension() {
         .with_state(state)
         .layer(axum::middleware::from_fn(request_id_middleware));
 
-    let (status, _body, _) = make_request(app, &path, None).await;
+    let (status, body, _) = make_request(app, &path, None).await;
 
-    assert_eq!(status, StatusCode::OK);
+    if libvips_supports_format("webp") {
+        assert_eq!(status, StatusCode::OK);
+    } else {
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(body.contains("not supported"));
+    }
 }
 
 #[tokio::test]

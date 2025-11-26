@@ -52,12 +52,58 @@ impl Code for CachedImage {
     }
 }
 
+#[derive(Clone)]
+pub struct CachedMetadata {
+    pub width: u32,
+    pub height: u32,
+    pub format: String,
+}
+
+impl Code for CachedMetadata {
+    fn encode(&self, writer: &mut impl Write) -> Result<(), CodeError> {
+        self.width.encode(writer)?;
+        self.height.encode(writer)?;
+
+        let format_bytes = self.format.as_bytes();
+        format_bytes.len().encode(writer)?;
+        writer.write_all(format_bytes)?;
+        Ok(())
+    }
+
+    fn decode(reader: &mut impl Read) -> Result<Self, CodeError> {
+        let width = u32::decode(reader)?;
+        let height = u32::decode(reader)?;
+
+        let len = usize::decode(reader)?;
+        let mut format_buf = vec![0u8; len];
+        reader.read_exact(&mut format_buf)?;
+        let format_vec = format_buf.clone();
+        let format = std::str::from_utf8(&format_buf)
+            .map_err(|_| CodeError::Unrecognized(format_vec))?
+            .to_string();
+
+        Ok(CachedMetadata { width, height, format })
+    }
+
+    fn estimated_size(&self) -> usize {
+        std::mem::size_of::<u32>() * 2 + self.format.len() + std::mem::size_of::<usize>()
+    }
+}
+
 /// Represents the different cache backends for Imgforge.
 pub enum ImgforgeCache {
     None,
     Memory(Arc<Cache<String, CachedImage>>),
     Disk(Arc<HybridCache<String, CachedImage>>),
     Hybrid(Arc<HybridCache<String, CachedImage>>),
+}
+
+/// Metadata cache for lightweight info requests.
+pub enum MetadataCache {
+    None,
+    Memory(Arc<Cache<String, CachedMetadata>>),
+    Disk(Arc<HybridCache<String, CachedMetadata>>),
+    Hybrid(Arc<HybridCache<String, CachedMetadata>>),
 }
 
 impl ImgforgeCache {
@@ -151,6 +197,104 @@ impl ImgforgeCache {
                 Ok(())
             }
             ImgforgeCache::Disk(cache) | ImgforgeCache::Hybrid(cache) => {
+                cache.insert(key, value);
+                Ok(())
+            }
+        }
+    }
+}
+
+impl MetadataCache {
+    /// Create a new metadata cache instance based on the provided configuration.
+    pub async fn new(config: Option<CacheConfig>) -> Result<Self, CacheError> {
+        match config {
+            None => Ok(MetadataCache::None),
+            Some(CacheConfig::Memory { capacity, .. }) => {
+                let cache = CacheBuilder::new(capacity).build();
+                Ok(MetadataCache::Memory(Arc::new(cache)))
+            }
+            Some(CacheConfig::Disk { path, capacity, .. }) => {
+                let device = FsDeviceBuilder::new(Path::new(&path))
+                    .with_capacity(capacity)
+                    .build()
+                    .map_err(|e| CacheError::Initialization(e.to_string()))?;
+                let engine = BlockEngineBuilder::new(device);
+                let cache = HybridCacheBuilder::new()
+                    .memory(0)
+                    .storage()
+                    .with_engine_config(engine)
+                    .with_recover_mode(RecoverMode::Quiet)
+                    .build()
+                    .await
+                    .map_err(|e| CacheError::Initialization(e.to_string()))?;
+                Ok(MetadataCache::Disk(Arc::new(cache)))
+            }
+            Some(CacheConfig::Hybrid {
+                memory_capacity,
+                disk_path,
+                disk_capacity,
+                ..
+            }) => {
+                let device = FsDeviceBuilder::new(Path::new(&disk_path))
+                    .with_capacity(disk_capacity)
+                    .build()
+                    .map_err(|e| CacheError::Initialization(e.to_string()))?;
+                let engine = BlockEngineBuilder::new(device);
+                let cache = HybridCacheBuilder::new()
+                    .memory(memory_capacity)
+                    .storage()
+                    .with_engine_config(engine)
+                    .with_recover_mode(RecoverMode::Quiet)
+                    .build()
+                    .await
+                    .map_err(|e| CacheError::Initialization(e.to_string()))?;
+                Ok(MetadataCache::Hybrid(Arc::new(cache)))
+            }
+        }
+    }
+
+    /// Retrieve metadata from the cache by key.
+    pub async fn get(&self, key: &str) -> Option<CachedMetadata> {
+        let result = match self {
+            MetadataCache::None => None,
+            MetadataCache::Memory(cache) => {
+                let res = cache.get(key).map(|e| e.value().clone());
+                record_cache_metric(res.is_some(), "metadata-memory");
+                res
+            }
+            MetadataCache::Disk(cache) => {
+                let res = cache
+                    .get(&key.to_string())
+                    .await
+                    .ok()
+                    .flatten()
+                    .map(|e| e.value().clone());
+                record_cache_metric(res.is_some(), "metadata-disk");
+                res
+            }
+            MetadataCache::Hybrid(cache) => {
+                let res = cache
+                    .get(&key.to_string())
+                    .await
+                    .ok()
+                    .flatten()
+                    .map(|e| e.value().clone());
+                record_cache_metric(res.is_some(), "metadata-hybrid");
+                res
+            }
+        };
+        result
+    }
+
+    /// Insert metadata into the cache.
+    pub async fn insert(&self, key: String, value: CachedMetadata) -> Result<(), CacheError> {
+        match self {
+            MetadataCache::None => Ok(()),
+            MetadataCache::Memory(cache) => {
+                cache.insert(key, value);
+                Ok(())
+            }
+            MetadataCache::Disk(cache) | MetadataCache::Hybrid(cache) => {
                 cache.insert(key, value);
                 Ok(())
             }

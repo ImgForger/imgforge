@@ -1,9 +1,9 @@
-use crate::caching::cache::ImgforgeCache as Cache;
+use crate::caching::cache::{ImgforgeCache as Cache, MetadataCache};
 use crate::caching::config::CacheConfig;
 use crate::caching::error::CacheError;
 use crate::config::Config;
 use crate::monitoring;
-use bytes::Bytes;
+use crate::processing::watermark::CachedWatermark;
 use governor::clock::DefaultClock;
 use governor::state::{InMemoryState, NotKeyed};
 use governor::{Quota, RateLimiter};
@@ -21,11 +21,12 @@ pub type RequestRateLimiter = RateLimiter<NotKeyed, InMemoryState, DefaultClock>
 pub struct AppState {
     pub semaphore: Arc<Semaphore>,
     pub cache: Cache,
+    pub metadata_cache: MetadataCache,
     pub rate_limiter: Option<RequestRateLimiter>,
     pub config: Config,
     pub vips_app: Arc<VipsApp>,
     pub http_client: reqwest::Client,
-    pub watermark_cache: Mutex<Option<Bytes>>,
+    pub watermark_cache: Mutex<Option<CachedWatermark>>,
 }
 
 #[derive(Clone)]
@@ -51,7 +52,8 @@ impl Imgforge {
         monitoring::register_metrics();
 
         let semaphore = Arc::new(Semaphore::new(config.workers));
-        let cache = Cache::new(cache_config).await?;
+        let cache = Cache::new(cache_config.clone()).await?;
+        let metadata_cache = MetadataCache::new(cache_config).await?;
         let vips_app = Arc::new(init_vips()?);
         let http_client = build_http_client(config.download_timeout)?;
         let rate_limiter = build_rate_limiter(config.rate_limit_per_minute);
@@ -60,6 +62,7 @@ impl Imgforge {
         let state = Arc::new(AppState {
             semaphore,
             cache,
+            metadata_cache,
             rate_limiter,
             config,
             vips_app,

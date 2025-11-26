@@ -1,4 +1,4 @@
-use crate::processing::options::{Crop, Resize, Watermark};
+use crate::processing::options::{Crop, Resize};
 use exif::{In, Tag};
 use libvips::{ops, VipsImage};
 use std::io::Cursor;
@@ -19,7 +19,7 @@ fn get_resize_kernel(algorithm: &Option<String>) -> ops::Kernel {
 }
 
 /// Helper to resize using the requested algorithm, defaulting to lanczos3.
-fn resize_with_algorithm(
+pub fn resize_with_algorithm(
     img: &VipsImage,
     hscale: f64,
     vscale: Option<f64>,
@@ -410,83 +410,4 @@ pub fn apply_pixelate(img: VipsImage, amount: u32, resizing_algorithm: &Option<S
         resizing_algorithm,
         "Error pixelating (up)",
     )
-}
-
-/// Applies a watermark to an image.
-pub fn apply_watermark(
-    img: VipsImage,
-    watermark_bytes: &[u8],
-    watermark_opts: &Watermark,
-    resizing_algorithm: &Option<String>,
-) -> Result<VipsImage, String> {
-    let watermark_img = VipsImage::new_from_buffer(watermark_bytes, "")
-        .map_err(|e| format!("Failed to load watermark image from buffer: {}", e))?;
-
-    // Resize watermark to be 1/4 of the main image's width, maintaining aspect ratio
-    let factor = (img.get_width() as f64 / 4.0) / watermark_img.get_width() as f64;
-    let watermark_resized = resize_with_algorithm(
-        &watermark_img,
-        factor,
-        None,
-        resizing_algorithm,
-        "Failed to resize watermark",
-    )?;
-
-    // Add alpha channel to watermark if it doesn't have one
-    let watermark_with_alpha = if watermark_resized.get_bands() == 4 || watermark_resized.get_bands() == 2 {
-        watermark_resized
-    } else {
-        ops::bandjoin_const(&watermark_resized, &mut [255.0])
-            .map_err(|e| format!("Failed to add alpha to watermark: {}", e))?
-    };
-
-    // Apply opacity
-    let multipliers = &mut [1.0, 1.0, 1.0, watermark_opts.opacity as f64];
-    let adders = &mut [0.0, 0.0, 0.0, 0.0];
-    let watermark_with_opacity = ops::linear(&watermark_with_alpha, multipliers, adders)
-        .map_err(|e| format!("Failed to apply opacity to watermark: {}", e))?;
-
-    // Calculate position
-    let (x, y) = calculate_watermark_position(&img, &watermark_with_opacity, &watermark_opts.position);
-
-    // Composite watermark
-    let bg = &mut [0.0, 0.0, 0.0, 0.0]; // transparent
-    let options = ops::EmbedOptions {
-        extend: ops::Extend::Background,
-        background: bg.to_vec(),
-    };
-
-    let watermark_on_canvas = ops::embed_with_opts(
-        &watermark_with_opacity,
-        x as i32,
-        y as i32,
-        img.get_width(),
-        img.get_height(),
-        &options,
-    )
-    .map_err(|e| format!("Failed to embed watermark on canvas: {}", e))?;
-
-    ops::composite_2(&img, &watermark_on_canvas, ops::BlendMode::Over)
-        .map_err(|e| format!("Failed to composite watermark: {}", e))
-}
-
-fn calculate_watermark_position(main_img: &VipsImage, watermark_img: &VipsImage, position: &str) -> (u32, u32) {
-    let main_w = main_img.get_width() as u32;
-    let main_h = main_img.get_height() as u32;
-    let wm_w = watermark_img.get_width() as u32;
-    let wm_h = watermark_img.get_height() as u32;
-    let margin = (main_w.min(main_h) as f32 * 0.05).round() as u32; // 5% margin
-
-    match position {
-        "north" => ((main_w - wm_w) / 2, margin),
-        "south" => ((main_w - wm_w) / 2, main_h - wm_h - margin),
-        "east" => (main_w - wm_w - margin, (main_h - wm_h) / 2),
-        "west" => (margin, (main_h - wm_h) / 2),
-        "north_west" => (margin, margin),
-        "north_east" => (main_w - wm_w - margin, margin),
-        "south_west" => (margin, main_h - wm_h - margin),
-        "south_east" => (main_w - wm_w - margin, main_h - wm_h - margin),
-        "center" => ((main_w - wm_w) / 2, (main_h - wm_h) / 2),
-        _ => ((main_w - wm_w) / 2, (main_h - wm_h) / 2),
-    }
 }
