@@ -231,7 +231,7 @@ pub async fn image_info(state: Arc<AppState>, request: ProcessRequest<'_>) -> Re
         ServiceError::new(StatusCode::BAD_REQUEST, format!("Error decoding URL: {}", e))
     })?;
 
-    let (image_bytes, _content_type) = crate::fetch::fetch_image(&state.http_client, &decoded_url, None)
+    let (image_bytes, _content_type) = fetch_image(&state.http_client, &decoded_url, None)
         .await
         .map_err(|e| {
             error!("Error fetching image: {}", e);
@@ -245,12 +245,20 @@ pub async fn image_info(state: Arc<AppState>, request: ProcessRequest<'_>) -> Re
         .await
         .map_err(|_| ServiceError::new(StatusCode::INTERNAL_SERVER_ERROR, "Semaphore closed"))?;
 
-    let (width, height, image_format) = match VipsImage::new_from_buffer(&image_bytes, "") {
+    let (width, height, image_format, cacheable) = match VipsImage::new_from_buffer(&image_bytes, "") {
         Ok(img) => {
             let format_str = "unknown";
-            (img.get_width() as u32, img.get_height() as u32, format_str.to_string())
+            (
+                img.get_width() as u32,
+                img.get_height() as u32,
+                format_str.to_string(),
+                true,
+            )
         }
-        Err(_) => (0, 0, "unknown".to_string()),
+        Err(err) => {
+            error!("Failed to decode image for info: {}", err);
+            (0, 0, "unknown".to_string(), false)
+        }
     };
 
     let metadata = CachedMetadata {
@@ -259,7 +267,7 @@ pub async fn image_info(state: Arc<AppState>, request: ProcessRequest<'_>) -> Re
         format: image_format.clone(),
     };
 
-    if !matches!(state.metadata_cache, MetadataCache::None) {
+    if cacheable && !matches!(state.metadata_cache, MetadataCache::None) {
         if let Err(err) = state.metadata_cache.insert(path.to_string(), metadata).await {
             error!("Failed to cache metadata: {}", err);
         }
@@ -415,7 +423,7 @@ async fn resolve_watermark(
 ) -> Result<Option<CachedWatermark>, ServiceError> {
     if let Some(url) = &parsed_options.watermark_url {
         debug!("Fetching watermark from URL: {}", url);
-        match crate::fetch::fetch_image(&state.http_client, url, None).await {
+        match fetch_image(&state.http_client, url, None).await {
             Ok((bytes, _)) => Ok(Some(CachedWatermark::from_bytes(bytes))),
             Err(e) => {
                 error!("Failed to fetch watermark image: {}", e);
