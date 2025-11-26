@@ -3,7 +3,7 @@ use crate::caching::config::CacheConfig;
 use crate::caching::error::CacheError;
 use crate::config::Config;
 use crate::monitoring;
-use bytes::Bytes;
+use crate::processing::watermark::CachedWatermark;
 use governor::clock::DefaultClock;
 use governor::state::{InMemoryState, NotKeyed};
 use governor::{Quota, RateLimiter};
@@ -26,7 +26,7 @@ pub struct AppState {
     pub config: Config,
     pub vips_app: Arc<VipsApp>,
     pub http_client: reqwest::Client,
-    pub watermark_cache: Mutex<Option<Bytes>>,
+    pub watermark_cache: Mutex<Option<CachedWatermark>>,
 }
 
 #[derive(Clone)]
