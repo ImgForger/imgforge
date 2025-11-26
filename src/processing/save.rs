@@ -28,7 +28,6 @@ pub fn save_image(img: VipsImage, format: &str, quality: u8) -> Result<Vec<u8>, 
         }),
         "png" => encode_image("PNG", || {
             let opts = ops::PngsaveBufferOptions {
-                compression: 9,
                 effort,
                 ..Default::default()
             };
@@ -40,9 +39,17 @@ pub fn save_image(img: VipsImage, format: &str, quality: u8) -> Result<Vec<u8>, 
             ops::webpsave_buffer(&img)
         }),
         "tiff" => encode_image("TIFF", || {
+            let clamped_quality = (quality as i32).clamp(1, 100);
+            let compression = if clamped_quality == 100 {
+                // Preserve lossless output when callers request max quality.
+                ops::ForeignTiffCompression::Lzw
+            } else {
+                ops::ForeignTiffCompression::Jpeg
+            };
+
             let opts = ops::TiffsaveBufferOptions {
-                q: quality as i32,
-                compression: ops::ForeignTiffCompression::Lzw,
+                q: clamped_quality,
+                compression,
                 ..Default::default()
             };
 
