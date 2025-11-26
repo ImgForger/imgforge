@@ -37,26 +37,30 @@ pub fn save_image(img: VipsImage, format: &str, quality: u8) -> Result<Vec<u8>, 
             ops::pngsave_buffer_with_opts(&img, &opts)
         }),
         "webp" => encode_image("WebP", || {
-            let mut opts = ops::WebpsaveBufferOptions::default();
-
-            // Set quality for WebP
-            opts.q = quality as i32;
-            opts.lossless = false;
             // libvips caps WebP effort at 6 (0-6 range)
-            opts.effort = effort.min(6);
+            let opts = ops::WebpsaveBufferOptions {
+                q: quality as i32,
+                lossless: false,
+                effort: effort.min(6),
+                ..Default::default()
+            };
 
             ops::webpsave_buffer_with_opts(&img, &opts)
         }),
         "tiff" => encode_image("TIFF", || {
-            let mut opts = ops::TiffsaveBufferOptions::default();
-            opts.q = quality as i32;
-            opts.compression = ops::ForeignTiffCompression::Lzw;
+            let opts = ops::TiffsaveBufferOptions {
+                q: quality as i32,
+                compression: ops::ForeignTiffCompression::Lzw,
+                ..Default::default()
+            };
 
             ops::tiffsave_buffer_with_opts(&img, &opts)
         }),
         "gif" => encode_image("GIF", || {
-            let mut opts = ops::GifsaveBufferOptions::default();
-            opts.effort = effort;
+            let opts = ops::GifsaveBufferOptions {
+                effort,
+                ..Default::default()
+            };
 
             ops::gifsave_buffer_with_opts(&img, &opts)
         }),
