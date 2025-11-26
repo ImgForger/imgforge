@@ -1,6 +1,8 @@
 use libvips::{bindings, ops, VipsImage};
+use std::collections::HashSet;
 use std::ffi::CString;
 use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::sync::OnceLock;
 
 /// Saves an image to bytes in the specified format.
 pub fn save_image(img: VipsImage, format: &str, quality: u8) -> Result<Vec<u8>, String> {
@@ -73,7 +75,28 @@ where
 
 fn is_format_supported(format: &str) -> bool {
     let lower = format.to_lowercase();
-    let candidates = [lower.clone(), format!(".{}", lower), format!("output.{}", lower)];
+    let supported = supported_formats();
+    if supported.contains(&lower) {
+        return true;
+    }
+
+    probe_format(&lower)
+}
+
+fn supported_formats() -> &'static HashSet<String> {
+    static SUPPORTED: OnceLock<HashSet<String>> = OnceLock::new();
+    SUPPORTED.get_or_init(|| {
+        // Probe the formats we know how to encode; this happens once at startup.
+        ["jpeg", "jpg", "png", "webp", "tiff", "gif", "avif", "heif"]
+            .iter()
+            .filter(|fmt| probe_format(fmt))
+            .map(|fmt| fmt.to_string())
+            .collect()
+    })
+}
+
+fn probe_format(format: &str) -> bool {
+    let candidates = [format.to_string(), format!(".{}", format), format!("output.{}", format)];
 
     for candidate in candidates {
         if let Ok(c_str) = CString::new(candidate) {
