@@ -118,6 +118,10 @@ const WATERMARK_URL_SHORT: &str = "wmu";
 const RESIZING_ALGORITHM: &str = "resizing_algorithm";
 /// Shorthand for resizing_algorithm.
 const RESIZING_ALGORITHM_SHORT: &str = "ra";
+/// Option name for brightness.
+const BRIGHTNESS: &str = "brightness";
+/// Shorthand for brightness.
+const BRIGHTNESS_SHORT: &str = "br";
 
 /// Represents the parameters for a resize operation.
 #[derive(Debug, Default)]
@@ -208,6 +212,8 @@ pub struct ParsedOptions {
     pub watermark_url: Option<String>,
     /// Resizing algorithm to use (nearest, linear, cubic, lanczos2, lanczos3).
     pub resizing_algorithm: Option<String>,
+    /// Brightness adjustment (-255 to 255).
+    pub brightness: Option<i32>,
 }
 
 impl Default for ParsedOptions {
@@ -240,6 +246,7 @@ impl Default for ParsedOptions {
             watermark: None,
             watermark_url: None,
             resizing_algorithm: Some("lanczos3".to_string()),
+            brightness: None,
         }
     }
 }
@@ -657,6 +664,24 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
                     ));
                 }
                 parsed_options.resizing_algorithm = Some(algorithm);
+            }
+            BRIGHTNESS | BRIGHTNESS_SHORT => {
+                if option.args.is_empty() {
+                    error!("Brightness option requires one argument");
+                    return Err("brightness option requires one argument".to_string());
+                }
+                let brightness = option.args[0].parse::<i32>().map_err(|e| {
+                    error!("Invalid brightness: {}", e);
+                    e.to_string()
+                })?;
+                if !((-255)..=255).contains(&brightness) {
+                    error!(
+                        "Brightness value must be between -255 and 255, received: {}",
+                        brightness
+                    );
+                    return Err("brightness value must be between -255 and 255".to_string());
+                }
+                parsed_options.brightness = Some(brightness);
             }
             _ => {
                 debug!("Unknown option: {}", option.name);

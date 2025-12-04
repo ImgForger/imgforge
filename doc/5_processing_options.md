@@ -25,6 +25,7 @@ imgforge encodes image transformations directly in the URL path. Each directive 
 | `auto_rotate`        | `ar`      | `bool`                                 | Honours EXIF orientation (`true` by default).                                                      |
 | `blur`               | `bl`      | `sigma`                                | Gaussian blur (0 disables).                                                                        |
 | `sharpen`            | `sh`      | `sigma`                                | Sharpens edges.                                                                                    |
+| `brightness`         | `br`      | `-255..255`                            | Adjusts brightness. Negative darkens, positive brightens. Defaults to `0`.                         |
 | `pixelate`           | `px`      | `amount`                               | Pixelation strength.                                                                               |
 | `background`         | `bg`      | `RRGGBB[AA]`                           | Canvas colour for extend/padding/flatten. Defaults to transparent unless JPEG output.              |
 | `quality`            | `q`       | `1-100`                                | Compression quality. Defaults to `85` for lossy formats.                                           |
@@ -167,6 +168,12 @@ Gaussian blur with sigma > 0 softens the image after resizing and padding. Value
 ### `sharpen`
 
 Enhances edge contrast. Apply after resizing to counteract softness introduced by downscaling. Overly large values can create haloes.
+
+### `brightness`
+
+Adjusts image brightness with a range of -255 to 255. Negative values darken the image, positive values brighten it. A value of 0 (the default) leaves brightness unchanged. This transformation is useful for correcting exposure issues or creating mood variations. Apply brightness adjustments after resizing and other effects for best results.
+
+**Example:** `brightness:50` increases brightness by approximately 20%, while `brightness:-100` creates a darker, more dramatic version.
 
 ### `pixelate`
 

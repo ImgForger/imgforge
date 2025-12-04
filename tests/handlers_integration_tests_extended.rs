@@ -431,3 +431,65 @@ async fn test_pixelate_effect() {
     let (status, _) = make_request(app, &path).await;
     assert_eq!(status, StatusCode::OK);
 }
+
+#[tokio::test]
+async fn test_brightness_effect() {
+    let mock_server = MockServer::start().await;
+    let test_image = create_test_image(150, 150, [128, 128, 128, 255]);
+
+    Mock::given(method("GET"))
+        .and(path("/brightness.jpg"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_bytes(test_image.clone())
+                .insert_header("Content-Type", "image/jpeg"),
+        )
+        .expect(3..)
+        .mount(&mock_server)
+        .await;
+
+    let config = create_test_config(vec![], vec![], true);
+    let cache = ImgforgeCache::None;
+    let state = create_test_state_with_cache(config, cache).await;
+
+    let source_url = format!("{}/brightness.jpg", mock_server.uri());
+
+    // Test increasing brightness
+    let encoded_url = URL_SAFE_NO_PAD.encode(source_url.as_bytes());
+    let path = format!("/unsafe/brightness:100/{}", encoded_url);
+
+    let app = axum::Router::new()
+        .route("/{*path}", axum::routing::get(image_forge_handler))
+        .with_state(state.clone())
+        .layer(axum::middleware::from_fn(request_id_middleware));
+
+    let (status, body) = make_request(app, &path).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!body.is_empty());
+
+    // Test decreasing brightness
+    let encoded_url = URL_SAFE_NO_PAD.encode(source_url.as_bytes());
+    let path = format!("/unsafe/brightness:-80/{}", encoded_url);
+
+    let app = axum::Router::new()
+        .route("/{*path}", axum::routing::get(image_forge_handler))
+        .with_state(state.clone())
+        .layer(axum::middleware::from_fn(request_id_middleware));
+
+    let (status, body) = make_request(app, &path).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!body.is_empty());
+
+    // Test with shorthand br
+    let encoded_url = URL_SAFE_NO_PAD.encode(source_url.as_bytes());
+    let path = format!("/unsafe/br:50/{}", encoded_url);
+
+    let app = axum::Router::new()
+        .route("/{*path}", axum::routing::get(image_forge_handler))
+        .with_state(state)
+        .layer(axum::middleware::from_fn(request_id_middleware));
+
+    let (status, body) = make_request(app, &path).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!body.is_empty());
+}
