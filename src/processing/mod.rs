@@ -174,6 +174,12 @@ pub fn process_image(
         img = transform::apply_pixelate(img, amount, &parsed_options.resizing_algorithm)?;
     }
 
+    // Apply brightness if specified
+    if let Some(brightness) = parsed_options.brightness {
+        debug!("Applying brightness: {}", brightness);
+        img = transform::apply_brightness(img, brightness)?;
+    }
+
     // Apply watermark if specified
     if let Some(ref watermark_opts) = parsed_options.watermark {
         if let Some(watermark) = watermark {

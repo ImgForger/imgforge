@@ -411,3 +411,15 @@ pub fn apply_pixelate(img: VipsImage, amount: u32, resizing_algorithm: &Option<S
         "Error pixelating (up)",
     )
 }
+
+/// Adjusts the brightness of an image.
+pub fn apply_brightness(img: VipsImage, brightness: i32) -> Result<VipsImage, String> {
+    if brightness == 0 {
+        return Ok(img);
+    }
+
+    let mult = 1.0;
+    let offset = brightness as f64 / 255.0;
+
+    ops::linear(&img, &mut [mult], &mut [offset]).map_err(|e| format!("Error applying brightness: {}", e))
+}

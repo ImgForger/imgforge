@@ -231,12 +231,10 @@ pub async fn image_info(state: Arc<AppState>, request: ProcessRequest<'_>) -> Re
         ServiceError::new(StatusCode::BAD_REQUEST, format!("Error decoding URL: {}", e))
     })?;
 
-    let (image_bytes, _content_type) = fetch_image(&state.http_client, &decoded_url, None)
-        .await
-        .map_err(|e| {
-            error!("Error fetching image: {}", e);
-            ServiceError::new(StatusCode::BAD_REQUEST, format!("Error fetching image: {}", e))
-        })?;
+    let (image_bytes, _content_type) = fetch_image(&state.http_client, &decoded_url, None).await.map_err(|e| {
+        error!("Error fetching image: {}", e);
+        ServiceError::new(StatusCode::BAD_REQUEST, format!("Error fetching image: {}", e))
+    })?;
 
     let _permit = state
         .semaphore

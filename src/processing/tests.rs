@@ -447,6 +447,63 @@ mod test_processing {
     }
 
     #[test]
+    fn test_parse_brightness_option() {
+        let options = vec![ProcessingOption {
+            name: "brightness".to_string(),
+            args: vec!["50".to_string()],
+        }];
+        let parsed = parse_all_options(options).unwrap();
+        assert_eq!(parsed.brightness, Some(50));
+    }
+
+    #[test]
+    fn test_parse_brightness_short() {
+        let options = vec![ProcessingOption {
+            name: "br".to_string(),
+            args: vec!["-100".to_string()],
+        }];
+        let parsed = parse_all_options(options).unwrap();
+        assert_eq!(parsed.brightness, Some(-100));
+    }
+
+    #[test]
+    fn test_parse_brightness_invalid_range() {
+        let options = vec![ProcessingOption {
+            name: "brightness".to_string(),
+            args: vec!["300".to_string()],
+        }];
+        let result = parse_all_options(options);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_apply_brightness_increase() {
+        let _ = &*APP;
+        let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
+        let brightened_img = transform::apply_brightness(img, 50).unwrap();
+        assert_eq!(brightened_img.get_width(), 100);
+        assert_eq!(brightened_img.get_height(), 100);
+    }
+
+    #[test]
+    fn test_apply_brightness_decrease() {
+        let _ = &*APP;
+        let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
+        let darkened_img = transform::apply_brightness(img, -50).unwrap();
+        assert_eq!(darkened_img.get_width(), 100);
+        assert_eq!(darkened_img.get_height(), 100);
+    }
+
+    #[test]
+    fn test_apply_brightness_zero() {
+        let _ = &*APP;
+        let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
+        let same_img = transform::apply_brightness(img, 0).unwrap();
+        assert_eq!(same_img.get_width(), 100);
+        assert_eq!(same_img.get_height(), 100);
+    }
+
+    #[test]
     fn test_apply_min_dimensions() {
         let _ = &*APP;
         let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
