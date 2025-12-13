@@ -8,6 +8,7 @@ use crate::monitoring;
 use axum::{extract::Request, routing::get, Router};
 use axum_prometheus::PrometheusMetricLayer;
 use std::time::Duration;
+use axum::http::StatusCode;
 use tokio::net::TcpListener;
 use tower_http::timeout::TimeoutLayer;
 use tower_http::trace::TraceLayer;
@@ -73,7 +74,7 @@ pub async fn start() {
             }),
         )
         .layer(axum::middleware::from_fn(middleware::request_id_middleware))
-        .layer(TimeoutLayer::new(Duration::from_secs(state.config.timeout)));
+        .layer(TimeoutLayer::with_status_code(StatusCode::REQUEST_TIMEOUT, Duration::from_secs(state.config.timeout)));
     let listener = TcpListener::bind(&state.config.bind_address).await.unwrap();
     info!("Listening on http://{}", &state.config.bind_address);
 
