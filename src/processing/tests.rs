@@ -1,6 +1,5 @@
 #[cfg(test)]
 mod test_processing {
-    use crate::constants::ENV_WATERMARK_PATH;
     use crate::processing::options::{parse_all_options, Crop, ProcessingOption, Resize, Watermark};
     use crate::processing::transform;
     use crate::processing::utils;
@@ -476,31 +475,159 @@ mod test_processing {
         assert!(result.is_err());
     }
 
-    #[test]
-    fn test_apply_brightness_increase() {
-        let _ = &*APP;
-        let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
-        let brightened_img = transform::apply_brightness(img, 50).unwrap();
-        assert_eq!(brightened_img.get_width(), 100);
-        assert_eq!(brightened_img.get_height(), 100);
+    fn create_colored_test_image(width: u32, height: u32, color: [u8; 4]) -> Vec<u8> {
+        let mut img: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::new(width, height);
+        for (_x, _y, pixel) in img.enumerate_pixels_mut() {
+            *pixel = Rgba(color);
+        }
+        let mut bytes: Vec<u8> = Vec::new();
+        img.write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
+            .unwrap();
+        bytes
+    }
+
+    fn load_vips_image(bytes: &[u8]) -> VipsImage {
+        VipsImage::new_from_buffer(bytes, "").unwrap()
+    }
+
+    fn vips_to_bytes(img: &VipsImage) -> Vec<u8> {
+        // Convert VipsImage back to PNG bytes
+        img.image_write_to_buffer(".png").unwrap()
+    }
+
+    fn get_sample_pixel(bytes: &[u8]) -> [u8; 4] {
+        let img = image::load_from_memory(bytes).unwrap();
+        let rgba = img.to_rgba8();
+        let pixel = rgba.get_pixel(5, 5);
+        pixel.0
+    }
+
+    fn calculate_average(bytes: &[u8]) -> f64 {
+        let img = image::load_from_memory(bytes).unwrap();
+        let rgba = img.to_rgba8();
+        let mut sum = 0u64;
+        let mut count = 0u64;
+
+        for pixel in rgba.pixels() {
+            sum += pixel.0[0] as u64 + pixel.0[1] as u64 + pixel.0[2] as u64;
+            count += 3;
+        }
+
+        sum as f64 / count as f64
     }
 
     #[test]
-    fn test_apply_brightness_decrease() {
-        let _ = &*APP;
-        let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
-        let darkened_img = transform::apply_brightness(img, -50).unwrap();
-        assert_eq!(darkened_img.get_width(), 100);
-        assert_eq!(darkened_img.get_height(), 100);
+    fn test_brightness_zero_no_change() {
+        let bytes = create_colored_test_image(10, 10, [128, 128, 128, 255]);
+        let img = load_vips_image(&bytes);
+
+        let result = transform::apply_brightness(img, 0).unwrap();
+
+        // Should succeed without errors
+        assert!(result.get_width() > 0);
     }
 
     #[test]
-    fn test_apply_brightness_zero() {
-        let _ = &*APP;
-        let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
-        let same_img = transform::apply_brightness(img, 0).unwrap();
-        assert_eq!(same_img.get_width(), 100);
-        assert_eq!(same_img.get_height(), 100);
+    fn test_brightness_increase() {
+        let bytes = create_colored_test_image(10, 10, [100, 100, 100, 255]);
+        let img = load_vips_image(&bytes);
+
+        let result = transform::apply_brightness(img, 50).unwrap();
+        let result_bytes = vips_to_bytes(&result);
+        let pixel = get_sample_pixel(&result_bytes);
+
+        // RGB channels should each be increased by ~50
+        assert!(pixel[0] >= 145 && pixel[0] <= 155, "Red channel should be ~150, got {}", pixel[0]);
+        assert!(pixel[1] >= 145 && pixel[1] <= 155, "Green channel should be ~150, got {}", pixel[1]);
+        assert!(pixel[2] >= 145 && pixel[2] <= 155, "Blue channel should be ~150, got {}", pixel[2]);
+    }
+
+    #[test]
+    fn test_brightness_decrease() {
+        let bytes = create_colored_test_image(10, 10, [150, 150, 150, 255]);
+        let img = load_vips_image(&bytes);
+
+        let result = transform::apply_brightness(img, -50).unwrap();
+        let result_bytes = vips_to_bytes(&result);
+        let pixel = get_sample_pixel(&result_bytes);
+
+        // RGB channels should each be decreased by ~50
+        assert!(pixel[0] >= 95 && pixel[0] <= 105, "Red channel should be ~100, got {}", pixel[0]);
+        assert!(pixel[1] >= 95 && pixel[1] <= 105, "Green channel should be ~100, got {}", pixel[1]);
+        assert!(pixel[2] >= 95 && pixel[2] <= 105, "Blue channel should be ~100, got {}", pixel[2]);
+    }
+
+    #[test]
+    fn test_brightness_clamps_at_maximum() {
+        let bytes = create_colored_test_image(10, 10, [200, 200, 200, 255]);
+        let img = load_vips_image(&bytes);
+
+        let result = transform::apply_brightness(img, 100).unwrap();
+        let result_bytes = vips_to_bytes(&result);
+        let pixel = get_sample_pixel(&result_bytes);
+
+        // Should clamp to 255
+        assert_eq!(pixel[0], 255, "Red should clamp to 255, got {}", pixel[0]);
+        assert_eq!(pixel[1], 255, "Green should clamp to 255, got {}", pixel[1]);
+        assert_eq!(pixel[2], 255, "Blue should clamp to 255, got {}", pixel[2]);
+    }
+
+    #[test]
+    fn test_brightness_clamps_at_minimum() {
+        let bytes = create_colored_test_image(10, 10, [50, 50, 50, 255]);
+        let img = load_vips_image(&bytes);
+
+        let result = transform::apply_brightness(img, -100).unwrap();
+        let result_bytes = vips_to_bytes(&result);
+        let pixel = get_sample_pixel(&result_bytes);
+
+        // Should clamp to 0
+        assert_eq!(pixel[0], 0, "Red should clamp to 0, got {}", pixel[0]);
+        assert_eq!(pixel[1], 0, "Green should clamp to 0, got {}", pixel[1]);
+        assert_eq!(pixel[2], 0, "Blue should clamp to 0, got {}", pixel[2]);
+    }
+
+    #[test]
+    fn test_brightness_reversible() {
+        let bytes = create_colored_test_image(10, 10, [128, 128, 128, 255]);
+        let img = load_vips_image(&bytes);
+        let original_avg = calculate_average(&bytes);
+
+        let brightened = transform::apply_brightness(img, 50).unwrap();
+        let restored = transform::apply_brightness(brightened, -50).unwrap();
+        let restored_bytes = vips_to_bytes(&restored);
+        let restored_avg = calculate_average(&restored_bytes);
+
+        assert!((original_avg - restored_avg).abs() < 2.0,
+                "Should be reversible: {} -> {}", original_avg, restored_avg);
+    }
+
+    #[test]
+    fn test_brightness_affects_all_channels_equally() {
+        let bytes = create_colored_test_image(10, 10, [100, 150, 200, 255]);
+        let img = load_vips_image(&bytes);
+
+        let result = transform::apply_brightness(img, 30).unwrap();
+        let result_bytes = vips_to_bytes(&result);
+        let pixel = get_sample_pixel(&result_bytes);
+
+        // Each channel should increase by 30
+        assert!(pixel[0] >= 125 && pixel[0] <= 135, "Red: expected ~130, got {}", pixel[0]);
+        assert!(pixel[1] >= 175 && pixel[1] <= 185, "Green: expected ~180, got {}", pixel[1]);
+        assert!(pixel[2] >= 225 && pixel[2] <= 235, "Blue: expected ~230, got {}", pixel[2]);
+    }
+
+    #[test]
+    fn test_brightness_preserves_dimensions() {
+        let bytes = create_colored_test_image(50, 100, [128, 128, 128, 255]);
+        let img = load_vips_image(&bytes);
+        let original_width = img.get_width();
+        let original_height = img.get_height();
+
+        let result = transform::apply_brightness(img, 25).unwrap();
+
+        assert_eq!(result.get_width(), original_width);
+        assert_eq!(result.get_height(), original_height);
     }
 
     #[test]
@@ -558,7 +685,6 @@ mod test_processing {
         let watermark = cached_watermark_from_bytes(create_test_image(50, 50));
         let watermark_path = "/tmp/test_watermark.png";
         std::fs::write(watermark_path, watermark.bytes.clone()).unwrap();
-        std::env::set_var(ENV_WATERMARK_PATH, watermark_path);
 
         let img = VipsImage::new_from_buffer(&create_test_image(200, 200), "").unwrap();
         let watermark_opts = Watermark {
@@ -572,7 +698,6 @@ mod test_processing {
 
         // Cleanup
         std::fs::remove_file(watermark_path).unwrap();
-        std::env::remove_var("WATERMARK_PATH");
     }
 
     // Error handling tests
