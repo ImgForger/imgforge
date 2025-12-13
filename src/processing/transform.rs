@@ -1,12 +1,16 @@
 use crate::processing::options::{Crop, Resize};
 use exif::{In, Tag};
-use libvips::{ops, VipsImage};
+use rs_vips::{
+    ops,
+    voption::{Setter, VOption},
+    VipsImage,
+};
 use std::io::Cursor;
 use tracing::debug;
 
 const SCALE_EPSILON: f64 = 1e-6;
 
-/// Converts a resizing algorithm string to a libvips Kernel enum.
+/// Converts a resizing algorithm string to a rs_vips Kernel enum.
 fn get_resize_kernel(algorithm: &Option<String>) -> ops::Kernel {
     match algorithm.as_deref().unwrap_or("lanczos3") {
         "nearest" => ops::Kernel::Nearest,
@@ -26,13 +30,21 @@ pub fn resize_with_algorithm(
     resizing_algorithm: &Option<String>,
     error_context: &str,
 ) -> Result<VipsImage, String> {
-    let options = ops::ResizeOptions {
-        kernel: get_resize_kernel(resizing_algorithm),
-        vscale: vscale.unwrap_or(hscale),
-        ..Default::default()
+    let vscale_value = vscale.unwrap_or(hscale);
+    let kernel = match resizing_algorithm.as_deref().unwrap_or("lanczos3") {
+        "nearest" => "nearest",
+        "linear" => "linear", 
+        "cubic" => "cubic",
+        "lanczos2" => "lanczos2",
+        "lanczos3" => "lanczos3",
+        _ => "lanczos3",
     };
+    let options = VOption::new()
+        .set("kernel", kernel)
+        .set("vscale", vscale_value);
 
-    ops::resize_with_opts(img, hscale, &options).map_err(|e| format!("{error_context}: {}", e))
+    img.resize_with_opts(hscale, options)
+        .map_err(|e| format!("{error_context}: {}", e))
 }
 
 /// Applies EXIF rotation to an image based on orientation data.
@@ -43,30 +55,42 @@ pub fn apply_exif_rotation(image_bytes: &[u8], mut img: VipsImage) -> Result<Vip
             debug!("Found EXIF orientation: {:?}", orientation.value.get_uint(0));
             match orientation.value.get_uint(0) {
                 Some(2) => {
-                    img = ops::flip(&img, ops::Direction::Horizontal)
+                    img = img
+                        .flip(ops::Direction::Horizontal)
                         .map_err(|e| format!("Error flipping horizontally: {}", e))?
                 }
-                Some(3) => img = ops::rot(&img, ops::Angle::D180).map_err(|e| format!("Error rotating 180: {}", e))?,
+                Some(3) => {
+                    img = img
+                        .rot(ops::Angle::D180)
+                        .map_err(|e| format!("Error rotating 180: {}", e))?
+                }
                 Some(4) => {
-                    img = ops::flip(&img, ops::Direction::Vertical)
+                    img = img
+                        .flip(ops::Direction::Vertical)
                         .map_err(|e| format!("Error flipping vertically: {}", e))?
                 }
                 Some(5) => {
-                    img = ops::flip(
-                        &ops::rot(&img, ops::Angle::D90).map_err(|e| format!("Error rotating 90: {}", e))?,
-                        ops::Direction::Horizontal,
-                    )
-                    .map_err(|e| format!("Error flipping after rotate: {}", e))?
+                    img = img
+                        .flip(ops::Direction::Horizontal)
+                        .and_then(|flipped| flipped.rot(ops::Angle::D90))
+                        .map_err(|e| format!("Error flipping after rotate: {}", e))?
                 }
-                Some(6) => img = ops::rot(&img, ops::Angle::D90).map_err(|e| format!("Error rotating 90: {}", e))?,
+                Some(6) => {
+                    img = img
+                        .rot(ops::Angle::D90)
+                        .map_err(|e| format!("Error rotating 90: {}", e))?
+                }
                 Some(7) => {
-                    img = ops::flip(
-                        &ops::rot(&img, ops::Angle::D270).map_err(|e| format!("Error rotating 270: {}", e))?,
-                        ops::Direction::Horizontal,
-                    )
-                    .map_err(|e| format!("Error flipping after rotate: {}", e))?
+                    img = img
+                        .flip(ops::Direction::Horizontal)
+                        .and_then(|flipped| flipped.rot(ops::Angle::D270))
+                        .map_err(|e| format!("Error flipping after rotate: {}", e))?
                 }
-                Some(8) => img = ops::rot(&img, ops::Angle::D270).map_err(|e| format!("Error rotating 270: {}", e))?,
+                Some(8) => {
+                    img = img
+                        .rot(ops::Angle::D270)
+                        .map_err(|e| format!("Error rotating 270: {}", e))?
+                }
                 _ => {}
             }
         }
@@ -76,14 +100,8 @@ pub fn apply_exif_rotation(image_bytes: &[u8], mut img: VipsImage) -> Result<Vip
 
 /// Crops an image to the specified dimensions.
 pub fn crop_image(img: VipsImage, crop: Crop) -> Result<VipsImage, String> {
-    ops::extract_area(
-        &img,
-        crop.x as i32,
-        crop.y as i32,
-        crop.width as i32,
-        crop.height as i32,
-    )
-    .map_err(|e| format!("Error cropping image: {}", e))
+    img.extract_area(crop.x as i32, crop.y as i32, crop.width as i32, crop.height as i32)
+        .map_err(|e| format!("Error cropping image: {}", e))
 }
 
 /// Resolves target resize dimensions, filling in zero values according to imgproxy rules.
@@ -210,7 +228,8 @@ fn resize_to_fill(
         _ => extra_h / 2,
     };
 
-    ops::extract_area(&resized_img, crop_x as i32, crop_y as i32, width as i32, height as i32)
+    resized_img
+        .extract_area(crop_x as i32, crop_y as i32, width as i32, height as i32)
         .map_err(|e| format!("Error cropping after fill resize: {}", e))
 }
 
@@ -283,7 +302,7 @@ pub fn extend_image(
         ),
     };
 
-    ops::embed(&img, x as i32, y as i32, width as i32, height as i32)
+    img.embed(x as i32, y as i32, width as i32, height as i32)
         .map_err(|e| format!("Error extending image: {}", e))
 }
 
@@ -298,8 +317,7 @@ pub fn apply_padding(
 ) -> Result<VipsImage, String> {
     let _bg_color = background.unwrap_or([0, 0, 0, 0]);
 
-    ops::embed(
-        &img,
+    img.embed(
         -(left as i32),
         -(top as i32),
         img.get_width() + left as i32 + right as i32,
@@ -311,16 +329,23 @@ pub fn apply_padding(
 /// Applies rotation to an image.
 pub fn apply_rotation(img: VipsImage, rotation: u16) -> Result<VipsImage, String> {
     match rotation {
-        90 => ops::rot(&img, ops::Angle::D90).map_err(|e| format!("Error rotating 90: {}", e)),
-        180 => ops::rot(&img, ops::Angle::D180).map_err(|e| format!("Error rotating 180: {}", e)),
-        270 => ops::rot(&img, ops::Angle::D270).map_err(|e| format!("Error rotating 270: {}", e)),
+        90 => img
+            .rot(ops::Angle::D90)
+            .map_err(|e| format!("Error rotating 90: {}", e)),
+        180 => img
+            .rot(ops::Angle::D180)
+            .map_err(|e| format!("Error rotating 180: {}", e)),
+        270 => img
+            .rot(ops::Angle::D270)
+            .map_err(|e| format!("Error rotating 270: {}", e)),
         _ => Ok(img), // No rotation
     }
 }
 
 /// Applies blur to an image.
 pub fn apply_blur(img: VipsImage, sigma: f32) -> Result<VipsImage, String> {
-    ops::gaussblur(&img, sigma as f64).map_err(|e| format!("Error applying blur: {}", e))
+    img.gaussblur(sigma as f64)
+        .map_err(|e| format!("Error applying blur: {}", e))
 }
 
 /// Applies background color to an image (useful for JPEG output).
@@ -334,12 +359,11 @@ pub fn apply_background_color(img: VipsImage, _bg_color: [u8; 4]) -> Result<Vips
 
     // Use libvips flatten to composite over a solid background, dropping alpha.
     // Only RGB is used; input alpha is ignored for the background color itself.
-    let bg = vec![_bg_color[0] as f64, _bg_color[1] as f64, _bg_color[2] as f64];
-    let opts = ops::FlattenOptions {
-        background: bg,
-        ..Default::default()
-    };
-    ops::flatten_with_opts(&img, &opts).map_err(|e| format!("Error applying background color: {}", e))
+    let bg = [_bg_color[0] as f64, _bg_color[1] as f64, _bg_color[2] as f64];
+    let opts = VOption::new().set("background", &bg);
+
+    img.flatten_with_opts(opts)
+        .map_err(|e| format!("Error applying background color: {}", e))
 }
 
 /// Applies min-width and min-height constraints to an image.
@@ -388,11 +412,10 @@ pub fn apply_zoom(img: VipsImage, zoom: f32, resizing_algorithm: &Option<String>
 /// Sharpens an image.
 pub fn apply_sharpen(img: VipsImage, sigma: f32) -> Result<VipsImage, String> {
     let clamped_sigma = sigma.clamp(0.1, 10.0);
-    let opts = ops::SharpenOptions {
-        sigma: clamped_sigma as f64,
-        ..Default::default()
-    };
-    ops::sharpen_with_opts(&img, &opts).map_err(|e| format!("Error applying sharpen: {}", e))
+    let opts = VOption::new().set("sigma", clamped_sigma as f64);
+
+    img.sharpen_with_opts(opts)
+        .map_err(|e| format!("Error applying sharpen: {}", e))
 }
 
 /// Pixelates an image.
@@ -421,5 +444,6 @@ pub fn apply_brightness(img: VipsImage, brightness: i32) -> Result<VipsImage, St
     let multi = 1.0;
     let offset = brightness as f64;
 
-    ops::linear(&img, &mut [multi], &mut [offset]).map_err(|e| format!("Error applying brightness: {}", e))
+    img.linear(&[multi], &[offset])
+        .map_err(|e| format!("Error applying brightness: {}", e))
 }

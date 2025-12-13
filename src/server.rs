@@ -5,10 +5,10 @@ use crate::constants::*;
 use crate::handlers::{image_forge_handler, info_handler, status_handler};
 use crate::middleware;
 use crate::monitoring;
+use axum::http::StatusCode;
 use axum::{extract::Request, routing::get, Router};
 use axum_prometheus::PrometheusMetricLayer;
 use std::time::Duration;
-use axum::http::StatusCode;
 use tokio::net::TcpListener;
 use tower_http::timeout::TimeoutLayer;
 use tower_http::trace::TraceLayer;
@@ -52,7 +52,7 @@ pub async fn start() {
         .route(
             "/metrics",
             get(move || async move {
-                monitoring::update_vips_metrics(&main_state.vips_app);
+                monitoring::update_vips_metrics();
                 main_metric_handle.render()
             }),
         )
@@ -74,7 +74,10 @@ pub async fn start() {
             }),
         )
         .layer(axum::middleware::from_fn(middleware::request_id_middleware))
-        .layer(TimeoutLayer::with_status_code(StatusCode::REQUEST_TIMEOUT, Duration::from_secs(state.config.timeout)));
+        .layer(TimeoutLayer::with_status_code(
+            StatusCode::REQUEST_TIMEOUT,
+            Duration::from_secs(state.config.timeout),
+        ));
     let listener = TcpListener::bind(&state.config.bind_address).await.unwrap();
     info!("Listening on http://{}", &state.config.bind_address);
 
@@ -92,7 +95,7 @@ pub async fn start() {
                 let prometheus_app = Router::new().route(
                     "/metrics",
                     get(move || async move {
-                        monitoring::update_vips_metrics(&prometheus_state.vips_app);
+                        monitoring::update_vips_metrics();
                         metric_handle.render()
                     }),
                 );

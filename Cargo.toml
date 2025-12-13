@@ -25,7 +25,7 @@ axum = "0.8.7"
 base64 = "0.22.1"
 hex = "0.4.3"
 hmac = "0.12.1"
-libvips = "1.7.1"
+rs-vips = "0.2.2"
 kamadak-exif = "0.6.1"
 percent-encoding = "2.3.2"
 reqwest = { version = "0.12.25", features = ["json"] }

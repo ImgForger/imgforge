@@ -9,7 +9,7 @@ use crate::url::{parse_path, validate_signature, ImgforgeUrl};
 use crate::utils::format_to_content_type;
 use axum::http::StatusCode;
 use bytes::Bytes;
-use libvips::VipsImage;
+use rs_vips::VipsImage;
 use std::error::Error;
 use std::fmt::Display;
 use std::sync::Arc;

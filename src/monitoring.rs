@@ -68,8 +68,8 @@ pub fn increment_status_code(status: &str) {
     metrics::counter!("status_codes_total", "status" => status_label).increment(1);
 }
 
-pub fn update_vips_metrics(vips_app: &std::sync::Arc<libvips::VipsApp>) {
-    metrics::gauge!("vips_tracked_mem_bytes").set(vips_app.tracked_get_mem() as f64);
-    metrics::gauge!("vips_tracked_mem_highwater_bytes").set(vips_app.tracked_get_mem_highwater() as f64);
-    metrics::gauge!("vips_tracked_allocs").set(vips_app.tracked_get_allocs() as f64);
+pub fn update_vips_metrics() {
+    metrics::gauge!("vips_tracked_mem_bytes").set(rs_vips::Vips::tracked_get_mem() as f64);
+    metrics::gauge!("vips_tracked_mem_highwater_bytes").set(rs_vips::Vips::tracked_get_mem_highwater() as f64);
+    metrics::gauge!("vips_tracked_allocs").set(rs_vips::Vips::tracked_get_allocs() as f64);
 }
