@@ -418,8 +418,8 @@ pub fn apply_brightness(img: VipsImage, brightness: i32) -> Result<VipsImage, St
         return Ok(img);
     }
 
-    let mult = 1.0;
-    let offset = brightness as f64 / 255.0;
+    let multi = 1.0;
+    let offset = brightness as f64;
 
-    ops::linear(&img, &mut [mult], &mut [offset]).map_err(|e| format!("Error applying brightness: {}", e))
+    ops::linear(&img, &mut [multi], &mut [offset]).map_err(|e| format!("Error applying brightness: {}", e))
 }
