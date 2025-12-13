@@ -13,7 +13,7 @@ use imgforge::config::Config;
 use imgforge::handlers::{image_forge_handler, info_handler, status_handler};
 use imgforge::middleware::request_id_middleware;
 use lazy_static::lazy_static;
-use libvips::VipsApp;
+use rs_vips::Vips;
 use serde_json::Value;
 use sha2::Sha256;
 use std::ffi::CString;
@@ -29,8 +29,10 @@ use wiremock::{
 type HmacSha256 = Hmac<Sha256>;
 
 lazy_static! {
-    static ref VIPS_APP: Arc<VipsApp> =
-        Arc::new(VipsApp::new("imgforge-test", false).expect("Failed to initialize libvips"));
+    static ref VIPS_INITIALIZED: bool = {
+        rs_vips::Vips::init("imgforge-test").expect("Failed to initialize libvips");
+        true
+    };
 }
 
 fn libvips_supports_format(format: &str) -> bool {
@@ -40,8 +42,8 @@ fn libvips_supports_format(format: &str) -> bool {
     for candidate in candidates {
         if let Ok(c_str) = CString::new(candidate) {
             unsafe {
-                if !libvips::bindings::vips_foreign_find_save_buffer(c_str.as_ptr()).is_null()
-                    || !libvips::bindings::vips_foreign_find_save(c_str.as_ptr()).is_null()
+                if !rs_vips::bindings::vips_foreign_find_save_buffer(c_str.as_ptr()).is_null()
+                    || !rs_vips::bindings::vips_foreign_find_save(c_str.as_ptr()).is_null()
                 {
                     return true;
                 }

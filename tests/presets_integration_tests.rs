@@ -13,7 +13,7 @@ use imgforge::handlers::image_forge_handler;
 use imgforge::middleware::request_id_middleware;
 use imgforge::processing::{options::ProcessingOption, presets::parse_options_string};
 use lazy_static::lazy_static;
-use libvips::{VipsApp, VipsImage};
+use rs_vips::{Vips, VipsImage};
 use sha2::Sha256;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -28,8 +28,10 @@ use wiremock::{
 type HmacSha256 = Hmac<Sha256>;
 
 lazy_static! {
-    static ref VIPS_APP: Arc<VipsApp> =
-        Arc::new(VipsApp::new("imgforge-test", false).expect("Failed to initialize libvips"));
+    static ref VIPS_INITIALIZED: bool = {
+        rs_vips::Vips::init("imgforge-test").expect("Failed to initialize libvips");
+        true
+    };
 }
 
 fn create_test_image(width: u32, height: u32, color: [u8; 4]) -> Vec<u8> {

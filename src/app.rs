@@ -7,7 +7,7 @@ use crate::processing::watermark::CachedWatermark;
 use governor::clock::DefaultClock;
 use governor::state::{InMemoryState, NotKeyed};
 use governor::{Quota, RateLimiter};
-use libvips::VipsApp;
+use rs_vips::{Vips, VipsImage};
 use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::time::Duration;
@@ -24,7 +24,6 @@ pub struct AppState {
     pub metadata_cache: MetadataCache,
     pub rate_limiter: Option<RequestRateLimiter>,
     pub config: Config,
-    pub vips_app: Arc<VipsApp>,
     pub http_client: reqwest::Client,
     pub watermark_cache: Mutex<Option<CachedWatermark>>,
 }
@@ -54,7 +53,7 @@ impl Imgforge {
         let semaphore = Arc::new(Semaphore::new(config.workers));
         let cache = Cache::new(cache_config.clone()).await?;
         let metadata_cache = MetadataCache::new(cache_config).await?;
-        let vips_app = Arc::new(init_vips()?);
+        init_vips()?;
         let http_client = build_http_client(config.download_timeout)?;
         let rate_limiter = build_rate_limiter(config.rate_limit_per_minute);
         let watermark_cache = Mutex::new(None);
@@ -65,7 +64,6 @@ impl Imgforge {
             metadata_cache,
             rate_limiter,
             config,
-            vips_app,
             http_client,
             watermark_cache,
         });
@@ -124,8 +122,8 @@ impl Imgforge {
     }
 }
 
-fn init_vips() -> Result<VipsApp, InitError> {
-    VipsApp::new("imgforge", false).map_err(|err| InitError::Libvips(err.to_string()))
+fn init_vips() -> Result<(), InitError> {
+    Vips::init("imgforge").map_err(|err| InitError::Libvips(err.to_string()))
 }
 
 fn build_http_client(timeout_secs: u64) -> Result<reqwest::Client, reqwest::Error> {

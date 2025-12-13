@@ -537,9 +537,21 @@ mod test_processing {
         let pixel = get_sample_pixel(&result_bytes);
 
         // RGB channels should each be increased by ~50
-        assert!(pixel[0] >= 145 && pixel[0] <= 155, "Red channel should be ~150, got {}", pixel[0]);
-        assert!(pixel[1] >= 145 && pixel[1] <= 155, "Green channel should be ~150, got {}", pixel[1]);
-        assert!(pixel[2] >= 145 && pixel[2] <= 155, "Blue channel should be ~150, got {}", pixel[2]);
+        assert!(
+            pixel[0] >= 145 && pixel[0] <= 155,
+            "Red channel should be ~150, got {}",
+            pixel[0]
+        );
+        assert!(
+            pixel[1] >= 145 && pixel[1] <= 155,
+            "Green channel should be ~150, got {}",
+            pixel[1]
+        );
+        assert!(
+            pixel[2] >= 145 && pixel[2] <= 155,
+            "Blue channel should be ~150, got {}",
+            pixel[2]
+        );
     }
 
     #[test]
@@ -552,9 +564,21 @@ mod test_processing {
         let pixel = get_sample_pixel(&result_bytes);
 
         // RGB channels should each be decreased by ~50
-        assert!(pixel[0] >= 95 && pixel[0] <= 105, "Red channel should be ~100, got {}", pixel[0]);
-        assert!(pixel[1] >= 95 && pixel[1] <= 105, "Green channel should be ~100, got {}", pixel[1]);
-        assert!(pixel[2] >= 95 && pixel[2] <= 105, "Blue channel should be ~100, got {}", pixel[2]);
+        assert!(
+            pixel[0] >= 95 && pixel[0] <= 105,
+            "Red channel should be ~100, got {}",
+            pixel[0]
+        );
+        assert!(
+            pixel[1] >= 95 && pixel[1] <= 105,
+            "Green channel should be ~100, got {}",
+            pixel[1]
+        );
+        assert!(
+            pixel[2] >= 95 && pixel[2] <= 105,
+            "Blue channel should be ~100, got {}",
+            pixel[2]
+        );
     }
 
     #[test]
@@ -598,8 +622,12 @@ mod test_processing {
         let restored_bytes = vips_to_bytes(&restored);
         let restored_avg = calculate_average(&restored_bytes);
 
-        assert!((original_avg - restored_avg).abs() < 2.0,
-                "Should be reversible: {} -> {}", original_avg, restored_avg);
+        assert!(
+            (original_avg - restored_avg).abs() < 2.0,
+            "Should be reversible: {} -> {}",
+            original_avg,
+            restored_avg
+        );
     }
 
     #[test]
@@ -612,9 +640,21 @@ mod test_processing {
         let pixel = get_sample_pixel(&result_bytes);
 
         // Each channel should increase by 30
-        assert!(pixel[0] >= 125 && pixel[0] <= 135, "Red: expected ~130, got {}", pixel[0]);
-        assert!(pixel[1] >= 175 && pixel[1] <= 185, "Green: expected ~180, got {}", pixel[1]);
-        assert!(pixel[2] >= 225 && pixel[2] <= 235, "Blue: expected ~230, got {}", pixel[2]);
+        assert!(
+            pixel[0] >= 125 && pixel[0] <= 135,
+            "Red: expected ~130, got {}",
+            pixel[0]
+        );
+        assert!(
+            pixel[1] >= 175 && pixel[1] <= 185,
+            "Green: expected ~180, got {}",
+            pixel[1]
+        );
+        assert!(
+            pixel[2] >= 225 && pixel[2] <= 235,
+            "Blue: expected ~230, got {}",
+            pixel[2]
+        );
     }
 
     #[test]

@@ -1,7 +1,11 @@
 use crate::processing::options::Watermark;
 use crate::processing::transform::resize_with_algorithm;
 use bytes::Bytes;
-use libvips::{ops, VipsImage};
+use rs_vips::{
+    ops,
+    voption::{Setter, VOption},
+    VipsImage,
+};
 
 #[derive(Clone)]
 pub struct PreparedWatermark {
@@ -76,32 +80,21 @@ pub fn apply_watermark(
     let watermark_with_alpha = ensure_alpha_channel(watermark_resized)?;
 
     // Apply opacity
-    let multipliers = &mut [1.0, 1.0, 1.0, watermark_opts.opacity as f64];
-    let adders = &mut [0.0, 0.0, 0.0, 0.0];
-    let watermark_with_opacity = ops::linear(&watermark_with_alpha, multipliers, adders)
+    let multipliers = [1.0, 1.0, 1.0, watermark_opts.opacity as f64];
+    let adders = [0.0, 0.0, 0.0, 0.0];
+    let watermark_with_opacity = watermark_with_alpha
+        .linear(&multipliers, &adders)
         .map_err(|e| format!("Failed to apply opacity to watermark: {}", e))?;
 
     // Calculate position
     let (x, y) = calculate_watermark_position(&img, &watermark_with_opacity, &watermark_opts.position);
 
-    // Composite watermark
-    let bg = &mut [0.0, 0.0, 0.0, 0.0]; // transparent
-    let options = ops::EmbedOptions {
-        extend: ops::Extend::Background,
-        background: bg.to_vec(),
-    };
+    // Composite watermark  
+    let watermark_on_canvas = watermark_with_opacity
+        .embed(x as i32, y as i32, img.get_width(), img.get_height())
+        .map_err(|e| format!("Failed to embed watermark on canvas: {}", e))?;
 
-    let watermark_on_canvas = ops::embed_with_opts(
-        &watermark_with_opacity,
-        x as i32,
-        y as i32,
-        img.get_width(),
-        img.get_height(),
-        &options,
-    )
-    .map_err(|e| format!("Failed to embed watermark on canvas: {}", e))?;
-
-    ops::composite_2(&img, &watermark_on_canvas, ops::BlendMode::Over)
+    img.composite2(&watermark_on_canvas, ops::BlendMode::Over)
         .map_err(|e| format!("Failed to composite watermark: {}", e))
 }
 
@@ -118,7 +111,9 @@ fn ensure_alpha_channel(watermark_img: VipsImage) -> Result<VipsImage, String> {
         return Ok(watermark_img);
     }
 
-    ops::bandjoin_const(&watermark_img, &mut [255.0]).map_err(|e| format!("Failed to add alpha to watermark: {}", e))
+    watermark_img
+        .bandjoin_const(&[255.0])
+        .map_err(|e| format!("Failed to add alpha to watermark: {}", e))
 }
 
 fn build_prepared_watermark_image(watermark_img: VipsImage) -> Result<PreparedWatermark, String> {
@@ -126,7 +121,7 @@ fn build_prepared_watermark_image(watermark_img: VipsImage) -> Result<PreparedWa
         .get_format()
         .map_err(|e| format!("Failed to determine watermark format: {}", e))?;
     let prepared = PreparedWatermark {
-        bytes: Bytes::from(watermark_img.image_write_to_memory()),
+        bytes: Bytes::from(watermark_img.write_to_memory()),
         width: watermark_img.get_width(),
         height: watermark_img.get_height(),
         bands: watermark_img.get_bands(),
