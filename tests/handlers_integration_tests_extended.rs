@@ -79,6 +79,14 @@ async fn make_request(app: axum::Router, uri: &str) -> (StatusCode, Vec<u8>) {
     (status, body.to_vec())
 }
 
+fn first_pixel_rgba(bytes: &[u8]) -> [u8; 4] {
+    let img = image::load_from_memory(bytes)
+        .expect("failed to decode image")
+        .to_rgba8();
+    let pixel = img.get_pixel(0, 0);
+    [pixel[0], pixel[1], pixel[2], pixel[3]]
+}
+
 #[tokio::test]
 async fn test_image_caching_with_memory_cache() {
     let mock_server = MockServer::start().await;
@@ -436,6 +444,7 @@ async fn test_pixelate_effect() {
 async fn test_brightness_effect() {
     let mock_server = MockServer::start().await;
     let test_image = create_test_image(150, 150, [128, 128, 128, 255]);
+    let base_pixel = first_pixel_rgba(&test_image);
 
     Mock::given(method("GET"))
         .and(path("/brightness.jpg"))
@@ -451,13 +460,11 @@ async fn test_brightness_effect() {
     let config = create_test_config(vec![], vec![], true);
     let cache = ImgforgeCache::None;
     let state = create_test_state_with_cache(config, cache).await;
-
     let source_url = format!("{}/brightness.jpg", mock_server.uri());
 
     // Test increasing brightness
     let encoded_url = URL_SAFE_NO_PAD.encode(source_url.as_bytes());
-    let path = format!("/unsafe/brightness:100/{}", encoded_url);
-
+    let path = format!("/unsafe/format:png/brightness:100/{}", encoded_url);
     let app = axum::Router::new()
         .route("/{*path}", axum::routing::get(image_forge_handler))
         .with_state(state.clone())
@@ -465,12 +472,21 @@ async fn test_brightness_effect() {
 
     let (status, body) = make_request(app, &path).await;
     assert_eq!(status, StatusCode::OK);
-    assert!(!body.is_empty());
+
+    let bright_pixel = first_pixel_rgba(&body);
+    assert_eq!(
+        bright_pixel,
+        [
+            base_pixel[0].saturating_add(100),
+            base_pixel[1].saturating_add(100),
+            base_pixel[2].saturating_add(100),
+            255
+        ]
+    );
 
     // Test decreasing brightness
     let encoded_url = URL_SAFE_NO_PAD.encode(source_url.as_bytes());
-    let path = format!("/unsafe/brightness:-80/{}", encoded_url);
-
+    let path = format!("/unsafe/format:png/brightness:-80/{}", encoded_url);
     let app = axum::Router::new()
         .route("/{*path}", axum::routing::get(image_forge_handler))
         .with_state(state.clone())
@@ -478,12 +494,21 @@ async fn test_brightness_effect() {
 
     let (status, body) = make_request(app, &path).await;
     assert_eq!(status, StatusCode::OK);
-    assert!(!body.is_empty());
+
+    let dark_pixel = first_pixel_rgba(&body);
+    assert_eq!(
+        dark_pixel,
+        [
+            base_pixel[0].saturating_sub(80),
+            base_pixel[1].saturating_sub(80),
+            base_pixel[2].saturating_sub(80),
+            255
+        ]
+    );
 
     // Test with shorthand br
     let encoded_url = URL_SAFE_NO_PAD.encode(source_url.as_bytes());
-    let path = format!("/unsafe/br:50/{}", encoded_url);
-
+    let path = format!("/unsafe/format:png/br:50/{}", encoded_url);
     let app = axum::Router::new()
         .route("/{*path}", axum::routing::get(image_forge_handler))
         .with_state(state)
@@ -491,5 +516,15 @@ async fn test_brightness_effect() {
 
     let (status, body) = make_request(app, &path).await;
     assert_eq!(status, StatusCode::OK);
-    assert!(!body.is_empty());
+
+    let br_pixel = first_pixel_rgba(&body);
+    assert_eq!(
+        br_pixel,
+        [
+            base_pixel[0].saturating_add(50),
+            base_pixel[1].saturating_add(50),
+            base_pixel[2].saturating_add(50),
+            255
+        ]
+    );
 }
