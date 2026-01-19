@@ -229,16 +229,16 @@ ask_cache_config() {
             2)
                 CACHE_TYPE="disk"
                 CACHE_DISK_PATH="/var/imgforge/cache"
-                CACHE_DISK_CAPACITY="10737418240"  # 10 GB
-                print_success "Disk cache selected (10 GB at $CACHE_DISK_PATH)"
+                CACHE_DISK_CAPACITY="2147483648"  # 2 GB
+                print_success "Disk cache selected (2 GB at $CACHE_DISK_PATH)"
                 break
                 ;;
             3)
                 CACHE_TYPE="hybrid"
                 CACHE_MEMORY_CAPACITY="1000"
                 CACHE_DISK_PATH="/var/imgforge/cache"
-                CACHE_DISK_CAPACITY="10737418240"  # 10 GB
-                print_success "Hybrid cache selected (1000 entries + 10 GB disk)"
+                CACHE_DISK_CAPACITY="2147483648"  # 2 GB
+                print_success "Hybrid cache selected (1000 entries + 2 GB disk)"
                 break
                 ;;
             4)
