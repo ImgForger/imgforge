@@ -423,6 +423,10 @@ services:
     image: ghcr.io/imgforger/imgforge:latest
     container_name: imgforge
     restart: unless-stopped
+    ulimits:
+      nofile:
+        soft: 1048576
+        hard: 1048576
     ports:
       - "3000:3000"
 EOF

@@ -523,7 +523,7 @@ ProtectHome=read-only
 ReadWritePaths=$DATA_DIR $LOG_DIR $CACHE_DIR
 
 # Resource limits
-LimitNOFILE=65536
+LimitNOFILE=1048576
 
 [Install]
 WantedBy=multi-user.target
