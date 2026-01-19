@@ -5,6 +5,7 @@ use crate::constants::*;
 use crate::handlers::{image_forge_handler, info_handler, status_handler};
 use crate::middleware;
 use crate::monitoring;
+use axum::http::StatusCode;
 use axum::{extract::Request, routing::get, Router};
 use axum_prometheus::PrometheusMetricLayer;
 use std::time::Duration;
@@ -73,7 +74,10 @@ pub async fn start() {
             }),
         )
         .layer(axum::middleware::from_fn(middleware::request_id_middleware))
-        .layer(TimeoutLayer::new(Duration::from_secs(state.config.timeout)));
+        .layer(TimeoutLayer::with_status_code(
+            StatusCode::REQUEST_TIMEOUT,
+            Duration::from_secs(state.config.timeout),
+        ));
     let listener = TcpListener::bind(&state.config.bind_address).await.unwrap();
     info!("Listening on http://{}", &state.config.bind_address);
 

@@ -4,12 +4,27 @@ use crate::monitoring::{increment_cache_hit, increment_cache_miss};
 use crate::utils::format_to_content_type;
 use bytes::Bytes;
 use foyer::{
-    BlockEngineBuilder, Cache, CacheBuilder, Code, CodeError, FsDeviceBuilder, HybridCache, HybridCacheBuilder,
+    BlockEngineConfig, Cache, CacheBuilder, Code, Error as FoyerError, ErrorKind, FsDeviceBuilder, HybridCache,
+    HybridCacheBuilder,
 };
 use foyer::{DeviceBuilder, RecoverMode};
 use std::io::{Read, Write};
 use std::path::Path;
 use std::sync::Arc;
+use tracing::info;
+
+const DEFAULT_BLOCK_SIZE: usize = 16 * 1024 * 1024;
+const MIN_BLOCK_SIZE: usize = 4 * 1024;
+
+fn block_size_for_capacity(capacity: usize) -> usize {
+    let target = capacity.min(DEFAULT_BLOCK_SIZE);
+    let aligned = target - (target % MIN_BLOCK_SIZE);
+    if aligned == 0 {
+        MIN_BLOCK_SIZE
+    } else {
+        aligned
+    }
+}
 
 #[derive(Clone)]
 pub struct CachedImage {
@@ -18,27 +33,27 @@ pub struct CachedImage {
 }
 
 impl Code for CachedImage {
-    fn encode(&self, writer: &mut impl Write) -> Result<(), CodeError> {
+    fn encode(&self, writer: &mut impl Write) -> Result<(), FoyerError> {
         let data = self.bytes.as_ref();
         data.len().encode(writer)?;
-        writer.write_all(data)?;
+        writer.write_all(data).map_err(FoyerError::io_error)?;
 
         let content_type_bytes = self.content_type.as_bytes();
         content_type_bytes.len().encode(writer)?;
-        writer.write_all(content_type_bytes)?;
+        writer.write_all(content_type_bytes).map_err(FoyerError::io_error)?;
         Ok(())
     }
 
-    fn decode(reader: &mut impl Read) -> Result<Self, CodeError> {
+    fn decode(reader: &mut impl Read) -> Result<Self, FoyerError> {
         let len = usize::decode(reader)?;
         let mut data = vec![0u8; len];
-        reader.read_exact(&mut data)?;
+        reader.read_exact(&mut data).map_err(FoyerError::io_error)?;
 
         let content_len = usize::decode(reader)?;
         let mut content_buf = vec![0u8; content_len];
-        reader.read_exact(&mut content_buf)?;
-        let content_vec = content_buf.clone();
-        let content_str = std::str::from_utf8(&content_buf).map_err(|_| CodeError::Unrecognized(content_vec))?;
+        reader.read_exact(&mut content_buf).map_err(FoyerError::io_error)?;
+        let content_str = std::str::from_utf8(&content_buf)
+            .map_err(|_| FoyerError::new(ErrorKind::Parse, "invalid utf8 in content type"))?;
         let content_type = format_to_content_type(content_str);
 
         Ok(CachedImage {
@@ -60,26 +75,25 @@ pub struct CachedMetadata {
 }
 
 impl Code for CachedMetadata {
-    fn encode(&self, writer: &mut impl Write) -> Result<(), CodeError> {
+    fn encode(&self, writer: &mut impl Write) -> Result<(), FoyerError> {
         self.width.encode(writer)?;
         self.height.encode(writer)?;
 
         let format_bytes = self.format.as_bytes();
         format_bytes.len().encode(writer)?;
-        writer.write_all(format_bytes)?;
+        writer.write_all(format_bytes).map_err(FoyerError::io_error)?;
         Ok(())
     }
 
-    fn decode(reader: &mut impl Read) -> Result<Self, CodeError> {
+    fn decode(reader: &mut impl Read) -> Result<Self, FoyerError> {
         let width = u32::decode(reader)?;
         let height = u32::decode(reader)?;
 
         let len = usize::decode(reader)?;
         let mut format_buf = vec![0u8; len];
-        reader.read_exact(&mut format_buf)?;
-        let format_vec = format_buf.clone();
+        reader.read_exact(&mut format_buf).map_err(FoyerError::io_error)?;
         let format = std::str::from_utf8(&format_buf)
-            .map_err(|_| CodeError::Unrecognized(format_vec))?
+            .map_err(|_| FoyerError::new(ErrorKind::Parse, "invalid utf8 in cached format"))?
             .to_string();
 
         Ok(CachedMetadata { width, height, format })
@@ -120,7 +134,15 @@ impl ImgforgeCache {
                     .with_capacity(capacity)
                     .build()
                     .map_err(|e| CacheError::Initialization(e.to_string()))?;
-                let engine = BlockEngineBuilder::new(device);
+                let block_size = block_size_for_capacity(capacity);
+                info!(
+                    cache = "image",
+                    mode = "disk",
+                    capacity,
+                    block_size,
+                    "Using disk cache block size"
+                );
+                let engine = BlockEngineConfig::new(device).with_block_size(block_size);
                 let cache = HybridCacheBuilder::new()
                     .memory(0) // No memory, pure disk
                     .storage()
@@ -141,7 +163,15 @@ impl ImgforgeCache {
                     .with_capacity(disk_capacity)
                     .build()
                     .map_err(|e| CacheError::Initialization(e.to_string()))?;
-                let engine = BlockEngineBuilder::new(device);
+                let block_size = block_size_for_capacity(disk_capacity);
+                info!(
+                    cache = "image",
+                    mode = "hybrid",
+                    capacity = disk_capacity,
+                    block_size,
+                    "Using disk cache block size"
+                );
+                let engine = BlockEngineConfig::new(device).with_block_size(block_size);
                 let cache = HybridCacheBuilder::new()
                     .memory(memory_capacity)
                     .storage()
@@ -218,7 +248,15 @@ impl MetadataCache {
                     .with_capacity(capacity)
                     .build()
                     .map_err(|e| CacheError::Initialization(e.to_string()))?;
-                let engine = BlockEngineBuilder::new(device);
+                let block_size = block_size_for_capacity(capacity);
+                info!(
+                    cache = "metadata",
+                    mode = "disk",
+                    capacity,
+                    block_size,
+                    "Using disk cache block size"
+                );
+                let engine = BlockEngineConfig::new(device).with_block_size(block_size);
                 let cache = HybridCacheBuilder::new()
                     .memory(0)
                     .storage()
@@ -239,7 +277,15 @@ impl MetadataCache {
                     .with_capacity(disk_capacity)
                     .build()
                     .map_err(|e| CacheError::Initialization(e.to_string()))?;
-                let engine = BlockEngineBuilder::new(device);
+                let block_size = block_size_for_capacity(disk_capacity);
+                info!(
+                    cache = "metadata",
+                    mode = "hybrid",
+                    capacity = disk_capacity,
+                    block_size,
+                    "Using disk cache block size"
+                );
+                let engine = BlockEngineConfig::new(device).with_block_size(block_size);
                 let cache = HybridCacheBuilder::new()
                     .memory(memory_capacity)
                     .storage()
