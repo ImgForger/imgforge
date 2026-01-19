@@ -31,27 +31,6 @@ The interactive script will:
 - Generate secure keys automatically
 - Start imgforge on port 3000
 
-See the [deployment guide](deployment/README.md) for more options.
-
-### Manual Docker setup
-
-Generate development-only values with OpenSSL:
-
-```bash
-openssl rand -hex 32
-```
-
-```bash
-docker pull ghcr.io/imgforger/imgforge:latest
-docker run --rm -p 3000:3000 \
-  -e IMGFORGE_KEY=<generated_key> \
-  -e IMGFORGE_SALT=<generated_salt> \
-  -e IMGFORGE_LOG_LEVEL=imgforge=info \
-  ghcr.io/imgforger/imgforge:latest
-```
-
-Then follow the [Quick Start guide](doc/2_quick_start.md) to sign URLs and try your first transformation. Prefer bare-metal builds or CI integrations? See [Installation](doc/1_installation.md) for native toolchain instructions.
-
 ## Documentation
 
 The documentation is live on the [docs site](https://imgforger.github.io/).
