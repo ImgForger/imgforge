@@ -320,16 +320,16 @@ ask_cache_config() {
             2)
                 CACHE_TYPE="disk"
                 CACHE_DISK_PATH="$CACHE_DIR"
-                CACHE_DISK_CAPACITY="10737418240"
-                print_success "Disk cache selected (10 GB at $CACHE_DIR)"
+                CACHE_DISK_CAPACITY="2147483648"
+                print_success "Disk cache selected (2 GB at $CACHE_DIR)"
                 break
                 ;;
             3)
                 CACHE_TYPE="hybrid"
                 CACHE_MEMORY_CAPACITY="1000"
                 CACHE_DISK_PATH="$CACHE_DIR"
-                CACHE_DISK_CAPACITY="10737418240"
-                print_success "Hybrid cache selected (1000 entries + 10 GB disk)"
+                CACHE_DISK_CAPACITY="2147483648"
+                print_success "Hybrid cache selected (1000 entries + 2 GB disk)"
                 break
                 ;;
             4)
