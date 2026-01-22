@@ -9,7 +9,7 @@ use crate::monitoring::{increment_processed_images, observe_image_processing_dur
 use crate::processing::options::ParsedOptions;
 use crate::processing::watermark::CachedWatermark;
 use bytes::Bytes;
-use libvips::VipsImage;
+use rs_vips::VipsImage;
 use std::time::Instant;
 use tracing::debug;
 

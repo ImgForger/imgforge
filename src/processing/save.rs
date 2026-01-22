@@ -1,4 +1,8 @@
-use libvips::{bindings, ops, VipsImage};
+use rs_vips::{
+    bindings, ops,
+    voption::{Setter, VOption},
+    VipsImage,
+};
 use std::collections::HashSet;
 use std::ffi::CString;
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -19,49 +23,35 @@ pub fn save_image(img: VipsImage, format: &str, quality: u8) -> Result<Vec<u8>, 
     let effort = ((quality as i32).clamp(1, 100) / 10).clamp(1, 10);
     match format.as_str() {
         "jpeg" | "jpg" => encode_image("JPEG", || {
-            let opts = ops::JpegsaveBufferOptions {
-                q: quality as i32,
-                optimize_coding: true,
-                ..Default::default()
-            };
-            ops::jpegsave_buffer_with_opts(&img, &opts)
+            let opts = VOption::new().set("q", quality as i32).set("optimize_coding", true);
+            img.jpegsave_buffer_with_opts(opts)
         }),
         "png" => encode_image("PNG", || {
-            let opts = ops::PngsaveBufferOptions {
-                effort,
-                ..Default::default()
-            };
-            ops::pngsave_buffer_with_opts(&img, &opts)
+            let opts = VOption::new().set("effort", effort);
+            img.pngsave_buffer_with_opts(opts)
         }),
         "webp" => encode_image("WebP", || {
             // Note: WebpsaveBufferOptions in libvips 1.7.1 causes crashes when used with _with_opts.
             // Using default save for WebP until the library is updated.
-            ops::webpsave_buffer(&img)
+            img.webpsave_buffer()
         }),
         "tiff" => encode_image("TIFF", || {
             let clamped_quality = (quality as i32).clamp(1, 100);
             let compression = if clamped_quality == 100 {
                 // Preserve lossless output when callers request max quality.
-                ops::ForeignTiffCompression::Lzw
+                "lzw"
             } else {
-                ops::ForeignTiffCompression::Jpeg
+                "jpeg"
             };
 
-            let opts = ops::TiffsaveBufferOptions {
-                q: clamped_quality,
-                compression,
-                ..Default::default()
-            };
+            let opts = VOption::new().set("q", clamped_quality).set("compression", compression);
 
-            ops::tiffsave_buffer_with_opts(&img, &opts)
+            img.tiffsave_buffer_with_opts(opts)
         }),
         "gif" => encode_image("GIF", || {
-            let opts = ops::GifsaveBufferOptions {
-                effort,
-                ..Default::default()
-            };
+            let opts = VOption::new().set("effort", effort);
 
-            ops::gifsave_buffer_with_opts(&img, &opts)
+            img.gifsave_buffer_with_opts(&opts)
         }),
         _ => Err(format!("Unsupported output format: {}", format)),
     }
@@ -69,7 +59,7 @@ pub fn save_image(img: VipsImage, format: &str, quality: u8) -> Result<Vec<u8>, 
 
 fn encode_image<F>(label: &str, op: F) -> Result<Vec<u8>, String>
 where
-    F: FnOnce() -> libvips::Result<Vec<u8>>,
+    F: FnOnce() -> rs_vips::Result<Vec<u8>>,
 {
     catch_unwind(AssertUnwindSafe(op))
         .map_err(|_| format!("Error encoding {}: libvips call panicked", label))?
