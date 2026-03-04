@@ -6,6 +6,7 @@ use tracing::error;
 const DEFAULT_INITIAL_BUFFER_CAPACITY: usize = 64 * 1024;
 
 fn record_fetch_metrics(fetch_start: std::time::Instant, status: &str) {
+    // Record full fetch time, including streaming the response body, not just time-to-headers.
     observe_source_image_fetch_duration(fetch_start.elapsed().as_secs_f64());
     increment_source_images_fetched(status);
 }
@@ -14,6 +15,7 @@ fn initial_buffer_capacity(content_length: Option<usize>, max_bytes: Option<usiz
     match (content_length, max_bytes) {
         (Some(len), Some(limit)) => len.min(limit),
         (Some(len), None) => len,
+        // Avoid reserving an unbounded amount up front when the server omits Content-Length.
         (None, Some(limit)) => limit.min(DEFAULT_INITIAL_BUFFER_CAPACITY),
         (None, None) => 0,
     }
@@ -62,6 +64,7 @@ pub async fn fetch_image(
         }
     }
 
+    // Reserve based on the tightest known size bound so large responses do not repeatedly grow the buffer.
     let mut image_bytes = BytesMut::with_capacity(initial_buffer_capacity(advertised_length, max_bytes));
     loop {
         match response.chunk().await {
