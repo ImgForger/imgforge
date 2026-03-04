@@ -144,7 +144,11 @@ impl ImgforgeCache {
                 );
                 let engine = BlockEngineConfig::new(device).with_block_size(block_size);
                 let cache = HybridCacheBuilder::new()
-                    .memory(0) // No memory, pure disk
+                    // Foyer's hybrid builder always has a memory phase; using 1 entry and 1 shard
+                    // avoids its startup warning for capacity(0) < shards(8) while keeping the
+                    // in-memory tier effectively negligible for disk mode.
+                    .memory(1)
+                    .with_shards(1)
                     .storage()
                     .with_engine_config(engine)
                     .with_recover_mode(RecoverMode::Quiet)
@@ -258,7 +262,11 @@ impl MetadataCache {
                 );
                 let engine = BlockEngineConfig::new(device).with_block_size(block_size);
                 let cache = HybridCacheBuilder::new()
-                    .memory(0)
+                    // Foyer's hybrid builder always has a memory phase; using 1 entry and 1 shard
+                    // avoids its startup warning for capacity(0) < shards(8) while keeping the
+                    // in-memory tier effectively negligible for disk mode.
+                    .memory(1)
+                    .with_shards(1)
                     .storage()
                     .with_engine_config(engine)
                     .with_recover_mode(RecoverMode::Quiet)
