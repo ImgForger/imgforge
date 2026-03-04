@@ -6,10 +6,9 @@ use crate::processing::presets::expand_presets;
 use crate::processing::process_image;
 use crate::processing::watermark::{self, CachedWatermark};
 use crate::url::{parse_path, validate_signature, ImgforgeUrl};
-use crate::utils::{content_type_to_format, format_to_content_type};
+use crate::utils::{content_type_to_format, format_to_content_type, read_exif_orientation};
 use axum::http::StatusCode;
 use bytes::Bytes;
-use exif::{In, Tag};
 use libvips::VipsImage;
 use std::error::Error;
 use std::fmt::Display;
@@ -134,17 +133,6 @@ fn sniff_image_format(image_bytes: &[u8]) -> Option<&'static str> {
     }
 
     None
-}
-
-fn detect_exif_orientation(image_bytes: &[u8]) -> Option<u32> {
-    let exif_reader = exif::Reader::new();
-    exif_reader
-        .read_from_container(&mut std::io::Cursor::new(image_bytes))
-        .ok()
-        .and_then(|exif| {
-            exif.get_field(Tag::Orientation, In::PRIMARY)
-                .and_then(|field| field.value.get_uint(0))
-        })
 }
 
 fn image_has_alpha(channels: u32) -> bool {
@@ -327,7 +315,7 @@ pub async fn image_info(state: Arc<AppState>, request: ProcessRequest<'_>) -> Re
                     format_str,
                     channels,
                     image_has_alpha(channels),
-                    detect_exif_orientation(&image_bytes),
+                    read_exif_orientation(&image_bytes),
                     true,
                 )
             }

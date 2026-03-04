@@ -1,3 +1,6 @@
+use exif::{In, Tag};
+use std::io::Cursor;
+
 pub fn format_to_content_type(format: &str) -> &'static str {
     match format {
         "png" | "image/png" => "image/png",
@@ -23,4 +26,15 @@ pub fn content_type_to_format(content_type: &str) -> Option<&'static str> {
         "image/heif" | "image/heic" => Some("heif"),
         _ => None,
     }
+}
+
+pub fn read_exif_orientation(image_bytes: &[u8]) -> Option<u32> {
+    let exif_reader = exif::Reader::new();
+    exif_reader
+        .read_from_container(&mut Cursor::new(image_bytes))
+        .ok()
+        .and_then(|exif| {
+            exif.get_field(Tag::Orientation, In::PRIMARY)
+                .and_then(|field| field.value.get_uint(0))
+        })
 }

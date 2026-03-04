@@ -1,7 +1,6 @@
 use crate::processing::options::{Crop, Resize};
-use exif::{In, Tag};
+use crate::utils::read_exif_orientation;
 use libvips::{ops, VipsImage};
-use std::io::Cursor;
 use tracing::debug;
 
 const SCALE_EPSILON: f64 = 1e-6;
@@ -37,38 +36,35 @@ pub fn resize_with_algorithm(
 
 /// Applies EXIF rotation to an image based on orientation data.
 pub fn apply_exif_rotation(image_bytes: &[u8], mut img: VipsImage) -> Result<VipsImage, String> {
-    let exif_reader = exif::Reader::new();
-    if let Ok(exif) = exif_reader.read_from_container(&mut Cursor::new(image_bytes)) {
-        if let Some(orientation) = exif.get_field(Tag::Orientation, In::PRIMARY) {
-            debug!("Found EXIF orientation: {:?}", orientation.value.get_uint(0));
-            match orientation.value.get_uint(0) {
-                Some(2) => {
-                    img = ops::flip(&img, ops::Direction::Horizontal)
-                        .map_err(|e| format!("Error flipping horizontally: {}", e))?
-                }
-                Some(3) => img = ops::rot(&img, ops::Angle::D180).map_err(|e| format!("Error rotating 180: {}", e))?,
-                Some(4) => {
-                    img = ops::flip(&img, ops::Direction::Vertical)
-                        .map_err(|e| format!("Error flipping vertically: {}", e))?
-                }
-                Some(5) => {
-                    img = ops::flip(
-                        &ops::rot(&img, ops::Angle::D90).map_err(|e| format!("Error rotating 90: {}", e))?,
-                        ops::Direction::Horizontal,
-                    )
-                    .map_err(|e| format!("Error flipping after rotate: {}", e))?
-                }
-                Some(6) => img = ops::rot(&img, ops::Angle::D90).map_err(|e| format!("Error rotating 90: {}", e))?,
-                Some(7) => {
-                    img = ops::flip(
-                        &ops::rot(&img, ops::Angle::D270).map_err(|e| format!("Error rotating 270: {}", e))?,
-                        ops::Direction::Horizontal,
-                    )
-                    .map_err(|e| format!("Error flipping after rotate: {}", e))?
-                }
-                Some(8) => img = ops::rot(&img, ops::Angle::D270).map_err(|e| format!("Error rotating 270: {}", e))?,
-                _ => {}
+    if let Some(orientation) = read_exif_orientation(image_bytes) {
+        debug!("Found EXIF orientation: {:?}", orientation);
+        match orientation {
+            2 => {
+                img = ops::flip(&img, ops::Direction::Horizontal)
+                    .map_err(|e| format!("Error flipping horizontally: {}", e))?
             }
+            3 => img = ops::rot(&img, ops::Angle::D180).map_err(|e| format!("Error rotating 180: {}", e))?,
+            4 => {
+                img = ops::flip(&img, ops::Direction::Vertical)
+                    .map_err(|e| format!("Error flipping vertically: {}", e))?
+            }
+            5 => {
+                img = ops::flip(
+                    &ops::rot(&img, ops::Angle::D90).map_err(|e| format!("Error rotating 90: {}", e))?,
+                    ops::Direction::Horizontal,
+                )
+                .map_err(|e| format!("Error flipping after rotate: {}", e))?
+            }
+            6 => img = ops::rot(&img, ops::Angle::D90).map_err(|e| format!("Error rotating 90: {}", e))?,
+            7 => {
+                img = ops::flip(
+                    &ops::rot(&img, ops::Angle::D270).map_err(|e| format!("Error rotating 270: {}", e))?,
+                    ops::Direction::Horizontal,
+                )
+                .map_err(|e| format!("Error flipping after rotate: {}", e))?
+            }
+            8 => img = ops::rot(&img, ops::Angle::D270).map_err(|e| format!("Error rotating 270: {}", e))?,
+            _ => {}
         }
     }
     Ok(img)
