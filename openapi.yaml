@@ -1,0 +1,279 @@
+openapi: 3.1.0
+info:
+  title: imgforge API
+  version: 0.9.3
+  summary: OpenAPI description for the current imgforge HTTP routes.
+  description: |
+    imgforge is an image proxy and transformation server with imgproxy-compatible URL semantics.
+
+    This specification is derived from the router in `src/server.rs` and the current handlers in
+    `src/handlers.rs`.
+
+    Notes:
+    - The `path` parameters below are Axum catch-all path segments and may contain `/`.
+    - Bearer authentication is only required when imgforge is started with a configured secret.
+    - Signed URL enforcement depends on runtime configuration. Unsigned paths use the `unsafe` signature segment.
+servers:
+  - url: http://localhost:3000
+    description: Default local development server
+tags:
+  - name: Health
+  - name: Info
+  - name: Images
+  - name: Metrics
+paths:
+  /status:
+    get:
+      tags:
+        - Health
+      operationId: getStatus
+      summary: Health check
+      description: Returns a simple JSON payload when the server is ready to accept requests.
+      responses:
+        '200':
+          description: Service is healthy
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/XRequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+              example:
+                status: ok
+  /metrics:
+    get:
+      tags:
+        - Metrics
+      operationId: getMetrics
+      summary: Prometheus metrics
+      description: Returns Prometheus-formatted metrics for imgforge and libvips.
+      responses:
+        '200':
+          description: Prometheus metrics payload
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/XRequestId'
+          content:
+            text/plain:
+              schema:
+                type: string
+  /info/{path}:
+    get:
+      tags:
+        - Info
+      operationId: getImageInfo
+      summary: Get source image metadata
+      description: |
+        Resolves an imgproxy-compatible request path, fetches the source image, and returns basic metadata.
+
+        Example path values:
+        - `unsafe/aHR0cDovL2V4YW1wbGUuY29tL2NhdC5qcGc`
+        - `<signature>/resize:fit:200:200/aHR0cDovL2V4YW1wbGUuY29tL2NhdC5qcGc`
+      security:
+        - bearerAuth: []
+        - {}
+      parameters:
+        - $ref: '#/components/parameters/CatchAllPath'
+        - $ref: '#/components/parameters/AuthorizationHeader'
+      responses:
+        '200':
+          description: Image metadata
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/XRequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImageInfoResponse'
+              example:
+                width: 400
+                height: 300
+                format: unknown
+        '400':
+          $ref: '#/components/responses/BadRequestText'
+        '403':
+          $ref: '#/components/responses/ForbiddenText'
+        '408':
+          $ref: '#/components/responses/RequestTimeoutText'
+        '429':
+          $ref: '#/components/responses/TooManyRequestsText'
+        '500':
+          $ref: '#/components/responses/InternalServerErrorText'
+  /{path}:
+    get:
+      tags:
+        - Images
+      operationId: getTransformedImage
+      summary: Transform or proxy an image
+      description: |
+        Processes an imgproxy-compatible path and returns an image payload.
+
+        Example path values:
+        - `unsafe/aHR0cDovL2V4YW1wbGUuY29tL2NhdC5qcGc`
+        - `unsafe/resize:fit:200:200/quality:80/aHR0cDovL2V4YW1wbGUuY29tL2NhdC5qcGc`
+        - `<signature>/resize:fill:300:300/plain/http://example.com/cat.jpg`
+
+        The response media type depends on the selected output format or the origin image when using `raw`.
+      security:
+        - bearerAuth: []
+        - {}
+      parameters:
+        - $ref: '#/components/parameters/CatchAllPath'
+        - $ref: '#/components/parameters/AuthorizationHeader'
+      responses:
+        '200':
+          description: Transformed or proxied image bytes
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/XRequestId'
+            cache-status:
+              description: Present with value `HIT` when the response is served from cache.
+              schema:
+                type: string
+                enum:
+                  - HIT
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/webp:
+              schema:
+                type: string
+                format: binary
+            image/tiff:
+              schema:
+                type: string
+                format: binary
+            image/gif:
+              schema:
+                type: string
+                format: binary
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/BadRequestText'
+        '403':
+          $ref: '#/components/responses/ForbiddenText'
+        '408':
+          $ref: '#/components/responses/RequestTimeoutText'
+        '429':
+          $ref: '#/components/responses/TooManyRequestsText'
+        '500':
+          $ref: '#/components/responses/InternalServerErrorText'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque token
+  parameters:
+    CatchAllPath:
+      name: path
+      in: path
+      required: true
+      description: |
+        Imgproxy-compatible catch-all path segment. This value may itself contain `/` separators.
+
+        The first segment is typically either:
+        - `unsafe`
+        - a request signature
+      schema:
+        type: string
+    AuthorizationHeader:
+      name: Authorization
+      in: header
+      required: false
+      description: |
+        Optional bearer token. Required only when imgforge is configured with a server-side secret.
+      schema:
+        type: string
+        pattern: '^Bearer .+$'
+  headers:
+    XRequestId:
+      description: Request identifier attached by middleware.
+      schema:
+        type: string
+  responses:
+    BadRequestText:
+      description: Invalid path, unsupported transformation options, fetch failure, or source image validation error
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/XRequestId'
+      content:
+        text/plain:
+          schema:
+            $ref: '#/components/schemas/ErrorMessage'
+    ForbiddenText:
+      description: Signature validation failed, unsigned URLs are disabled, or bearer authentication failed
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/XRequestId'
+      content:
+        text/plain:
+          schema:
+            $ref: '#/components/schemas/ErrorMessage'
+    RequestTimeoutText:
+      description: Request exceeded the configured timeout
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/XRequestId'
+      content:
+        text/plain:
+          schema:
+            $ref: '#/components/schemas/ErrorMessage'
+    TooManyRequestsText:
+      description: Global rate limit was exceeded
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/XRequestId'
+      content:
+        text/plain:
+          schema:
+            $ref: '#/components/schemas/ErrorMessage'
+          example: Too Many Requests
+    InternalServerErrorText:
+      description: Internal processing failure
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/XRequestId'
+      content:
+        text/plain:
+          schema:
+            $ref: '#/components/schemas/ErrorMessage'
+  schemas:
+    StatusResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          const: ok
+    ImageInfoResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - width
+        - height
+        - format
+      properties:
+        width:
+          type: integer
+          minimum: 0
+        height:
+          type: integer
+          minimum: 0
+        format:
+          type: string
+          description: Source image format reported by the service. Current implementation may return `unknown`.
+    ErrorMessage:
+      type: string
