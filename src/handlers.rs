@@ -36,6 +36,11 @@ pub async fn info_handler(
                 "width": info.width,
                 "height": info.height,
                 "format": info.format,
+                "content_type": info.content_type,
+                "size_bytes": info.size_bytes,
+                "channels": info.channels,
+                "has_alpha": info.has_alpha,
+                "orientation": info.orientation,
             });
             (StatusCode::OK, Json(response)).into_response()
         }

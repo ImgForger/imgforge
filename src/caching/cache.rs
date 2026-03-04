@@ -77,6 +77,11 @@ pub struct CachedMetadata {
     pub width: u32,
     pub height: u32,
     pub format: String,
+    pub content_type: String,
+    pub size_bytes: usize,
+    pub channels: u32,
+    pub has_alpha: bool,
+    pub orientation: u32,
 }
 
 impl Code for CachedMetadata {
@@ -87,6 +92,15 @@ impl Code for CachedMetadata {
         let format_bytes = self.format.as_bytes();
         format_bytes.len().encode(writer)?;
         writer.write_all(format_bytes).map_err(FoyerError::io_error)?;
+
+        let content_type_bytes = self.content_type.as_bytes();
+        content_type_bytes.len().encode(writer)?;
+        writer.write_all(content_type_bytes).map_err(FoyerError::io_error)?;
+
+        self.size_bytes.encode(writer)?;
+        self.channels.encode(writer)?;
+        self.has_alpha.encode(writer)?;
+        self.orientation.encode(writer)?;
         Ok(())
     }
 
@@ -101,11 +115,36 @@ impl Code for CachedMetadata {
             .map_err(|_| FoyerError::new(ErrorKind::Parse, "invalid utf8 in cached format"))?
             .to_string();
 
-        Ok(CachedMetadata { width, height, format })
+        let content_type_len = usize::decode(reader)?;
+        let mut content_type_buf = vec![0u8; content_type_len];
+        reader.read_exact(&mut content_type_buf).map_err(FoyerError::io_error)?;
+        let content_type = std::str::from_utf8(&content_type_buf)
+            .map_err(|_| FoyerError::new(ErrorKind::Parse, "invalid utf8 in cached content type"))?
+            .to_string();
+
+        let size_bytes = usize::decode(reader)?;
+        let channels = u32::decode(reader)?;
+        let has_alpha = bool::decode(reader)?;
+        let orientation = u32::decode(reader)?;
+
+        Ok(CachedMetadata {
+            width,
+            height,
+            format,
+            content_type,
+            size_bytes,
+            channels,
+            has_alpha,
+            orientation,
+        })
     }
 
     fn estimated_size(&self) -> usize {
-        std::mem::size_of::<u32>() * 2 + self.format.len() + std::mem::size_of::<usize>()
+        std::mem::size_of::<u32>() * 4
+            + std::mem::size_of::<usize>() * 2
+            + std::mem::size_of::<bool>()
+            + self.format.len()
+            + self.content_type.len()
     }
 }
 

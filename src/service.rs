@@ -9,6 +9,7 @@ use crate::url::{parse_path, validate_signature, ImgforgeUrl};
 use crate::utils::{content_type_to_format, format_to_content_type};
 use axum::http::StatusCode;
 use bytes::Bytes;
+use exif::{In, Tag};
 use libvips::VipsImage;
 use std::error::Error;
 use std::fmt::Display;
@@ -44,6 +45,11 @@ pub struct ImageInfo {
     pub width: u32,
     pub height: u32,
     pub format: String,
+    pub content_type: Option<String>,
+    pub size_bytes: usize,
+    pub channels: u32,
+    pub has_alpha: bool,
+    pub orientation: Option<u32>,
 }
 
 /// Request context for processing or info retrieval.
@@ -128,6 +134,21 @@ fn sniff_image_format(image_bytes: &[u8]) -> Option<&'static str> {
     }
 
     None
+}
+
+fn detect_exif_orientation(image_bytes: &[u8]) -> Option<u32> {
+    let exif_reader = exif::Reader::new();
+    exif_reader
+        .read_from_container(&mut std::io::Cursor::new(image_bytes))
+        .ok()
+        .and_then(|exif| {
+            exif.get_field(Tag::Orientation, In::PRIMARY)
+                .and_then(|field| field.value.get_uint(0))
+        })
+}
+
+fn image_has_alpha(channels: u32) -> bool {
+    matches!(channels, 2 | 4)
 }
 
 /// Process an imgproxy-compatible path using the provided application state.
@@ -270,6 +291,11 @@ pub async fn image_info(state: Arc<AppState>, request: ProcessRequest<'_>) -> Re
             width: cached_metadata.width,
             height: cached_metadata.height,
             format: cached_metadata.format,
+            content_type: (!cached_metadata.content_type.is_empty()).then_some(cached_metadata.content_type),
+            size_bytes: cached_metadata.size_bytes,
+            channels: cached_metadata.channels,
+            has_alpha: cached_metadata.has_alpha,
+            orientation: (cached_metadata.orientation != 0).then_some(cached_metadata.orientation),
         });
     }
 
@@ -290,21 +316,36 @@ pub async fn image_info(state: Arc<AppState>, request: ProcessRequest<'_>) -> Re
         ServiceError::new(StatusCode::BAD_REQUEST, format!("Error fetching image: {}", e))
     })?;
 
-    let (width, height, image_format, cacheable) = match VipsImage::new_from_buffer(&image_bytes, "") {
-        Ok(img) => {
-            let format_str = detect_image_format(content_type.as_deref(), &image_bytes);
-            (img.get_width() as u32, img.get_height() as u32, format_str, true)
-        }
-        Err(err) => {
-            error!("Failed to decode image for info: {}", err);
-            (0, 0, "unknown".to_string(), false)
-        }
-    };
+    let (width, height, image_format, channels, has_alpha, orientation, cacheable) =
+        match VipsImage::new_from_buffer(&image_bytes, "") {
+            Ok(img) => {
+                let format_str = detect_image_format(content_type.as_deref(), &image_bytes);
+                let channels = img.get_bands() as u32;
+                (
+                    img.get_width() as u32,
+                    img.get_height() as u32,
+                    format_str,
+                    channels,
+                    image_has_alpha(channels),
+                    detect_exif_orientation(&image_bytes),
+                    true,
+                )
+            }
+            Err(err) => {
+                error!("Failed to decode image for info: {}", err);
+                (0, 0, "unknown".to_string(), 0, false, None, false)
+            }
+        };
 
     let metadata = CachedMetadata {
         width,
         height,
         format: image_format.clone(),
+        content_type: content_type.clone().unwrap_or_default(),
+        size_bytes: image_bytes.len(),
+        channels,
+        has_alpha,
+        orientation: orientation.unwrap_or(0),
     };
 
     if cacheable && !matches!(state.metadata_cache, MetadataCache::None) {
@@ -314,14 +355,19 @@ pub async fn image_info(state: Arc<AppState>, request: ProcessRequest<'_>) -> Re
     }
 
     info!(
-        "Imgforge info served path={} width={} height={} format={}",
-        path, width, height, image_format
+        "Imgforge info served path={} width={} height={} format={} size_bytes={} channels={} has_alpha={} orientation={:?}",
+        path, width, height, image_format, image_bytes.len(), channels, has_alpha, orientation
     );
 
     Ok(ImageInfo {
         width,
         height,
         format: image_format,
+        content_type,
+        size_bytes: image_bytes.len(),
+        channels,
+        has_alpha,
+        orientation,
     })
 }
 

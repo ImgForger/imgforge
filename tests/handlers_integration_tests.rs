@@ -168,7 +168,7 @@ async fn test_info_handler_with_unsigned_url() {
         .and(path("/test.jpg"))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_bytes(test_image)
+                .set_body_bytes(test_image.clone())
                 .insert_header("Content-Type", "image/jpeg"),
         )
         .mount(&mock_server)
@@ -193,6 +193,11 @@ async fn test_info_handler_with_unsigned_url() {
     assert_eq!(json["width"], 400);
     assert_eq!(json["height"], 300);
     assert_eq!(json["format"], "jpeg");
+    assert_eq!(json["content_type"], "image/jpeg");
+    assert_eq!(json["size_bytes"], test_image.len());
+    assert_eq!(json["channels"], 4);
+    assert_eq!(json["has_alpha"], true);
+    assert!(json["orientation"].is_null());
     assert!(headers.contains_key("X-Request-ID"));
 }
 
@@ -205,7 +210,7 @@ async fn test_info_handler_with_signed_url() {
         .and(path("/signed.jpg"))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_bytes(test_image)
+                .set_body_bytes(test_image.clone())
                 .insert_header("Content-Type", "image/jpeg"),
         )
         .mount(&mock_server)
@@ -234,6 +239,11 @@ async fn test_info_handler_with_signed_url() {
     assert_eq!(json["width"], 200);
     assert_eq!(json["height"], 150);
     assert_eq!(json["format"], "jpeg");
+    assert_eq!(json["content_type"], "image/jpeg");
+    assert_eq!(json["size_bytes"], test_image.len());
+    assert_eq!(json["channels"], 4);
+    assert_eq!(json["has_alpha"], true);
+    assert!(json["orientation"].is_null());
 }
 
 #[tokio::test]
@@ -243,7 +253,7 @@ async fn test_info_handler_detects_format_without_content_type_header() {
 
     Mock::given(method("GET"))
         .and(path("/no-header.png"))
-        .respond_with(ResponseTemplate::new(200).set_body_bytes(test_image))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(test_image.clone()))
         .mount(&mock_server)
         .await;
 
@@ -266,6 +276,11 @@ async fn test_info_handler_detects_format_without_content_type_header() {
     assert_eq!(json["width"], 64);
     assert_eq!(json["height"], 48);
     assert_eq!(json["format"], "png");
+    assert!(json["content_type"].is_null());
+    assert_eq!(json["size_bytes"], test_image.len());
+    assert_eq!(json["channels"], 4);
+    assert_eq!(json["has_alpha"], true);
+    assert!(json["orientation"].is_null());
 }
 
 #[tokio::test]

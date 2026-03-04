@@ -265,6 +265,9 @@ components:
         - width
         - height
         - format
+        - size_bytes
+        - channels
+        - has_alpha
       properties:
         width:
           type: integer
@@ -275,5 +278,28 @@ components:
         format:
           type: string
           description: Source image format inferred from the origin content type or the source bytes. Returns `unknown` only when detection fails.
+        content_type:
+          type:
+            - string
+            - 'null'
+          description: Origin response content type when provided by the upstream server.
+        size_bytes:
+          type: integer
+          minimum: 0
+          description: Size of the fetched source image payload in bytes.
+        channels:
+          type: integer
+          minimum: 0
+          description: Number of image channels/bands reported by libvips.
+        has_alpha:
+          type: boolean
+          description: Whether the decoded image includes an alpha channel.
+        orientation:
+          type:
+            - integer
+            - 'null'
+          minimum: 1
+          maximum: 8
+          description: EXIF orientation when present.
     ErrorMessage:
       type: string
