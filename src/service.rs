@@ -231,17 +231,17 @@ pub async fn image_info(state: Arc<AppState>, request: ProcessRequest<'_>) -> Re
         ServiceError::new(StatusCode::BAD_REQUEST, format!("Error decoding URL: {}", e))
     })?;
 
-    let (image_bytes, _content_type) = fetch_image(&state.http_client, &decoded_url, None).await.map_err(|e| {
-        error!("Error fetching image: {}", e);
-        ServiceError::new(StatusCode::BAD_REQUEST, format!("Error fetching image: {}", e))
-    })?;
-
     let _permit = state
         .semaphore
         .clone()
         .acquire_owned()
         .await
         .map_err(|_| ServiceError::new(StatusCode::INTERNAL_SERVER_ERROR, "Semaphore closed"))?;
+
+    let (image_bytes, _content_type) = fetch_image(&state.http_client, &decoded_url, None).await.map_err(|e| {
+        error!("Error fetching image: {}", e);
+        ServiceError::new(StatusCode::BAD_REQUEST, format!("Error fetching image: {}", e))
+    })?;
 
     let (width, height, image_format, cacheable) = match VipsImage::new_from_buffer(&image_bytes, "") {
         Ok(img) => {
