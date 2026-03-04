@@ -5,7 +5,7 @@ use axum::body::Body;
 use axum::extract::State;
 use axum::{http::Request, http::StatusCode, middleware::Next, response::Response};
 use rand::distr::Alphanumeric;
-use rand::Rng;
+use rand::RngExt;
 use std::sync::Arc;
 
 #[derive(Clone)]
