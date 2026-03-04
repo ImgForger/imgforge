@@ -15,6 +15,11 @@ use tracing::info;
 
 const DEFAULT_BLOCK_SIZE: usize = 16 * 1024 * 1024;
 const MIN_BLOCK_SIZE: usize = 4 * 1024;
+// Foyer's hybrid builder always constructs a memory phase before storage. In disk mode,
+// keeping that tier to a single entry on one shard avoids startup warnings while leaving
+// the in-memory footprint effectively negligible.
+const DISK_MODE_MEMORY_CAPACITY: usize = 1;
+const DISK_MODE_MEMORY_SHARDS: usize = 1;
 
 fn block_size_for_capacity(capacity: usize) -> usize {
     let target = capacity.min(DEFAULT_BLOCK_SIZE);
@@ -104,256 +109,182 @@ impl Code for CachedMetadata {
     }
 }
 
-/// Represents the different cache backends for Imgforge.
-pub enum ImgforgeCache {
+/// Represents the different cache backends for imgforge value types.
+pub enum TypedCache<T>
+where
+    T: Clone + Code + Send + Sync + 'static,
+{
     None,
-    Memory(Arc<Cache<String, CachedImage>>),
-    Disk(Arc<HybridCache<String, CachedImage>>),
-    Hybrid(Arc<HybridCache<String, CachedImage>>),
+    Memory(Arc<Cache<String, T>>),
+    Disk(Arc<HybridCache<String, T>>),
+    Hybrid(Arc<HybridCache<String, T>>),
 }
 
+pub type ImgforgeCache = TypedCache<CachedImage>;
+
 /// Metadata cache for lightweight info requests.
-pub enum MetadataCache {
-    None,
-    Memory(Arc<Cache<String, CachedMetadata>>),
-    Disk(Arc<HybridCache<String, CachedMetadata>>),
-    Hybrid(Arc<HybridCache<String, CachedMetadata>>),
+pub type MetadataCache = TypedCache<CachedMetadata>;
+
+impl<T> TypedCache<T>
+where
+    T: Clone + Code + Send + Sync + 'static,
+{
+    async fn get_with_metric_labels(
+        &self,
+        key: &str,
+        memory_label: &str,
+        disk_label: &str,
+        hybrid_label: &str,
+    ) -> Option<T> {
+        match self {
+            Self::None => None,
+            Self::Memory(cache) => {
+                let res = cache.get(key).map(|e| e.value().clone());
+                record_cache_metric(res.is_some(), memory_label);
+                res
+            }
+            Self::Disk(cache) => {
+                let res = cache
+                    .get(&key.to_string())
+                    .await
+                    .ok()
+                    .flatten()
+                    .map(|e| e.value().clone());
+                record_cache_metric(res.is_some(), disk_label);
+                res
+            }
+            Self::Hybrid(cache) => {
+                let res = cache
+                    .get(&key.to_string())
+                    .await
+                    .ok()
+                    .flatten()
+                    .map(|e| e.value().clone());
+                record_cache_metric(res.is_some(), hybrid_label);
+                res
+            }
+        }
+    }
+
+    async fn insert_value(&self, key: String, value: T) -> Result<(), CacheError> {
+        match self {
+            Self::None => Ok(()),
+            Self::Memory(cache) => {
+                cache.insert(key, value);
+                Ok(())
+            }
+            Self::Disk(cache) | Self::Hybrid(cache) => {
+                cache.insert(key, value);
+                Ok(())
+            }
+        }
+    }
 }
 
 impl ImgforgeCache {
-    /// Create a new cache instance based on the provided configuration.
+    /// Create a new metadata cache instance based on the provided configuration.
     pub async fn new(config: Option<CacheConfig>) -> Result<Self, CacheError> {
-        match config {
-            None => Ok(ImgforgeCache::None),
-            Some(CacheConfig::Memory { capacity, .. }) => {
-                let cache = CacheBuilder::new(capacity).build();
-                Ok(ImgforgeCache::Memory(Arc::new(cache)))
-            }
-            Some(CacheConfig::Disk { path, capacity, .. }) => {
-                let device = FsDeviceBuilder::new(Path::new(&path))
-                    .with_capacity(capacity)
-                    .build()
-                    .map_err(|e| CacheError::Initialization(e.to_string()))?;
-                let block_size = block_size_for_capacity(capacity);
-                info!(
-                    cache = "image",
-                    mode = "disk",
-                    capacity,
-                    block_size,
-                    "Using disk cache block size"
-                );
-                let engine = BlockEngineConfig::new(device).with_block_size(block_size);
-                let cache = HybridCacheBuilder::new()
-                    // Foyer's hybrid builder always has a memory phase; using 1 entry and 1 shard
-                    // avoids its startup warning for capacity(0) < shards(8) while keeping the
-                    // in-memory tier effectively negligible for disk mode.
-                    .memory(1)
-                    .with_shards(1)
-                    .storage()
-                    .with_engine_config(engine)
-                    .with_recover_mode(RecoverMode::Quiet)
-                    .build()
-                    .await
-                    .map_err(|e| CacheError::Initialization(e.to_string()))?;
-                Ok(ImgforgeCache::Disk(Arc::new(cache)))
-            }
-            Some(CacheConfig::Hybrid {
-                memory_capacity,
-                disk_path,
-                disk_capacity,
-                ..
-            }) => {
-                let device = FsDeviceBuilder::new(Path::new(&disk_path))
-                    .with_capacity(disk_capacity)
-                    .build()
-                    .map_err(|e| CacheError::Initialization(e.to_string()))?;
-                let block_size = block_size_for_capacity(disk_capacity);
-                info!(
-                    cache = "image",
-                    mode = "hybrid",
-                    capacity = disk_capacity,
-                    block_size,
-                    "Using disk cache block size"
-                );
-                let engine = BlockEngineConfig::new(device).with_block_size(block_size);
-                let cache = HybridCacheBuilder::new()
-                    .memory(memory_capacity)
-                    .storage()
-                    .with_engine_config(engine)
-                    .with_recover_mode(RecoverMode::Quiet)
-                    .build()
-                    .await
-                    .map_err(|e| CacheError::Initialization(e.to_string()))?;
-                Ok(ImgforgeCache::Hybrid(Arc::new(cache)))
-            }
-        }
+        build_typed_cache(config, "image").await
     }
 
     /// Retrieve a value from the cache by key.
     pub async fn get(&self, key: &str) -> Option<CachedImage> {
-        let result = match self {
-            ImgforgeCache::None => None,
-            ImgforgeCache::Memory(cache) => {
-                let res = cache.get(key).map(|e| e.value().clone());
-                record_cache_metric(res.is_some(), "memory");
-                res
-            }
-            ImgforgeCache::Disk(cache) => {
-                let res = cache
-                    .get(&key.to_string())
-                    .await
-                    .ok()
-                    .flatten()
-                    .map(|e| e.value().clone());
-                record_cache_metric(res.is_some(), "disk");
-                res
-            }
-            ImgforgeCache::Hybrid(cache) => {
-                let res = cache
-                    .get(&key.to_string())
-                    .await
-                    .ok()
-                    .flatten()
-                    .map(|e| e.value().clone());
-                record_cache_metric(res.is_some(), "hybrid");
-                res
-            }
-        };
-        result
+        self.get_with_metric_labels(key, "memory", "disk", "hybrid").await
     }
 
     /// Insert a value into the cache.
     pub async fn insert(&self, key: String, value: CachedImage) -> Result<(), CacheError> {
-        match self {
-            ImgforgeCache::None => Ok(()),
-            ImgforgeCache::Memory(cache) => {
-                cache.insert(key, value);
-                Ok(())
-            }
-            ImgforgeCache::Disk(cache) | ImgforgeCache::Hybrid(cache) => {
-                cache.insert(key, value);
-                Ok(())
-            }
-        }
+        self.insert_value(key, value).await
     }
 }
 
 impl MetadataCache {
     /// Create a new metadata cache instance based on the provided configuration.
     pub async fn new(config: Option<CacheConfig>) -> Result<Self, CacheError> {
-        match config {
-            None => Ok(MetadataCache::None),
-            Some(CacheConfig::Memory { capacity, .. }) => {
-                let cache = CacheBuilder::new(capacity).build();
-                Ok(MetadataCache::Memory(Arc::new(cache)))
-            }
-            Some(CacheConfig::Disk { path, capacity, .. }) => {
-                let device = FsDeviceBuilder::new(Path::new(&path))
-                    .with_capacity(capacity)
-                    .build()
-                    .map_err(|e| CacheError::Initialization(e.to_string()))?;
-                let block_size = block_size_for_capacity(capacity);
-                info!(
-                    cache = "metadata",
-                    mode = "disk",
-                    capacity,
-                    block_size,
-                    "Using disk cache block size"
-                );
-                let engine = BlockEngineConfig::new(device).with_block_size(block_size);
-                let cache = HybridCacheBuilder::new()
-                    // Foyer's hybrid builder always has a memory phase; using 1 entry and 1 shard
-                    // avoids its startup warning for capacity(0) < shards(8) while keeping the
-                    // in-memory tier effectively negligible for disk mode.
-                    .memory(1)
-                    .with_shards(1)
-                    .storage()
-                    .with_engine_config(engine)
-                    .with_recover_mode(RecoverMode::Quiet)
-                    .build()
-                    .await
-                    .map_err(|e| CacheError::Initialization(e.to_string()))?;
-                Ok(MetadataCache::Disk(Arc::new(cache)))
-            }
-            Some(CacheConfig::Hybrid {
-                memory_capacity,
-                disk_path,
-                disk_capacity,
-                ..
-            }) => {
-                let device = FsDeviceBuilder::new(Path::new(&disk_path))
-                    .with_capacity(disk_capacity)
-                    .build()
-                    .map_err(|e| CacheError::Initialization(e.to_string()))?;
-                let block_size = block_size_for_capacity(disk_capacity);
-                info!(
-                    cache = "metadata",
-                    mode = "hybrid",
-                    capacity = disk_capacity,
-                    block_size,
-                    "Using disk cache block size"
-                );
-                let engine = BlockEngineConfig::new(device).with_block_size(block_size);
-                let cache = HybridCacheBuilder::new()
-                    .memory(memory_capacity)
-                    .storage()
-                    .with_engine_config(engine)
-                    .with_recover_mode(RecoverMode::Quiet)
-                    .build()
-                    .await
-                    .map_err(|e| CacheError::Initialization(e.to_string()))?;
-                Ok(MetadataCache::Hybrid(Arc::new(cache)))
-            }
-        }
+        build_typed_cache(config, "metadata").await
     }
 
     /// Retrieve metadata from the cache by key.
     pub async fn get(&self, key: &str) -> Option<CachedMetadata> {
-        let result = match self {
-            MetadataCache::None => None,
-            MetadataCache::Memory(cache) => {
-                let res = cache.get(key).map(|e| e.value().clone());
-                record_cache_metric(res.is_some(), "metadata-memory");
-                res
-            }
-            MetadataCache::Disk(cache) => {
-                let res = cache
-                    .get(&key.to_string())
-                    .await
-                    .ok()
-                    .flatten()
-                    .map(|e| e.value().clone());
-                record_cache_metric(res.is_some(), "metadata-disk");
-                res
-            }
-            MetadataCache::Hybrid(cache) => {
-                let res = cache
-                    .get(&key.to_string())
-                    .await
-                    .ok()
-                    .flatten()
-                    .map(|e| e.value().clone());
-                record_cache_metric(res.is_some(), "metadata-hybrid");
-                res
-            }
-        };
-        result
+        self.get_with_metric_labels(key, "metadata-memory", "metadata-disk", "metadata-hybrid")
+            .await
     }
 
     /// Insert metadata into the cache.
     pub async fn insert(&self, key: String, value: CachedMetadata) -> Result<(), CacheError> {
-        match self {
-            MetadataCache::None => Ok(()),
-            MetadataCache::Memory(cache) => {
-                cache.insert(key, value);
-                Ok(())
-            }
-            MetadataCache::Disk(cache) | MetadataCache::Hybrid(cache) => {
-                cache.insert(key, value);
-                Ok(())
-            }
+        self.insert_value(key, value).await
+    }
+}
+
+async fn build_typed_cache<T>(config: Option<CacheConfig>, cache_name: &str) -> Result<TypedCache<T>, CacheError>
+where
+    T: Clone + Code + Send + Sync + 'static,
+{
+    match config {
+        None => Ok(TypedCache::None),
+        Some(CacheConfig::Memory { capacity, .. }) => {
+            let cache = CacheBuilder::new(capacity).build();
+            Ok(TypedCache::Memory(Arc::new(cache)))
+        }
+        Some(CacheConfig::Disk { path, capacity, .. }) => {
+            let cache = build_storage_cache(
+                cache_name,
+                "disk",
+                &path,
+                capacity,
+                DISK_MODE_MEMORY_CAPACITY,
+                Some(DISK_MODE_MEMORY_SHARDS),
+            )
+            .await?;
+            Ok(TypedCache::Disk(Arc::new(cache)))
+        }
+        Some(CacheConfig::Hybrid {
+            memory_capacity,
+            disk_path,
+            disk_capacity,
+            ..
+        }) => {
+            let cache =
+                build_storage_cache(cache_name, "hybrid", &disk_path, disk_capacity, memory_capacity, None).await?;
+            Ok(TypedCache::Hybrid(Arc::new(cache)))
         }
     }
+}
+
+async fn build_storage_cache<T>(
+    cache_name: &str,
+    mode: &str,
+    path: &str,
+    capacity: usize,
+    memory_capacity: usize,
+    memory_shards: Option<usize>,
+) -> Result<HybridCache<String, T>, CacheError>
+where
+    T: Clone + Code + Send + Sync + 'static,
+{
+    let device = FsDeviceBuilder::new(Path::new(path))
+        .with_capacity(capacity)
+        .build()
+        .map_err(|e| CacheError::Initialization(e.to_string()))?;
+    let block_size = block_size_for_capacity(capacity);
+    info!(
+        cache = cache_name,
+        mode, capacity, block_size, "Using disk cache block size"
+    );
+    let engine = BlockEngineConfig::new(device).with_block_size(block_size);
+    let builder = HybridCacheBuilder::new().memory(memory_capacity);
+    let builder = match memory_shards {
+        Some(shards) => builder.with_shards(shards),
+        None => builder,
+    };
+
+    builder
+        .storage()
+        .with_engine_config(engine)
+        .with_recover_mode(RecoverMode::Quiet)
+        .build()
+        .await
+        .map_err(|e| CacheError::Initialization(e.to_string()))
 }
 
 fn record_cache_metric(hit: bool, cache_type: &str) {
