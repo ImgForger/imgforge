@@ -3,6 +3,22 @@ use bytes::{Bytes, BytesMut};
 use reqwest::header;
 use tracing::error;
 
+const DEFAULT_INITIAL_BUFFER_CAPACITY: usize = 64 * 1024;
+
+fn record_fetch_metrics(fetch_start: std::time::Instant, status: &str) {
+    observe_source_image_fetch_duration(fetch_start.elapsed().as_secs_f64());
+    increment_source_images_fetched(status);
+}
+
+fn initial_buffer_capacity(content_length: Option<usize>, max_bytes: Option<usize>) -> usize {
+    match (content_length, max_bytes) {
+        (Some(len), Some(limit)) => len.min(limit),
+        (Some(len), None) => len,
+        (None, Some(limit)) => limit.min(DEFAULT_INITIAL_BUFFER_CAPACITY),
+        (None, None) => 0,
+    }
+}
+
 /// Fetches an image from a given URL using the provided HTTP client.
 pub async fn fetch_image(
     client: &reqwest::Client,
@@ -12,23 +28,17 @@ pub async fn fetch_image(
     let fetch_start = std::time::Instant::now();
 
     let mut response = match client.get(url).send().await {
-        Ok(res) => {
-            let fetch_duration = fetch_start.elapsed().as_secs_f64();
-            observe_source_image_fetch_duration(fetch_duration);
-            if res.status().is_success() {
-                increment_source_images_fetched("success");
-            } else {
-                increment_source_images_fetched("error");
-            }
-            res
-        }
+        Ok(res) => res,
         Err(e) => {
-            let fetch_duration = fetch_start.elapsed().as_secs_f64();
-            observe_source_image_fetch_duration(fetch_duration);
-            increment_source_images_fetched("error");
+            record_fetch_metrics(fetch_start, "error");
             error!("Error fetching image: {}", e);
             return Err(format!("Error fetching image: {}", e));
         }
+    };
+    let fetch_status = if response.status().is_success() {
+        "success"
+    } else {
+        "error"
     };
 
     let content_type = response
@@ -37,12 +47,28 @@ pub async fn fetch_image(
         .and_then(|ct| ct.to_str().ok())
         .map(|ct| ct.to_string());
 
-    let mut image_bytes = BytesMut::new();
+    let advertised_length = response.content_length().map(|len| len as usize);
+    if let (Some(limit), Some(len)) = (max_bytes, advertised_length) {
+        if len > limit {
+            record_fetch_metrics(fetch_start, "error");
+            error!(
+                "Source image content-length exceeds configured max size limit ({} bytes) for url={}",
+                limit, url
+            );
+            return Err(format!(
+                "Source image exceeds the maximum allowed size of {} bytes",
+                limit
+            ));
+        }
+    }
+
+    let mut image_bytes = BytesMut::with_capacity(initial_buffer_capacity(advertised_length, max_bytes));
     loop {
         match response.chunk().await {
             Ok(Some(chunk)) => {
                 if let Some(limit) = max_bytes {
                     if image_bytes.len() + chunk.len() > limit {
+                        record_fetch_metrics(fetch_start, "error");
                         error!(
                             "Fetched image exceeds configured max size limit ({} bytes) for url={}",
                             limit, url
@@ -58,12 +84,14 @@ pub async fn fetch_image(
             }
             Ok(None) => break,
             Err(e) => {
+                record_fetch_metrics(fetch_start, "error");
                 error!("Error reading image bytes: {}", e);
                 return Err(format!("Error reading image bytes: {}", e));
             }
         }
     }
 
+    record_fetch_metrics(fetch_start, fetch_status);
     Ok((image_bytes.freeze(), content_type))
 }
 
@@ -188,6 +216,26 @@ mod tests {
 
         let client = client_with_timeout(Duration::from_secs(5));
         let result = fetch_image(&client, &format!("{}/large.jpg", server.uri()), Some(3)).await;
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("maximum allowed size"));
+    }
+
+    #[tokio::test]
+    async fn test_fetch_image_rejects_large_content_length_before_streaming() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/advertised-large.jpg"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("Content-Length", "10")
+                    .set_body_bytes(vec![0u8; 10]),
+            )
+            .mount(&server)
+            .await;
+
+        let client = client_with_timeout(Duration::from_secs(5));
+        let result = fetch_image(&client, &format!("{}/advertised-large.jpg", server.uri()), Some(3)).await;
 
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("maximum allowed size"));
