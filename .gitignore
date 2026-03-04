@@ -3,6 +3,7 @@
 .vscode
 .DS_Store
 GEMINI.md
+imgforge_cache
 
 # Docker volumes data
 prometheus-data/
