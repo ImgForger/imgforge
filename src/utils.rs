@@ -10,3 +10,17 @@ pub fn format_to_content_type(format: &str) -> &'static str {
         _ => "image/jpeg",
     }
 }
+
+pub fn content_type_to_format(content_type: &str) -> Option<&'static str> {
+    let mime = content_type.split(';').next()?.trim().to_ascii_lowercase();
+    match mime.as_str() {
+        "image/jpeg" => Some("jpeg"),
+        "image/png" => Some("png"),
+        "image/webp" => Some("webp"),
+        "image/gif" => Some("gif"),
+        "image/tiff" => Some("tiff"),
+        "image/avif" => Some("avif"),
+        "image/heif" | "image/heic" => Some("heif"),
+        _ => None,
+    }
+}

@@ -192,6 +192,7 @@ async fn test_info_handler_with_unsigned_url() {
     let json: Value = serde_json::from_str(&body).unwrap();
     assert_eq!(json["width"], 400);
     assert_eq!(json["height"], 300);
+    assert_eq!(json["format"], "jpeg");
     assert!(headers.contains_key("X-Request-ID"));
 }
 
@@ -232,6 +233,39 @@ async fn test_info_handler_with_signed_url() {
     let json: Value = serde_json::from_str(&body).unwrap();
     assert_eq!(json["width"], 200);
     assert_eq!(json["height"], 150);
+    assert_eq!(json["format"], "jpeg");
+}
+
+#[tokio::test]
+async fn test_info_handler_detects_format_without_content_type_header() {
+    let mock_server = MockServer::start().await;
+    let test_image = create_test_image(64, 48, [10, 20, 30, 255]);
+
+    Mock::given(method("GET"))
+        .and(path("/no-header.png"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(test_image))
+        .mount(&mock_server)
+        .await;
+
+    let config = create_test_config(vec![], vec![], true);
+    let state = create_test_state(config).await;
+
+    let source_url = format!("{}/no-header.png", mock_server.uri());
+    let encoded_url = URL_SAFE_NO_PAD.encode(source_url.as_bytes());
+    let path = format!("/info/unsafe/{}", encoded_url);
+
+    let app = axum::Router::new()
+        .route("/info/{*path}", axum::routing::get(info_handler))
+        .with_state(state)
+        .layer(axum::middleware::from_fn(request_id_middleware));
+
+    let (status, body, _) = make_request(app, &path, None).await;
+
+    assert_eq!(status, StatusCode::OK);
+    let json: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(json["width"], 64);
+    assert_eq!(json["height"], 48);
+    assert_eq!(json["format"], "png");
 }
 
 #[tokio::test]

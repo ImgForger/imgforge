@@ -6,7 +6,7 @@ use crate::processing::presets::expand_presets;
 use crate::processing::process_image;
 use crate::processing::watermark::{self, CachedWatermark};
 use crate::url::{parse_path, validate_signature, ImgforgeUrl};
-use crate::utils::format_to_content_type;
+use crate::utils::{content_type_to_format, format_to_content_type};
 use axum::http::StatusCode;
 use bytes::Bytes;
 use libvips::VipsImage;
@@ -82,6 +82,53 @@ impl Display for ServiceError {
 }
 
 impl Error for ServiceError {}
+
+fn detect_image_format(content_type: Option<&str>, image_bytes: &[u8]) -> String {
+    if let Some(format) = content_type.and_then(content_type_to_format) {
+        return format.to_string();
+    }
+
+    sniff_image_format(image_bytes).unwrap_or("unknown").to_string()
+}
+
+fn sniff_image_format(image_bytes: &[u8]) -> Option<&'static str> {
+    if image_bytes.len() >= 3 && image_bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        return Some("jpeg");
+    }
+
+    if image_bytes.len() >= 8 && image_bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        return Some("png");
+    }
+
+    if image_bytes.len() >= 6 && (image_bytes.starts_with(b"GIF87a") || image_bytes.starts_with(b"GIF89a")) {
+        return Some("gif");
+    }
+
+    if image_bytes.len() >= 12 && image_bytes.starts_with(b"RIFF") && &image_bytes[8..12] == b"WEBP" {
+        return Some("webp");
+    }
+
+    if image_bytes.len() >= 4 && (image_bytes.starts_with(b"II*\0") || image_bytes.starts_with(b"MM\0*")) {
+        return Some("tiff");
+    }
+
+    if image_bytes.len() >= 12
+        && image_bytes[4..8] == *b"ftyp"
+        && matches!(
+            &image_bytes[8..12],
+            b"avif" | b"avis" | b"heic" | b"heix" | b"hevc" | b"hevx" | b"mif1" | b"msf1"
+        )
+    {
+        let brand = &image_bytes[8..12];
+        return Some(if brand == b"avif" || brand == b"avis" {
+            "avif"
+        } else {
+            "heif"
+        });
+    }
+
+    None
+}
 
 /// Process an imgproxy-compatible path using the provided application state.
 pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> Result<ProcessedImage, ServiceError> {
@@ -238,20 +285,15 @@ pub async fn image_info(state: Arc<AppState>, request: ProcessRequest<'_>) -> Re
         .await
         .map_err(|_| ServiceError::new(StatusCode::INTERNAL_SERVER_ERROR, "Semaphore closed"))?;
 
-    let (image_bytes, _content_type) = fetch_image(&state.http_client, &decoded_url, None).await.map_err(|e| {
+    let (image_bytes, content_type) = fetch_image(&state.http_client, &decoded_url, None).await.map_err(|e| {
         error!("Error fetching image: {}", e);
         ServiceError::new(StatusCode::BAD_REQUEST, format!("Error fetching image: {}", e))
     })?;
 
     let (width, height, image_format, cacheable) = match VipsImage::new_from_buffer(&image_bytes, "") {
         Ok(img) => {
-            let format_str = "unknown";
-            (
-                img.get_width() as u32,
-                img.get_height() as u32,
-                format_str.to_string(),
-                true,
-            )
+            let format_str = detect_image_format(content_type.as_deref(), &image_bytes);
+            (img.get_width() as u32, img.get_height() as u32, format_str, true)
         }
         Err(err) => {
             error!("Failed to decode image for info: {}", err);

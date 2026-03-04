@@ -274,6 +274,6 @@ components:
           minimum: 0
         format:
           type: string
-          description: Source image format reported by the service. Current implementation may return `unknown`.
+          description: Source image format inferred from the origin content type or the source bytes. Returns `unknown` only when detection fails.
     ErrorMessage:
       type: string
