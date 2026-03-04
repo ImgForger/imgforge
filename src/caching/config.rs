@@ -20,6 +20,23 @@ pub enum CacheConfig {
 }
 
 impl CacheConfig {
+    pub fn startup_log_message(config: Option<&Self>) -> String {
+        match config {
+            None => "Caching disabled".to_string(),
+            Some(Self::Memory { capacity }) => format!("Caching enabled: memory (capacity={capacity})"),
+            Some(Self::Disk { path, capacity }) => {
+                format!("Caching enabled: disk (path={path}, capacity={capacity})")
+            }
+            Some(Self::Hybrid {
+                memory_capacity,
+                disk_path,
+                disk_capacity,
+            }) => format!(
+                "Caching enabled: hybrid (memory_capacity={memory_capacity}, disk_path={disk_path}, disk_capacity={disk_capacity})"
+            ),
+        }
+    }
+
     pub fn from_env() -> Result<Option<Self>, CacheError> {
         let cache_type = match env::var(ENV_CACHE_TYPE) {
             Ok(val) => val,
@@ -62,5 +79,24 @@ impl CacheConfig {
             }
             _ => Err(CacheError::InvalidConfiguration("Invalid CACHE_TYPE".to_string())),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CacheConfig;
+
+    #[test]
+    fn startup_log_message_describes_memory_cache() {
+        let config = CacheConfig::Memory { capacity: 1000 };
+        assert_eq!(
+            CacheConfig::startup_log_message(Some(&config)),
+            "Caching enabled: memory (capacity=1000)"
+        );
+    }
+
+    #[test]
+    fn startup_log_message_describes_disabled_cache() {
+        assert_eq!(CacheConfig::startup_log_message(None), "Caching disabled");
     }
 }

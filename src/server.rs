@@ -23,6 +23,7 @@ pub async fn start() {
 
     let config = Config::from_env().expect("Failed to load config");
     let cache_config = CacheConfig::from_env().expect("Failed to load cache config");
+    info!("{}", CacheConfig::startup_log_message(cache_config.as_ref()));
 
     let imgforge = Imgforge::new(config, cache_config)
         .await
