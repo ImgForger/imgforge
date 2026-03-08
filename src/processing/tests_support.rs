@@ -1,4 +1,6 @@
 use crate::processing::save;
+use crate::processing::watermark;
+use bytes::Bytes;
 use image::{ImageBuffer, Rgba, RgbaImage};
 use lazy_static::lazy_static;
 use libvips::{ops, VipsApp, VipsImage};
@@ -87,4 +89,8 @@ pub fn collect_rgba_pixels(decoded: &RgbaImage) -> Vec<[u8; 4]> {
         .pixels()
         .map(|pixel| [pixel[0], pixel[1], pixel[2], pixel[3]])
         .collect()
+}
+
+pub fn cached_watermark_from_bytes(bytes: Vec<u8>) -> watermark::CachedWatermark {
+    watermark::CachedWatermark::from_bytes(Bytes::from(bytes))
 }
