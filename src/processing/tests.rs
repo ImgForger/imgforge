@@ -11,6 +11,8 @@ mod test_processing {
     use lazy_static::lazy_static;
     use libvips::{VipsApp, VipsImage};
 
+    type ExifOrientationTestCase = (u32, (u32, u32), Vec<[u8; 4]>);
+
     lazy_static! {
         static ref APP: VipsApp = {
             let app = VipsApp::new("Test", false).expect("Cannot initialize libvips");
@@ -947,7 +949,7 @@ mod test_processing {
         let e = [255, 0, 255, 255];
         let f = [0, 255, 255, 255];
 
-        let cases: [(u32, (u32, u32), Vec<[u8; 4]>); 8] = [
+        let cases: [ExifOrientationTestCase; 8] = [
             (1, (3, 2), vec![a, b, c, d, e, f]),
             (2, (3, 2), vec![c, b, a, f, e, d]),
             (3, (3, 2), vec![f, e, d, c, b, a]),
