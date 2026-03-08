@@ -1,25 +1,22 @@
 #[cfg(test)]
+#[path = "tests_support.rs"]
+mod tests_support;
+
+#[cfg(test)]
 mod test_processing {
     use crate::constants::ENV_WATERMARK_PATH;
     use crate::processing::options::{parse_all_options, Crop, ProcessingOption, Resize, Watermark};
-    use crate::processing::save;
     use crate::processing::transform;
     use crate::processing::utils;
     use crate::processing::watermark;
     use bytes::Bytes;
-    use image::{ImageBuffer, Rgba, RgbaImage};
-    use lazy_static::lazy_static;
-    use libvips::{VipsApp, VipsImage};
+    use libvips::VipsImage;
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+
+    use super::tests_support::*;
 
     type ExifOrientationTestCase = (u32, (u32, u32), Vec<[u8; 4]>);
-
-    lazy_static! {
-        static ref APP: VipsApp = {
-            let app = VipsApp::new("Test", false).expect("Cannot initialize libvips");
-            app.concurrency_set(1);
-            app
-        };
-    }
 
     #[test]
     fn test_parse_all_options_empty() {
@@ -45,7 +42,7 @@ mod test_processing {
 
     #[test]
     fn test_apply_resize_fit() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(400, 300), "").unwrap();
         let resize = Resize {
             resizing_type: "fit".to_string(),
@@ -59,7 +56,7 @@ mod test_processing {
 
     #[test]
     fn test_apply_resize_fill() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(400, 300), "").unwrap();
         let resize = Resize {
             resizing_type: "fill".to_string(),
@@ -73,7 +70,7 @@ mod test_processing {
 
     #[test]
     fn test_apply_resize_fill_width_only() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(400, 300), "").unwrap();
         let resize = Resize {
             resizing_type: "fill".to_string(),
@@ -87,7 +84,7 @@ mod test_processing {
 
     #[test]
     fn test_apply_resize_fill_height_only() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(400, 300), "").unwrap();
         let resize = Resize {
             resizing_type: "fill".to_string(),
@@ -101,7 +98,7 @@ mod test_processing {
 
     #[test]
     fn test_apply_resize_force_width_only() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(400, 300), "").unwrap();
         let resize = Resize {
             resizing_type: "force".to_string(),
@@ -115,7 +112,7 @@ mod test_processing {
 
     #[test]
     fn test_apply_resize_force_height_only() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(400, 300), "").unwrap();
         let resize = Resize {
             resizing_type: "force".to_string(),
@@ -129,7 +126,7 @@ mod test_processing {
 
     #[test]
     fn test_apply_resize_force_zero_dimensions_error() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(400, 300), "").unwrap();
         let resize = Resize {
             resizing_type: "force".to_string(),
@@ -142,7 +139,7 @@ mod test_processing {
 
     #[test]
     fn test_apply_resize_unknown_type_error() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(400, 300), "").unwrap();
         let resize = Resize {
             resizing_type: "bogus".to_string(),
@@ -206,7 +203,7 @@ mod test_processing {
 
     #[test]
     fn test_crop_image() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(400, 300), "").unwrap();
         let crop = Crop {
             x: 10,
@@ -221,7 +218,7 @@ mod test_processing {
 
     #[test]
     fn test_extend_image() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
         let extended_img =
             transform::extend_image(img, 200, 200, &Some("center".to_string()), &Some([0, 0, 0, 0])).unwrap();
@@ -231,7 +228,7 @@ mod test_processing {
 
     #[test]
     fn test_apply_padding() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
         let padded_img = transform::apply_padding(img, 10, 20, 30, 40, &Some([0, 0, 0, 0])).unwrap();
         assert_eq!(padded_img.get_width(), 160);
@@ -240,24 +237,25 @@ mod test_processing {
 
     #[test]
     fn test_apply_padding_position_and_background_color() {
-        let _ = &*APP;
+        init_vips();
         let source_bytes = create_quadrant_test_image(4, 4);
         let img = VipsImage::new_from_buffer(&source_bytes, "").unwrap();
         let padded = transform::apply_padding(img, 1, 2, 3, 4, &Some([255, 255, 255, 255])).unwrap();
         assert_eq!(padded.get_width(), 10);
         assert_eq!(padded.get_height(), 8);
 
-        assert_eq!(rgba_pixel(&padded, 0, 0), [255, 255, 255, 255]);
-        assert_eq!(rgba_pixel(&padded, 9, 7), [255, 255, 255, 255]);
-        assert_eq!(rgba_pixel(&padded, 4, 1), [255, 0, 0, 255]);
-        assert_eq!(rgba_pixel(&padded, 7, 1), [0, 255, 0, 255]);
-        assert_eq!(rgba_pixel(&padded, 4, 4), [0, 0, 255, 255]);
-        assert_eq!(rgba_pixel(&padded, 7, 4), [255, 255, 0, 255]);
+        let decoded = decode_rgba(&padded);
+        assert_eq!(rgba_pixel(&decoded, 0, 0), [255, 255, 255, 255]);
+        assert_eq!(rgba_pixel(&decoded, 9, 7), [255, 255, 255, 255]);
+        assert_eq!(rgba_pixel(&decoded, 4, 1), [255, 0, 0, 255]);
+        assert_eq!(rgba_pixel(&decoded, 7, 1), [0, 255, 0, 255]);
+        assert_eq!(rgba_pixel(&decoded, 4, 4), [0, 0, 255, 255]);
+        assert_eq!(rgba_pixel(&decoded, 7, 4), [255, 255, 0, 255]);
     }
 
     #[test]
     fn test_extend_image_background_and_gravity_positions() {
-        let _ = &*APP;
+        init_vips();
         let cases = [
             ("center", 2, 2),
             ("north", 2, 0),
@@ -274,7 +272,8 @@ mod test_processing {
             assert_eq!(extended.get_width(), 8);
             assert_eq!(extended.get_height(), 8);
 
-            assert_eq!(rgba_pixel(&extended, origin_x, origin_y), [255, 0, 0, 255]);
+            let decoded = decode_rgba(&extended);
+            assert_eq!(rgba_pixel(&decoded, origin_x, origin_y), [255, 0, 0, 255]);
 
             let bg_probe = match gravity {
                 "north" => (0, 7),
@@ -283,13 +282,13 @@ mod test_processing {
                 "west" => (7, 0),
                 _ => (0, 0),
             };
-            assert_eq!(rgba_pixel(&extended, bg_probe.0, bg_probe.1), [10, 20, 30, 255]);
+            assert_eq!(rgba_pixel(&decoded, bg_probe.0, bg_probe.1), [10, 20, 30, 255]);
         }
     }
 
     #[test]
     fn test_extend_image_returns_error_when_target_smaller_than_source() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(100, 80), "").unwrap();
         let result = transform::extend_image(img, 90, 120, &Some("center".to_string()), &Some([0, 0, 0, 0]));
         assert!(result.is_err());
@@ -301,7 +300,7 @@ mod test_processing {
 
     #[test]
     fn test_apply_rotation() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(100, 200), "").unwrap();
         let rotated_img = transform::apply_rotation(img, 90).unwrap();
         assert_eq!(rotated_img.get_width(), 200);
@@ -310,7 +309,7 @@ mod test_processing {
 
     #[test]
     fn test_apply_blur() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
         let blurred_img = transform::apply_blur(img, 5.0).unwrap();
         assert_eq!(blurred_img.get_width(), 100);
@@ -319,7 +318,7 @@ mod test_processing {
 
     #[test]
     fn test_apply_background_color() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
         let bg_applied_img = transform::apply_background_color(img, [255, 0, 0, 255]).unwrap();
         assert_eq!(bg_applied_img.get_bands(), 3);
@@ -327,86 +326,11 @@ mod test_processing {
 
     #[test]
     fn test_apply_background_color_no_alpha() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image_jpeg(100, 100), "").unwrap();
         let bands_before = img.get_bands();
         let bg_applied_img = transform::apply_background_color(img, [255, 0, 0, 255]).unwrap();
         assert_eq!(bg_applied_img.get_bands(), bands_before);
-    }
-
-    fn create_test_image(width: u32, height: u32) -> Vec<u8> {
-        let mut img: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::new(width, height);
-        for (_x, _y, pixel) in img.enumerate_pixels_mut() {
-            *pixel = Rgba([255, 0, 0, 255]);
-        }
-        let mut bytes: Vec<u8> = Vec::new();
-        img.write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
-            .unwrap();
-        bytes
-    }
-
-    fn create_quadrant_test_image(width: u32, height: u32) -> Vec<u8> {
-        let mut img: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::new(width, height);
-        for (x, y, pixel) in img.enumerate_pixels_mut() {
-            *pixel = if x < width / 2 && y < height / 2 {
-                Rgba([255, 0, 0, 255])
-            } else if x >= width / 2 && y < height / 2 {
-                Rgba([0, 255, 0, 255])
-            } else if x < width / 2 && y >= height / 2 {
-                Rgba([0, 0, 255, 255])
-            } else {
-                Rgba([255, 255, 0, 255])
-            };
-        }
-        let mut bytes: Vec<u8> = Vec::new();
-        img.write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
-            .unwrap();
-        bytes
-    }
-
-    fn create_orientation_test_image() -> Vec<u8> {
-        let mut img: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::new(3, 2);
-        img.put_pixel(0, 0, Rgba([255, 0, 0, 255]));
-        img.put_pixel(1, 0, Rgba([0, 255, 0, 255]));
-        img.put_pixel(2, 0, Rgba([0, 0, 255, 255]));
-        img.put_pixel(0, 1, Rgba([255, 255, 0, 255]));
-        img.put_pixel(1, 1, Rgba([255, 0, 255, 255]));
-        img.put_pixel(2, 1, Rgba([0, 255, 255, 255]));
-
-        let mut bytes: Vec<u8> = Vec::new();
-        img.write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
-            .unwrap();
-        bytes
-    }
-
-    fn decode_rgba(img: &VipsImage) -> RgbaImage {
-        let img_copy = libvips::ops::copy(img).unwrap();
-        let png_bytes = save::save_image(img_copy, "png", 90).unwrap();
-        image::load_from_memory(&png_bytes).unwrap().to_rgba8()
-    }
-
-    fn rgba_pixel(img: &VipsImage, x: u32, y: u32) -> [u8; 4] {
-        let decoded = decode_rgba(img);
-        let pixel = decoded.get_pixel(x, y);
-        [pixel[0], pixel[1], pixel[2], pixel[3]]
-    }
-
-    fn collect_rgba_pixels(img: &VipsImage) -> Vec<[u8; 4]> {
-        decode_rgba(img)
-            .pixels()
-            .map(|pixel| [pixel[0], pixel[1], pixel[2], pixel[3]])
-            .collect()
-    }
-
-    fn create_test_image_jpeg(width: u32, height: u32) -> Vec<u8> {
-        let mut img: ImageBuffer<image::Rgb<u8>, Vec<u8>> = ImageBuffer::new(width, height);
-        for (_x, _y, pixel) in img.enumerate_pixels_mut() {
-            *pixel = image::Rgb([255, 0, 0]);
-        }
-        let mut bytes: Vec<u8> = Vec::new();
-        img.write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Jpeg)
-            .unwrap();
-        bytes
     }
 
     fn cached_watermark_from_bytes(bytes: Vec<u8>) -> watermark::CachedWatermark {
@@ -629,7 +553,7 @@ mod test_processing {
 
     #[test]
     fn test_apply_min_dimensions() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
         let min_dims_img = transform::apply_min_dimensions(img, Some(200), Some(150), &None).unwrap();
         assert_eq!(min_dims_img.get_width(), 200);
@@ -638,7 +562,7 @@ mod test_processing {
 
     #[test]
     fn test_apply_zoom() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
         let zoomed_img = transform::apply_zoom(img, 2.0, &None).unwrap();
         assert_eq!(zoomed_img.get_width(), 200);
@@ -647,7 +571,7 @@ mod test_processing {
 
     #[test]
     fn test_apply_sharpen() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
         let sharpened_img = transform::apply_sharpen(img, 0.5).unwrap();
         assert_eq!(sharpened_img.get_width(), 100);
@@ -656,7 +580,7 @@ mod test_processing {
 
     #[test]
     fn test_apply_pixelate() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
         let pixelated_img = transform::apply_pixelate(img, 10, &None).unwrap();
         assert_eq!(pixelated_img.get_width(), 100);
@@ -677,12 +601,12 @@ mod test_processing {
 
     #[test]
     fn test_apply_watermark() {
-        let _ = &*APP;
+        init_vips();
         // Create a dummy watermark image
         let watermark = cached_watermark_from_bytes(create_test_image(50, 50));
-        let watermark_path = "/tmp/test_watermark.png";
-        std::fs::write(watermark_path, watermark.bytes.clone()).unwrap();
-        std::env::set_var(ENV_WATERMARK_PATH, watermark_path);
+        let mut watermark_file = NamedTempFile::new().unwrap();
+        watermark_file.write_all(&watermark.bytes).unwrap();
+        std::env::set_var(ENV_WATERMARK_PATH, watermark_file.path());
 
         let img = VipsImage::new_from_buffer(&create_test_image(200, 200), "").unwrap();
         let watermark_opts = Watermark {
@@ -693,9 +617,6 @@ mod test_processing {
 
         assert_eq!(watermarked_img.get_width(), 200);
         assert_eq!(watermarked_img.get_height(), 200);
-
-        // Cleanup
-        std::fs::remove_file(watermark_path).unwrap();
         std::env::remove_var(ENV_WATERMARK_PATH);
     }
 
@@ -832,7 +753,7 @@ mod test_processing {
     // Edge case tests
     #[test]
     fn test_resize_very_small_image() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(10, 10), "").unwrap();
         let resize = Resize {
             resizing_type: "fit".to_string(),
@@ -846,7 +767,7 @@ mod test_processing {
 
     #[test]
     fn test_resize_extreme_scale_up() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(10, 10), "").unwrap();
         let resize = Resize {
             resizing_type: "fit".to_string(),
@@ -860,7 +781,7 @@ mod test_processing {
 
     #[test]
     fn test_resize_extreme_aspect_ratio() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
         let resize = Resize {
             resizing_type: "fill".to_string(),
@@ -874,7 +795,7 @@ mod test_processing {
 
     #[test]
     fn test_crop_at_edge() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
         let crop = Crop {
             x: 0,
@@ -889,7 +810,7 @@ mod test_processing {
 
     #[test]
     fn test_crop_bottom_right_corner() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
         let crop = Crop {
             x: 50,
@@ -904,7 +825,7 @@ mod test_processing {
 
     #[test]
     fn test_rotation_on_non_square() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(150, 100), "").unwrap();
         let rotated_img = transform::apply_rotation(img, 90).unwrap();
         assert_eq!(rotated_img.get_width(), 100);
@@ -913,7 +834,7 @@ mod test_processing {
 
     #[test]
     fn test_rotation_180_degrees() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(100, 200), "").unwrap();
         let rotated_img = transform::apply_rotation(img, 180).unwrap();
         assert_eq!(rotated_img.get_width(), 100);
@@ -922,7 +843,7 @@ mod test_processing {
 
     #[test]
     fn test_rotation_270_degrees() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(100, 200), "").unwrap();
         let rotated_img = transform::apply_rotation(img, 270).unwrap();
         assert_eq!(rotated_img.get_width(), 200);
@@ -931,7 +852,7 @@ mod test_processing {
 
     #[test]
     fn test_rotation_unsupported_angle() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
         let rotated_img = transform::apply_rotation(img, 45).unwrap();
         // Should return original image unchanged
@@ -941,7 +862,7 @@ mod test_processing {
 
     #[test]
     fn test_apply_exif_orientation_all_branches() {
-        let _ = &*APP;
+        init_vips();
         let a = [255, 0, 0, 255];
         let b = [0, 255, 0, 255];
         let c = [0, 0, 255, 255];
@@ -967,13 +888,14 @@ mod test_processing {
             assert_eq!(oriented.get_width(), expected_w as i32);
             assert_eq!(oriented.get_height(), expected_h as i32);
 
-            assert_eq!(collect_rgba_pixels(&oriented), expected_pixels);
+            let decoded = decode_rgba(&oriented);
+            assert_eq!(collect_rgba_pixels(&decoded), expected_pixels);
         }
     }
 
     #[test]
     fn test_apply_exif_rotation_without_orientation_keeps_image_unchanged() {
-        let _ = &*APP;
+        init_vips();
         let image_bytes = create_orientation_test_image();
         let img = VipsImage::new_from_buffer(&image_bytes, "").unwrap();
         let rotated = transform::apply_exif_rotation(&image_bytes, img).unwrap();
@@ -988,12 +910,13 @@ mod test_processing {
             [255, 0, 255, 255],
             [0, 255, 255, 255],
         ];
-        assert_eq!(collect_rgba_pixels(&rotated), expected);
+        let decoded = decode_rgba(&rotated);
+        assert_eq!(collect_rgba_pixels(&decoded), expected);
     }
 
     #[test]
     fn test_pixelate_zero() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
         let original_width = img.get_width();
         let pixelated_img = transform::apply_pixelate(img, 0, &None).unwrap();
@@ -1002,7 +925,7 @@ mod test_processing {
 
     #[test]
     fn test_pixelate_small_amount() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
         let pixelated_img = transform::apply_pixelate(img, 1, &None).unwrap();
         assert_eq!(pixelated_img.get_width(), 100);
@@ -1010,7 +933,7 @@ mod test_processing {
 
     #[test]
     fn test_pixelate_large_amount() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(200, 200), "").unwrap();
         let pixelated_img = transform::apply_pixelate(img, 50, &None).unwrap();
         assert_eq!(pixelated_img.get_width(), 200);
@@ -1020,7 +943,7 @@ mod test_processing {
     // Multiple transformations tests
     #[test]
     fn test_crop_then_resize() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(400, 400), "").unwrap();
         let crop = Crop {
             x: 50,
@@ -1041,7 +964,7 @@ mod test_processing {
 
     #[test]
     fn test_resize_then_blur() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(200, 200), "").unwrap();
         let resize = Resize {
             resizing_type: "fit".to_string(),
@@ -1056,7 +979,7 @@ mod test_processing {
 
     #[test]
     fn test_resize_then_sharpen() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(200, 200), "").unwrap();
         let resize = Resize {
             resizing_type: "fit".to_string(),
@@ -1071,7 +994,7 @@ mod test_processing {
 
     #[test]
     fn test_rotation_then_resize() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(100, 200), "").unwrap();
         let rotated = transform::apply_rotation(img, 90).unwrap();
         // After rotation: 200x100
@@ -1088,7 +1011,7 @@ mod test_processing {
 
     #[test]
     fn test_padding_with_background_color() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
         let padded = transform::apply_padding(img, 20, 30, 40, 50, &Some([255, 255, 255, 255])).unwrap();
         assert_eq!(padded.get_width(), 180);
@@ -1097,7 +1020,7 @@ mod test_processing {
 
     #[test]
     fn test_extend_with_different_gravities() {
-        let _ = &*APP;
+        init_vips();
         for gravity in &["north", "south", "east", "west", "center"] {
             let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
             let extended =
@@ -1109,7 +1032,7 @@ mod test_processing {
 
     #[test]
     fn test_resize_fill_with_different_gravities() {
-        let _ = &*APP;
+        init_vips();
         for gravity in &["north", "south", "east", "west", "center"] {
             let img = VipsImage::new_from_buffer(&create_test_image(200, 100), "").unwrap();
             let resize = Resize {
@@ -1125,7 +1048,7 @@ mod test_processing {
 
     #[test]
     fn test_resize_fill_with_lanczos2_kernel() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(800, 600), "").unwrap();
         let resize = Resize {
             resizing_type: "fill".to_string(),
@@ -1140,7 +1063,7 @@ mod test_processing {
 
     #[test]
     fn test_resize_fit_with_nearest_kernel() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(800, 600), "").unwrap();
         let resize = Resize {
             resizing_type: "fit".to_string(),
@@ -1154,7 +1077,7 @@ mod test_processing {
 
     #[test]
     fn test_watermark_all_positions() {
-        let _ = &*APP;
+        init_vips();
         let watermark = cached_watermark_from_bytes(create_test_image(50, 50));
         let positions = vec![
             "north",
@@ -1182,7 +1105,7 @@ mod test_processing {
 
     #[test]
     fn test_watermark_full_opacity() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(200, 200), "").unwrap();
         let watermark = cached_watermark_from_bytes(create_test_image(50, 50));
         let watermark_opts = Watermark {
@@ -1196,7 +1119,7 @@ mod test_processing {
 
     #[test]
     fn test_watermark_zero_opacity() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(200, 200), "").unwrap();
         let watermark = cached_watermark_from_bytes(create_test_image(50, 50));
         let watermark_opts = Watermark {
@@ -1211,7 +1134,7 @@ mod test_processing {
     // Resize type tests
     #[test]
     fn test_resize_fit_width_only() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(200, 100), "").unwrap();
         let resize = Resize {
             resizing_type: "fit".to_string(),
@@ -1225,7 +1148,7 @@ mod test_processing {
 
     #[test]
     fn test_resize_fit_height_only() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(200, 100), "").unwrap();
         let resize = Resize {
             resizing_type: "fit".to_string(),
@@ -1239,7 +1162,7 @@ mod test_processing {
 
     #[test]
     fn test_resize_auto_portrait_to_portrait() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(100, 200), "").unwrap();
         let resize = Resize {
             resizing_type: "auto".to_string(),
@@ -1253,7 +1176,7 @@ mod test_processing {
 
     #[test]
     fn test_resize_auto_landscape_to_landscape() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(200, 100), "").unwrap();
         let resize = Resize {
             resizing_type: "auto".to_string(),
@@ -1267,7 +1190,7 @@ mod test_processing {
 
     #[test]
     fn test_resize_auto_portrait_to_landscape() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(100, 200), "").unwrap();
         let resize = Resize {
             resizing_type: "auto".to_string(),
@@ -1328,7 +1251,7 @@ mod test_processing {
     // Min dimensions tests
     #[test]
     fn test_apply_min_width_only() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
         let result = transform::apply_min_dimensions(img, Some(200), None, &None).unwrap();
         assert_eq!(result.get_width(), 200);
@@ -1337,7 +1260,7 @@ mod test_processing {
 
     #[test]
     fn test_apply_min_height_only() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
         let result = transform::apply_min_dimensions(img, None, Some(150), &None).unwrap();
         assert_eq!(result.get_width(), 150);
@@ -1346,7 +1269,7 @@ mod test_processing {
 
     #[test]
     fn test_apply_min_dimensions_already_larger() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(200, 200), "").unwrap();
         let result = transform::apply_min_dimensions(img, Some(100), Some(100), &None).unwrap();
         assert_eq!(result.get_width(), 200);
@@ -1355,7 +1278,7 @@ mod test_processing {
 
     #[test]
     fn test_apply_zoom_scale_down() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(200, 200), "").unwrap();
         let zoomed = transform::apply_zoom(img, 0.5, &None).unwrap();
         assert_eq!(zoomed.get_width(), 100);
@@ -1364,7 +1287,7 @@ mod test_processing {
 
     #[test]
     fn test_apply_zoom_scale_up() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
         let zoomed = transform::apply_zoom(img, 3.0, &None).unwrap();
         assert_eq!(zoomed.get_width(), 300);
@@ -1374,7 +1297,7 @@ mod test_processing {
     // Blur edge cases
     #[test]
     fn test_apply_blur_minimal() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
         let blurred = transform::apply_blur(img, 0.1).unwrap();
         assert_eq!(blurred.get_width(), 100);
@@ -1383,7 +1306,7 @@ mod test_processing {
 
     #[test]
     fn test_apply_blur_extreme() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
         let blurred = transform::apply_blur(img, 50.0).unwrap();
         assert_eq!(blurred.get_width(), 100);
@@ -1393,7 +1316,7 @@ mod test_processing {
     // Sharpen edge cases
     #[test]
     fn test_apply_sharpen_minimal() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
         let sharpened = transform::apply_sharpen(img, 0.1).unwrap();
         assert_eq!(sharpened.get_width(), 100);
@@ -1402,7 +1325,7 @@ mod test_processing {
 
     #[test]
     fn test_apply_sharpen_extreme() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
         let sharpened = transform::apply_sharpen(img, 10.0).unwrap();
         assert_eq!(sharpened.get_width(), 100);
@@ -1411,7 +1334,7 @@ mod test_processing {
 
     #[test]
     fn test_apply_sharpen_clamps_sigma() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(50, 50), "").unwrap();
         let sharpened = transform::apply_sharpen(img, 100.0).unwrap();
         assert_eq!(sharpened.get_width(), 50);
@@ -1421,7 +1344,7 @@ mod test_processing {
     // Complex multi-operation scenarios
     #[test]
     fn test_complex_pipeline_crop_resize_blur_rotate() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(400, 400), "").unwrap();
 
         // Crop
@@ -1454,7 +1377,7 @@ mod test_processing {
 
     #[test]
     fn test_complex_pipeline_resize_padding_watermark() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(200, 200), "").unwrap();
 
         // Resize
@@ -1552,7 +1475,7 @@ mod test_processing {
     // Background color tests
     #[test]
     fn test_apply_background_color_with_transparency() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
         let result = transform::apply_background_color(img, [255, 255, 255, 255]).unwrap();
         // Should flatten to 3 bands (RGB)
@@ -1733,7 +1656,7 @@ mod test_processing {
 
     #[test]
     fn test_apply_resize_with_cubic_algorithm() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(400, 300), "").unwrap();
         let resize = Resize {
             resizing_type: "fit".to_string(),
@@ -1749,7 +1672,7 @@ mod test_processing {
 
     #[test]
     fn test_apply_resize_with_invalid_kernel_falls_back_to_default() {
-        let _ = &*APP;
+        init_vips();
         let img = VipsImage::new_from_buffer(&create_test_image(400, 300), "").unwrap();
         let resize = Resize {
             resizing_type: "fit".to_string(),
