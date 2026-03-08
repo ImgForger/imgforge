@@ -8,7 +8,7 @@ authors = ["joker666 <mr.k779@outlook.com>"]
 license = "GPL-3.0-only"
 homepage = "https://imgforger.github.io"
 readme = "README.md"
-keywords = ["image", "proxy", "transform", "server", "libvips", "rust", "web"]
+keywords = ["image", "proxy", "transform", "libvips", "rust"]
 categories = [
     "multimedia",
     "multimedia::images",

@@ -2,11 +2,12 @@
 mod test_processing {
     use crate::constants::ENV_WATERMARK_PATH;
     use crate::processing::options::{parse_all_options, Crop, ProcessingOption, Resize, Watermark};
+    use crate::processing::save;
     use crate::processing::transform;
     use crate::processing::utils;
     use crate::processing::watermark;
     use bytes::Bytes;
-    use image::{ImageBuffer, Rgba};
+    use image::{ImageBuffer, Rgba, RgbaImage};
     use lazy_static::lazy_static;
     use libvips::{VipsApp, VipsImage};
 
@@ -138,6 +139,70 @@ mod test_processing {
     }
 
     #[test]
+    fn test_apply_resize_unknown_type_error() {
+        let _ = &*APP;
+        let img = VipsImage::new_from_buffer(&create_test_image(400, 300), "").unwrap();
+        let resize = Resize {
+            resizing_type: "bogus".to_string(),
+            width: 200,
+            height: 100,
+        };
+        let result = transform::apply_resize(img, &resize, &None, &None);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Unknown resize type"));
+    }
+
+    #[test]
+    fn test_resolve_resize_dimensions_rejects_both_zero() {
+        let resize = Resize {
+            resizing_type: "fit".to_string(),
+            width: 0,
+            height: 0,
+        };
+        let result = transform::resolve_resize_dimensions(&resize, 400, 300);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("at least one non-zero"));
+    }
+
+    #[test]
+    fn test_resolve_resize_dimensions_fills_missing_side_for_fit() {
+        let resize_w_only = Resize {
+            resizing_type: "fit".to_string(),
+            width: 200,
+            height: 0,
+        };
+        let dims = transform::resolve_resize_dimensions(&resize_w_only, 400, 300).unwrap();
+        assert_eq!(dims, (200, 150));
+
+        let resize_h_only = Resize {
+            resizing_type: "fit".to_string(),
+            width: 0,
+            height: 150,
+        };
+        let dims = transform::resolve_resize_dimensions(&resize_h_only, 400, 300).unwrap();
+        assert_eq!(dims, (200, 150));
+    }
+
+    #[test]
+    fn test_resolve_resize_dimensions_force_uses_source_for_missing_side() {
+        let resize_w_only = Resize {
+            resizing_type: "force".to_string(),
+            width: 200,
+            height: 0,
+        };
+        let dims = transform::resolve_resize_dimensions(&resize_w_only, 400, 300).unwrap();
+        assert_eq!(dims, (200, 300));
+
+        let resize_h_only = Resize {
+            resizing_type: "force".to_string(),
+            width: 0,
+            height: 150,
+        };
+        let dims = transform::resolve_resize_dimensions(&resize_h_only, 400, 300).unwrap();
+        assert_eq!(dims, (400, 150));
+    }
+
+    #[test]
     fn test_crop_image() {
         let _ = &*APP;
         let img = VipsImage::new_from_buffer(&create_test_image(400, 300), "").unwrap();
@@ -169,6 +234,67 @@ mod test_processing {
         let padded_img = transform::apply_padding(img, 10, 20, 30, 40, &Some([0, 0, 0, 0])).unwrap();
         assert_eq!(padded_img.get_width(), 160);
         assert_eq!(padded_img.get_height(), 140);
+    }
+
+    #[test]
+    fn test_apply_padding_position_and_background_color() {
+        let _ = &*APP;
+        let source_bytes = create_quadrant_test_image(4, 4);
+        let img = VipsImage::new_from_buffer(&source_bytes, "").unwrap();
+        let padded = transform::apply_padding(img, 1, 2, 3, 4, &Some([255, 255, 255, 255])).unwrap();
+        assert_eq!(padded.get_width(), 10);
+        assert_eq!(padded.get_height(), 8);
+
+        assert_eq!(rgba_pixel(&padded, 0, 0), [255, 255, 255, 255]);
+        assert_eq!(rgba_pixel(&padded, 9, 7), [255, 255, 255, 255]);
+        assert_eq!(rgba_pixel(&padded, 4, 1), [255, 0, 0, 255]);
+        assert_eq!(rgba_pixel(&padded, 7, 1), [0, 255, 0, 255]);
+        assert_eq!(rgba_pixel(&padded, 4, 4), [0, 0, 255, 255]);
+        assert_eq!(rgba_pixel(&padded, 7, 4), [255, 255, 0, 255]);
+    }
+
+    #[test]
+    fn test_extend_image_background_and_gravity_positions() {
+        let _ = &*APP;
+        let cases = [
+            ("center", 2, 2),
+            ("north", 2, 0),
+            ("south", 2, 4),
+            ("east", 4, 2),
+            ("west", 0, 2),
+        ];
+
+        for (gravity, origin_x, origin_y) in cases {
+            let source_bytes = create_quadrant_test_image(4, 4);
+            let img = VipsImage::new_from_buffer(&source_bytes, "").unwrap();
+            let extended =
+                transform::extend_image(img, 8, 8, &Some(gravity.to_string()), &Some([10, 20, 30, 255])).unwrap();
+            assert_eq!(extended.get_width(), 8);
+            assert_eq!(extended.get_height(), 8);
+
+            assert_eq!(rgba_pixel(&extended, origin_x, origin_y), [255, 0, 0, 255]);
+
+            let bg_probe = match gravity {
+                "north" => (0, 7),
+                "south" => (0, 0),
+                "east" => (0, 0),
+                "west" => (7, 0),
+                _ => (0, 0),
+            };
+            assert_eq!(rgba_pixel(&extended, bg_probe.0, bg_probe.1), [10, 20, 30, 255]);
+        }
+    }
+
+    #[test]
+    fn test_extend_image_returns_error_when_target_smaller_than_source() {
+        let _ = &*APP;
+        let img = VipsImage::new_from_buffer(&create_test_image(100, 80), "").unwrap();
+        let result = transform::extend_image(img, 90, 120, &Some("center".to_string()), &Some([0, 0, 0, 0]));
+        assert!(result.is_err());
+        assert!(
+            result.unwrap_err().contains("must be at least source"),
+            "unexpected error message for extend guard"
+        );
     }
 
     #[test]
@@ -215,6 +341,59 @@ mod test_processing {
         img.write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
             .unwrap();
         bytes
+    }
+
+    fn create_quadrant_test_image(width: u32, height: u32) -> Vec<u8> {
+        let mut img: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::new(width, height);
+        for (x, y, pixel) in img.enumerate_pixels_mut() {
+            *pixel = if x < width / 2 && y < height / 2 {
+                Rgba([255, 0, 0, 255])
+            } else if x >= width / 2 && y < height / 2 {
+                Rgba([0, 255, 0, 255])
+            } else if x < width / 2 && y >= height / 2 {
+                Rgba([0, 0, 255, 255])
+            } else {
+                Rgba([255, 255, 0, 255])
+            };
+        }
+        let mut bytes: Vec<u8> = Vec::new();
+        img.write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
+            .unwrap();
+        bytes
+    }
+
+    fn create_orientation_test_image() -> Vec<u8> {
+        let mut img: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::new(3, 2);
+        img.put_pixel(0, 0, Rgba([255, 0, 0, 255]));
+        img.put_pixel(1, 0, Rgba([0, 255, 0, 255]));
+        img.put_pixel(2, 0, Rgba([0, 0, 255, 255]));
+        img.put_pixel(0, 1, Rgba([255, 255, 0, 255]));
+        img.put_pixel(1, 1, Rgba([255, 0, 255, 255]));
+        img.put_pixel(2, 1, Rgba([0, 255, 255, 255]));
+
+        let mut bytes: Vec<u8> = Vec::new();
+        img.write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
+            .unwrap();
+        bytes
+    }
+
+    fn decode_rgba(img: &VipsImage) -> RgbaImage {
+        let img_copy = libvips::ops::copy(img).unwrap();
+        let png_bytes = save::save_image(img_copy, "png", 90).unwrap();
+        image::load_from_memory(&png_bytes).unwrap().to_rgba8()
+    }
+
+    fn rgba_pixel(img: &VipsImage, x: u32, y: u32) -> [u8; 4] {
+        let decoded = decode_rgba(img);
+        let pixel = decoded.get_pixel(x, y);
+        [pixel[0], pixel[1], pixel[2], pixel[3]]
+    }
+
+    fn collect_rgba_pixels(img: &VipsImage) -> Vec<[u8; 4]> {
+        decode_rgba(img)
+            .pixels()
+            .map(|pixel| [pixel[0], pixel[1], pixel[2], pixel[3]])
+            .collect()
     }
 
     fn create_test_image_jpeg(width: u32, height: u32) -> Vec<u8> {
@@ -515,7 +694,7 @@ mod test_processing {
 
         // Cleanup
         std::fs::remove_file(watermark_path).unwrap();
-        std::env::remove_var("WATERMARK_PATH");
+        std::env::remove_var(ENV_WATERMARK_PATH);
     }
 
     // Error handling tests
@@ -756,6 +935,58 @@ mod test_processing {
         // Should return original image unchanged
         assert_eq!(rotated_img.get_width(), 100);
         assert_eq!(rotated_img.get_height(), 100);
+    }
+
+    #[test]
+    fn test_apply_exif_orientation_all_branches() {
+        let _ = &*APP;
+        let a = [255, 0, 0, 255];
+        let b = [0, 255, 0, 255];
+        let c = [0, 0, 255, 255];
+        let d = [255, 255, 0, 255];
+        let e = [255, 0, 255, 255];
+        let f = [0, 255, 255, 255];
+
+        let cases: [(u32, (u32, u32), Vec<[u8; 4]>); 8] = [
+            (1, (3, 2), vec![a, b, c, d, e, f]),
+            (2, (3, 2), vec![c, b, a, f, e, d]),
+            (3, (3, 2), vec![f, e, d, c, b, a]),
+            (4, (3, 2), vec![d, e, f, a, b, c]),
+            (5, (2, 3), vec![a, d, b, e, c, f]),
+            (6, (2, 3), vec![d, a, e, b, f, c]),
+            (7, (2, 3), vec![f, c, e, b, d, a]),
+            (8, (2, 3), vec![c, f, b, e, a, d]),
+        ];
+
+        for (orientation, (expected_w, expected_h), expected_pixels) in cases {
+            let source_bytes = create_orientation_test_image();
+            let img = VipsImage::new_from_buffer(&source_bytes, "").unwrap();
+            let oriented = transform::apply_exif_orientation(img, orientation).unwrap();
+            assert_eq!(oriented.get_width(), expected_w as i32);
+            assert_eq!(oriented.get_height(), expected_h as i32);
+
+            assert_eq!(collect_rgba_pixels(&oriented), expected_pixels);
+        }
+    }
+
+    #[test]
+    fn test_apply_exif_rotation_without_orientation_keeps_image_unchanged() {
+        let _ = &*APP;
+        let image_bytes = create_orientation_test_image();
+        let img = VipsImage::new_from_buffer(&image_bytes, "").unwrap();
+        let rotated = transform::apply_exif_rotation(&image_bytes, img).unwrap();
+        assert_eq!(rotated.get_width(), 3);
+        assert_eq!(rotated.get_height(), 2);
+
+        let expected = vec![
+            [255, 0, 0, 255],
+            [0, 255, 0, 255],
+            [0, 0, 255, 255],
+            [255, 255, 0, 255],
+            [255, 0, 255, 255],
+            [0, 255, 255, 255],
+        ];
+        assert_eq!(collect_rgba_pixels(&rotated), expected);
     }
 
     #[test]
@@ -1512,5 +1743,20 @@ mod test_processing {
         let resized_img2 = transform::apply_resize(img, &resize, &None, &Some("cubic".to_string())).unwrap();
         assert_eq!(resized_img2.get_width(), 200);
         assert_eq!(resized_img2.get_height(), 150);
+    }
+
+    #[test]
+    fn test_apply_resize_with_invalid_kernel_falls_back_to_default() {
+        let _ = &*APP;
+        let img = VipsImage::new_from_buffer(&create_test_image(400, 300), "").unwrap();
+        let resize = Resize {
+            resizing_type: "fit".to_string(),
+            width: 200,
+            height: 150,
+        };
+
+        let resized_img = transform::apply_resize(img, &resize, &None, &Some("not-a-kernel".to_string())).unwrap();
+        assert_eq!(resized_img.get_width(), 200);
+        assert_eq!(resized_img.get_height(), 150);
     }
 }

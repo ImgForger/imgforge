@@ -17,6 +17,22 @@ fn get_resize_kernel(algorithm: &Option<String>) -> ops::Kernel {
     }
 }
 
+fn bg_color_for_bands(bg_color: [u8; 4], bands: i32) -> Vec<f64> {
+    let luma = (0.299 * bg_color[0] as f64 + 0.587 * bg_color[1] as f64 + 0.114 * bg_color[2] as f64).round();
+    match bands {
+        4 => vec![
+            bg_color[0] as f64,
+            bg_color[1] as f64,
+            bg_color[2] as f64,
+            bg_color[3] as f64,
+        ],
+        3 => vec![bg_color[0] as f64, bg_color[1] as f64, bg_color[2] as f64],
+        2 => vec![luma, bg_color[3] as f64],
+        1 => vec![luma],
+        _ => vec![bg_color[0] as f64, bg_color[1] as f64, bg_color[2] as f64],
+    }
+}
+
 /// Helper to resize using the requested algorithm, defaulting to lanczos3.
 pub fn resize_with_algorithm(
     img: &VipsImage,
@@ -38,34 +54,38 @@ pub fn resize_with_algorithm(
 pub fn apply_exif_rotation(image_bytes: &[u8], mut img: VipsImage) -> Result<VipsImage, String> {
     if let Some(orientation) = read_exif_orientation(image_bytes) {
         debug!("Found EXIF orientation: {:?}", orientation);
-        match orientation {
-            2 => {
-                img = ops::flip(&img, ops::Direction::Horizontal)
-                    .map_err(|e| format!("Error flipping horizontally: {}", e))?
-            }
-            3 => img = ops::rot(&img, ops::Angle::D180).map_err(|e| format!("Error rotating 180: {}", e))?,
-            4 => {
-                img = ops::flip(&img, ops::Direction::Vertical)
-                    .map_err(|e| format!("Error flipping vertically: {}", e))?
-            }
-            5 => {
-                img = ops::flip(
-                    &ops::rot(&img, ops::Angle::D90).map_err(|e| format!("Error rotating 90: {}", e))?,
-                    ops::Direction::Horizontal,
-                )
-                .map_err(|e| format!("Error flipping after rotate: {}", e))?
-            }
-            6 => img = ops::rot(&img, ops::Angle::D90).map_err(|e| format!("Error rotating 90: {}", e))?,
-            7 => {
-                img = ops::flip(
-                    &ops::rot(&img, ops::Angle::D270).map_err(|e| format!("Error rotating 270: {}", e))?,
-                    ops::Direction::Horizontal,
-                )
-                .map_err(|e| format!("Error flipping after rotate: {}", e))?
-            }
-            8 => img = ops::rot(&img, ops::Angle::D270).map_err(|e| format!("Error rotating 270: {}", e))?,
-            _ => {}
+        img = apply_exif_orientation(img, orientation)?;
+    }
+    Ok(img)
+}
+
+pub(crate) fn apply_exif_orientation(mut img: VipsImage, orientation: u32) -> Result<VipsImage, String> {
+    match orientation {
+        2 => {
+            img = ops::flip(&img, ops::Direction::Horizontal)
+                .map_err(|e| format!("Error flipping horizontally: {}", e))?
         }
+        3 => img = ops::rot(&img, ops::Angle::D180).map_err(|e| format!("Error rotating 180: {}", e))?,
+        4 => {
+            img = ops::flip(&img, ops::Direction::Vertical).map_err(|e| format!("Error flipping vertically: {}", e))?
+        }
+        5 => {
+            img = ops::flip(
+                &ops::rot(&img, ops::Angle::D90).map_err(|e| format!("Error rotating 90: {}", e))?,
+                ops::Direction::Horizontal,
+            )
+            .map_err(|e| format!("Error flipping after rotate: {}", e))?
+        }
+        6 => img = ops::rot(&img, ops::Angle::D90).map_err(|e| format!("Error rotating 90: {}", e))?,
+        7 => {
+            img = ops::flip(
+                &ops::rot(&img, ops::Angle::D270).map_err(|e| format!("Error rotating 270: {}", e))?,
+                ops::Direction::Horizontal,
+            )
+            .map_err(|e| format!("Error flipping after rotate: {}", e))?
+        }
+        8 => img = ops::rot(&img, ops::Angle::D270).map_err(|e| format!("Error rotating 270: {}", e))?,
+        _ => {}
     }
     Ok(img)
 }
@@ -261,25 +281,33 @@ pub fn extend_image(
     gravity: &Option<String>,
     background: &Option<[u8; 4]>,
 ) -> Result<VipsImage, String> {
-    let _bg_color = background.unwrap_or([0, 0, 0, 0]);
+    let bg_color = background.unwrap_or([0, 0, 0, 0]);
+    let src_w = img.get_width() as u32;
+    let src_h = img.get_height() as u32;
+    if width < src_w || height < src_h {
+        return Err(format!(
+            "extend target {}x{} must be at least source {}x{}",
+            width, height, src_w, src_h
+        ));
+    }
+
     let gravity = gravity.as_deref().unwrap_or("center");
 
     let (x, y) = match gravity {
-        "center" => (
-            (width - img.get_width() as u32) / 2,
-            (height - img.get_height() as u32) / 2,
-        ),
-        "north" => ((width - img.get_width() as u32) / 2, 0),
-        "south" => ((width - img.get_width() as u32) / 2, height - img.get_height() as u32),
-        "west" => (0, (height - img.get_height() as u32) / 2),
-        "east" => (width - img.get_width() as u32, (height - img.get_height() as u32) / 2),
-        _ => (
-            (width - img.get_width() as u32) / 2,
-            (height - img.get_height() as u32) / 2,
-        ),
+        "center" => ((width - src_w) / 2, (height - src_h) / 2),
+        "north" => ((width - src_w) / 2, 0),
+        "south" => ((width - src_w) / 2, height - src_h),
+        "west" => (0, (height - src_h) / 2),
+        "east" => (width - src_w, (height - src_h) / 2),
+        _ => ((width - src_w) / 2, (height - src_h) / 2),
     };
 
-    ops::embed(&img, x as i32, y as i32, width as i32, height as i32)
+    let options = ops::EmbedOptions {
+        extend: ops::Extend::Background,
+        background: bg_color_for_bands(bg_color, img.get_bands()),
+        ..Default::default()
+    };
+    ops::embed_with_opts(&img, x as i32, y as i32, width as i32, height as i32, &options)
         .map_err(|e| format!("Error extending image: {}", e))
 }
 
@@ -292,14 +320,20 @@ pub fn apply_padding(
     left: u32,
     background: &Option<[u8; 4]>,
 ) -> Result<VipsImage, String> {
-    let _bg_color = background.unwrap_or([0, 0, 0, 0]);
+    let bg_color = background.unwrap_or([0, 0, 0, 0]);
+    let options = ops::EmbedOptions {
+        extend: ops::Extend::Background,
+        background: bg_color_for_bands(bg_color, img.get_bands()),
+        ..Default::default()
+    };
 
-    ops::embed(
+    ops::embed_with_opts(
         &img,
-        -(left as i32),
-        -(top as i32),
+        left as i32,
+        top as i32,
         img.get_width() + left as i32 + right as i32,
         img.get_height() + top as i32 + bottom as i32,
+        &options,
     )
     .map_err(|e| format!("Error applying padding: {}", e))
 }
