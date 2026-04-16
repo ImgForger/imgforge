@@ -4,6 +4,18 @@ use libvips::{ops, VipsImage};
 use tracing::debug;
 
 const SCALE_EPSILON: f64 = 1e-6;
+const VALID_GRAVITIES: [&str; 5] = ["center", "north", "south", "east", "west"];
+
+fn validate_gravity(gravity: &str) -> Result<(), String> {
+    if VALID_GRAVITIES.contains(&gravity) {
+        Ok(())
+    } else {
+        Err(format!(
+            "Unsupported gravity: {}. Expected one of: center, north, south, east, west",
+            gravity
+        ))
+    }
+}
 
 /// Converts a resizing algorithm string to a libvips Kernel enum.
 fn get_resize_kernel(algorithm: &Option<String>) -> ops::Kernel {
@@ -146,6 +158,9 @@ pub fn apply_resize(
     let src_width = img.get_width() as u32;
     let src_height = img.get_height() as u32;
     let (target_w, target_h) = resolve_resize_dimensions(resize, src_width, src_height)?;
+    if let Some(gravity) = gravity.as_deref() {
+        validate_gravity(gravity)?;
+    }
 
     match resize.resizing_type.as_str() {
         "fill" => resize_to_fill(
@@ -292,6 +307,7 @@ pub fn extend_image(
     }
 
     let gravity = gravity.as_deref().unwrap_or("center");
+    validate_gravity(gravity)?;
 
     let (x, y) = match gravity {
         "center" => ((width - src_w) / 2, (height - src_h) / 2),
@@ -341,10 +357,11 @@ pub fn apply_padding(
 /// Applies rotation to an image.
 pub fn apply_rotation(img: VipsImage, rotation: u16) -> Result<VipsImage, String> {
     match rotation {
+        0 => Ok(img),
         90 => ops::rot(&img, ops::Angle::D90).map_err(|e| format!("Error rotating 90: {}", e)),
         180 => ops::rot(&img, ops::Angle::D180).map_err(|e| format!("Error rotating 180: {}", e)),
         270 => ops::rot(&img, ops::Angle::D270).map_err(|e| format!("Error rotating 270: {}", e)),
-        _ => Ok(img), // No rotation
+        _ => Err(format!("Unsupported rotation angle: {}", rotation)),
     }
 }
 
@@ -412,11 +429,17 @@ pub fn apply_min_dimensions(
 
 /// Applies zoom to an image.
 pub fn apply_zoom(img: VipsImage, zoom: f32, resizing_algorithm: &Option<String>) -> Result<VipsImage, String> {
+    if !zoom.is_finite() || zoom <= 0.0 {
+        return Err("zoom must be a finite positive number".to_string());
+    }
     resize_with_algorithm(&img, zoom as f64, None, resizing_algorithm, "Error applying zoom")
 }
 
 /// Sharpens an image.
 pub fn apply_sharpen(img: VipsImage, sigma: f32) -> Result<VipsImage, String> {
+    if !sigma.is_finite() || sigma <= 0.0 {
+        return Err("sharpen sigma must be a finite positive number".to_string());
+    }
     let clamped_sigma = sigma.clamp(0.1, 10.0);
     let opts = ops::SharpenOptions {
         sigma: clamped_sigma as f64,

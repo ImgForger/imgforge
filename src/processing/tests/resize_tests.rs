@@ -225,6 +225,19 @@ fn test_resize_fill_with_different_gravities() {
 }
 
 #[test]
+fn test_resize_fill_rejects_invalid_gravity() {
+    init_vips();
+    let img = VipsImage::new_from_buffer(&create_test_image(200, 100), "").unwrap();
+    let resize = Resize {
+        resizing_type: "fill".to_string(),
+        width: 100,
+        height: 100,
+    };
+    let err = transform::apply_resize(img, &resize, &Some("northeast".to_string()), &None).unwrap_err();
+    assert!(err.contains("Unsupported gravity"));
+}
+
+#[test]
 fn test_resize_fill_with_lanczos2_kernel() {
     init_vips();
     let img = VipsImage::new_from_buffer(&create_test_image(800, 600), "").unwrap();

@@ -151,10 +151,8 @@ fn test_rotation_270_degrees() {
 fn test_rotation_unsupported_angle() {
     init_vips();
     let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
-    let rotated_img = transform::apply_rotation(img, 45).unwrap();
-    // Should return original image unchanged
-    assert_eq!(rotated_img.get_width(), 100);
-    assert_eq!(rotated_img.get_height(), 100);
+    let err = transform::apply_rotation(img, 45).unwrap_err();
+    assert!(err.contains("Unsupported rotation angle"));
 }
 
 #[test]
@@ -229,6 +227,14 @@ fn test_apply_zoom_scale_up() {
     assert_eq!(zoomed.get_height(), 300);
 }
 
+#[test]
+fn test_apply_zoom_rejects_non_positive_values() {
+    init_vips();
+    let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
+    let err = transform::apply_zoom(img, 0.0, &None).unwrap_err();
+    assert!(err.contains("zoom must be a finite positive number"));
+}
+
 // Blur edge cases
 #[test]
 fn test_apply_blur_minimal() {
@@ -274,6 +280,14 @@ fn test_apply_sharpen_clamps_sigma() {
     let sharpened = transform::apply_sharpen(img, 100.0).unwrap();
     assert_eq!(sharpened.get_width(), 50);
     assert_eq!(sharpened.get_height(), 50);
+}
+
+#[test]
+fn test_apply_sharpen_rejects_non_positive_sigma() {
+    init_vips();
+    let img = VipsImage::new_from_buffer(&create_test_image(50, 50), "").unwrap();
+    let err = transform::apply_sharpen(img, 0.0).unwrap_err();
+    assert!(err.contains("sharpen sigma must be a finite positive number"));
 }
 
 // Background color tests

@@ -119,6 +119,31 @@ const RESIZING_ALGORITHM: &str = "resizing_algorithm";
 /// Shorthand for resizing_algorithm.
 const RESIZING_ALGORITHM_SHORT: &str = "ra";
 
+const VALID_GRAVITIES: [&str; 5] = ["center", "north", "south", "east", "west"];
+const VALID_ROTATIONS: [u16; 4] = [0, 90, 180, 270];
+
+fn is_valid_gravity(gravity: &str) -> bool {
+    VALID_GRAVITIES.contains(&gravity)
+}
+
+fn is_valid_rotation(rotation: u16) -> bool {
+    VALID_ROTATIONS.contains(&rotation)
+}
+
+fn parse_positive_f32(value: &str, option_name: &str) -> Result<f32, String> {
+    let parsed = value.parse::<f32>().map_err(|e| {
+        error!("Invalid {}: {}", option_name, e);
+        e.to_string()
+    })?;
+
+    if !parsed.is_finite() || parsed <= 0.0 {
+        error!("{} must be a finite positive number, received: {}", option_name, parsed);
+        return Err(format!("{} must be a finite positive number", option_name));
+    }
+
+    Ok(parsed)
+}
+
 /// Represents the parameters for a resize operation.
 #[derive(Debug, Default)]
 pub struct Resize {
@@ -387,6 +412,11 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
                     error!("Gravity option requires one argument");
                     return Err("gravity option requires one argument".to_string());
                 }
+                let gravity = option.args[0].as_str();
+                if !is_valid_gravity(gravity) {
+                    error!("Invalid gravity: {}", gravity);
+                    return Err("gravity must be one of: center, north, south, east, west".to_string());
+                }
                 parsed_options.gravity = Some(option.args[0].clone());
             }
             ENLARGE | ENLARGE_SHORT => {
@@ -433,11 +463,15 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
                     error!("Rotation option requires one argument");
                     return Err("rotation option requires one argument".to_string());
                 }
-                parsed_options.rotation =
-                    Some(option.args[0].parse::<u16>().map_err(|e: std::num::ParseIntError| {
-                        error!("Invalid rotation: {}", e);
-                        e.to_string()
-                    })?);
+                let rotation = option.args[0].parse::<u16>().map_err(|e: std::num::ParseIntError| {
+                    error!("Invalid rotation: {}", e);
+                    e.to_string()
+                })?;
+                if !is_valid_rotation(rotation) {
+                    error!("Unsupported rotation: {}", rotation);
+                    return Err("rotation must be one of: 0, 90, 180, 270".to_string());
+                }
+                parsed_options.rotation = Some(rotation);
             }
             AUTO_ROTATE | AUTO_ROTATE_SHORT => {
                 if option.args.is_empty() {
@@ -584,20 +618,14 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
                     error!("Zoom option requires one argument");
                     return Err("zoom option requires one argument".to_string());
                 }
-                parsed_options.zoom = Some(option.args[0].parse::<f32>().map_err(|e| {
-                    error!("Invalid zoom: {}", e);
-                    e.to_string()
-                })?);
+                parsed_options.zoom = Some(parse_positive_f32(&option.args[0], "zoom")?);
             }
             SHARPEN | SHARPEN_SHORT => {
                 if option.args.is_empty() {
                     error!("Sharpen option requires one argument");
                     return Err("sharpen option requires one argument".to_string());
                 }
-                parsed_options.sharpen = Some(option.args[0].parse::<f32>().map_err(|e| {
-                    error!("Invalid sharpen: {}", e);
-                    e.to_string()
-                })?);
+                parsed_options.sharpen = Some(parse_positive_f32(&option.args[0], "sharpen")?);
             }
             PIXELATE | PIXELATE_SHORT => {
                 if option.args.is_empty() {

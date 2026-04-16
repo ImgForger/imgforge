@@ -74,6 +74,16 @@ fn test_parse_rotation_option() {
 }
 
 #[test]
+fn test_parse_rotation_option_rejects_unsupported_angle() {
+    let options = vec![ProcessingOption {
+        name: "rotate".to_string(),
+        args: vec!["45".to_string()],
+    }];
+    let err = parse_all_options(options).unwrap_err();
+    assert!(err.contains("rotation must be one of"));
+}
+
+#[test]
 fn test_parse_enlarge_option() {
     let options = vec![ProcessingOption {
         name: "enlarge".to_string(),
@@ -101,6 +111,16 @@ fn test_parse_gravity_option() {
     }];
     let parsed = parse_all_options(options).unwrap();
     assert_eq!(parsed.gravity, Some("north".to_string()));
+}
+
+#[test]
+fn test_parse_gravity_option_rejects_invalid_value() {
+    let options = vec![ProcessingOption {
+        name: "gravity".to_string(),
+        args: vec!["northeast".to_string()],
+    }];
+    let err = parse_all_options(options).unwrap_err();
+    assert!(err.contains("gravity must be one of"));
 }
 
 #[test]
@@ -218,6 +238,16 @@ fn test_parse_zoom_option() {
 }
 
 #[test]
+fn test_parse_zoom_option_rejects_non_positive_value() {
+    let options = vec![ProcessingOption {
+        name: "zoom".to_string(),
+        args: vec!["0".to_string()],
+    }];
+    let err = parse_all_options(options).unwrap_err();
+    assert!(err.contains("zoom must be a finite positive number"));
+}
+
+#[test]
 fn test_parse_sharpen_option() {
     let options = vec![ProcessingOption {
         name: "sharpen".to_string(),
@@ -225,6 +255,16 @@ fn test_parse_sharpen_option() {
     }];
     let parsed = parse_all_options(options).unwrap();
     assert_eq!(parsed.sharpen, Some(0.5));
+}
+
+#[test]
+fn test_parse_sharpen_option_rejects_nan() {
+    let options = vec![ProcessingOption {
+        name: "sharpen".to_string(),
+        args: vec!["NaN".to_string()],
+    }];
+    let err = parse_all_options(options).unwrap_err();
+    assert!(err.contains("sharpen must be a finite positive number"));
 }
 
 #[test]

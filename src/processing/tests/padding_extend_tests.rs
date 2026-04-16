@@ -104,3 +104,11 @@ fn test_extend_with_different_gravities() {
         assert_eq!(extended.get_height(), 200);
     }
 }
+
+#[test]
+fn test_extend_rejects_invalid_gravity() {
+    init_vips();
+    let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
+    let err = transform::extend_image(img, 200, 200, &Some("northeast".to_string()), &Some([0, 0, 0, 0])).unwrap_err();
+    assert!(err.contains("Unsupported gravity"));
+}
