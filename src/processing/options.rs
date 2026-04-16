@@ -119,12 +119,7 @@ const RESIZING_ALGORITHM: &str = "resizing_algorithm";
 /// Shorthand for resizing_algorithm.
 const RESIZING_ALGORITHM_SHORT: &str = "ra";
 
-const VALID_GRAVITIES: [&str; 5] = ["center", "north", "south", "east", "west"];
 const VALID_ROTATIONS: [u16; 4] = [0, 90, 180, 270];
-
-fn is_valid_gravity(gravity: &str) -> bool {
-    VALID_GRAVITIES.contains(&gravity)
-}
 
 fn is_valid_rotation(rotation: u16) -> bool {
     VALID_ROTATIONS.contains(&rotation)
@@ -153,6 +148,29 @@ pub struct Resize {
     pub width: u32,
     /// The target height for the resize operation.
     pub height: u32,
+}
+
+/// Controls how an image is aligned when cropping or extending.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Gravity {
+    Center,
+    North,
+    South,
+    East,
+    West,
+}
+
+impl Gravity {
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "center" => Some(Self::Center),
+            "north" => Some(Self::North),
+            "south" => Some(Self::South),
+            "east" => Some(Self::East),
+            "west" => Some(Self::West),
+            _ => None,
+        }
+    }
 }
 
 /// Represents the parameters for a crop operation.
@@ -196,8 +214,8 @@ pub struct ParsedOptions {
     pub width: Option<u32>,
     /// Optional target height (used with `resize` if no explicit resize type).
     pub height: Option<u32>,
-    /// Optional gravity for cropping or extending (e.g., "center", "north").
-    pub gravity: Option<String>,
+    /// Optional gravity for cropping or extending.
+    pub gravity: Option<Gravity>,
     /// Whether to allow enlarging the image beyond its original dimensions.
     pub enlarge: bool,
     /// Whether to extend the image with a background if target dimensions are larger.
@@ -413,11 +431,11 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
                     return Err("gravity option requires one argument".to_string());
                 }
                 let gravity = option.args[0].as_str();
-                if !is_valid_gravity(gravity) {
+                let gravity = Gravity::parse(gravity).ok_or_else(|| {
                     error!("Invalid gravity: {}", gravity);
-                    return Err("gravity must be one of: center, north, south, east, west".to_string());
-                }
-                parsed_options.gravity = Some(option.args[0].clone());
+                    "gravity must be one of: center, north, south, east, west".to_string()
+                })?;
+                parsed_options.gravity = Some(gravity);
             }
             ENLARGE | ENLARGE_SHORT => {
                 if option.args.is_empty() {

@@ -1,21 +1,9 @@
-use crate::processing::options::{Crop, Resize};
+use crate::processing::options::{Crop, Gravity, Resize};
 use crate::utils::read_exif_orientation;
 use libvips::{ops, VipsImage};
 use tracing::debug;
 
 const SCALE_EPSILON: f64 = 1e-6;
-const VALID_GRAVITIES: [&str; 5] = ["center", "north", "south", "east", "west"];
-
-fn validate_gravity(gravity: &str) -> Result<(), String> {
-    if VALID_GRAVITIES.contains(&gravity) {
-        Ok(())
-    } else {
-        Err(format!(
-            "Unsupported gravity: {}. Expected one of: center, north, south, east, west",
-            gravity
-        ))
-    }
-}
 
 /// Converts a resizing algorithm string to a libvips Kernel enum.
 fn get_resize_kernel(algorithm: &Option<String>) -> ops::Kernel {
@@ -152,22 +140,19 @@ pub fn resolve_resize_dimensions(resize: &Resize, src_width: u32, src_height: u3
 pub fn apply_resize(
     img: VipsImage,
     resize: &Resize,
-    gravity: &Option<String>,
+    gravity: &Option<Gravity>,
     resizing_algorithm: &Option<String>,
 ) -> Result<VipsImage, String> {
     let src_width = img.get_width() as u32;
     let src_height = img.get_height() as u32;
     let (target_w, target_h) = resolve_resize_dimensions(resize, src_width, src_height)?;
-    if let Some(gravity) = gravity.as_deref() {
-        validate_gravity(gravity)?;
-    }
 
     match resize.resizing_type.as_str() {
         "fill" => resize_to_fill(
             img,
             target_w,
             target_h,
-            gravity.as_deref().unwrap_or("center"),
+            gravity.unwrap_or(Gravity::Center),
             resizing_algorithm,
         ),
         "fit" => resize_to_fit(img, target_w, target_h, resizing_algorithm),
@@ -182,7 +167,7 @@ pub fn apply_resize(
                     img,
                     target_w,
                     target_h,
-                    gravity.as_deref().unwrap_or("center"),
+                    gravity.unwrap_or(Gravity::Center),
                     resizing_algorithm,
                 )
             } else {
@@ -199,7 +184,7 @@ fn resize_to_fill(
     img: VipsImage,
     width: u32,
     height: u32,
-    gravity: &str,
+    gravity: Gravity,
     resizing_algorithm: &Option<String>,
 ) -> Result<VipsImage, String> {
     let (img_w, img_h) = (img.get_width() as u32, img.get_height() as u32);
@@ -230,14 +215,14 @@ fn resize_to_fill(
     let extra_h = resized_h - height;
 
     let crop_x = match gravity {
-        "west" => 0,
-        "east" => extra_w,
+        Gravity::West => 0,
+        Gravity::East => extra_w,
         _ => extra_w / 2,
     };
 
     let crop_y = match gravity {
-        "north" => 0,
-        "south" => extra_h,
+        Gravity::North => 0,
+        Gravity::South => extra_h,
         _ => extra_h / 2,
     };
 
@@ -293,7 +278,7 @@ pub fn extend_image(
     img: VipsImage,
     width: u32,
     height: u32,
-    gravity: &Option<String>,
+    gravity: &Option<Gravity>,
     background: &Option<[u8; 4]>,
 ) -> Result<VipsImage, String> {
     let bg_color = background.unwrap_or([0, 0, 0, 0]);
@@ -306,16 +291,14 @@ pub fn extend_image(
         ));
     }
 
-    let gravity = gravity.as_deref().unwrap_or("center");
-    validate_gravity(gravity)?;
+    let gravity = gravity.unwrap_or(Gravity::Center);
 
     let (x, y) = match gravity {
-        "center" => ((width - src_w) / 2, (height - src_h) / 2),
-        "north" => ((width - src_w) / 2, 0),
-        "south" => ((width - src_w) / 2, height - src_h),
-        "west" => (0, (height - src_h) / 2),
-        "east" => (width - src_w, (height - src_h) / 2),
-        _ => ((width - src_w) / 2, (height - src_h) / 2),
+        Gravity::Center => ((width - src_w) / 2, (height - src_h) / 2),
+        Gravity::North => ((width - src_w) / 2, 0),
+        Gravity::South => ((width - src_w) / 2, height - src_h),
+        Gravity::West => (0, (height - src_h) / 2),
+        Gravity::East => (width - src_w, (height - src_h) / 2),
     };
 
     let options = ops::EmbedOptions {

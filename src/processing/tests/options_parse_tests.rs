@@ -1,4 +1,4 @@
-use crate::processing::options::{parse_all_options, ProcessingOption};
+use crate::processing::options::{parse_all_options, Gravity, ProcessingOption};
 use crate::processing::utils;
 
 #[test]
@@ -110,7 +110,7 @@ fn test_parse_gravity_option() {
         args: vec!["north".to_string()],
     }];
     let parsed = parse_all_options(options).unwrap();
-    assert_eq!(parsed.gravity, Some("north".to_string()));
+    assert_eq!(parsed.gravity, Some(Gravity::North));
 }
 
 #[test]

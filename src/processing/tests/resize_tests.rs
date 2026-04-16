@@ -1,4 +1,4 @@
-use crate::processing::options::Resize;
+use crate::processing::options::{Gravity, Resize};
 use crate::processing::transform;
 use libvips::VipsImage;
 
@@ -27,7 +27,7 @@ fn test_apply_resize_fill() {
         width: 200,
         height: 200,
     };
-    let resized_img = transform::apply_resize(img, &resize, &Some("center".to_string()), &None).unwrap();
+    let resized_img = transform::apply_resize(img, &resize, &Some(Gravity::Center), &None).unwrap();
     assert_eq!(resized_img.get_width(), 200);
     assert_eq!(resized_img.get_height(), 200);
 }
@@ -41,7 +41,7 @@ fn test_apply_resize_fill_width_only() {
         width: 200,
         height: 0,
     };
-    let resized_img = transform::apply_resize(img, &resize, &Some("center".to_string()), &None).unwrap();
+    let resized_img = transform::apply_resize(img, &resize, &Some(Gravity::Center), &None).unwrap();
     assert_eq!(resized_img.get_width(), 200);
     assert_eq!(resized_img.get_height(), 150);
 }
@@ -55,7 +55,7 @@ fn test_apply_resize_fill_height_only() {
         width: 0,
         height: 150,
     };
-    let resized_img = transform::apply_resize(img, &resize, &Some("center".to_string()), &None).unwrap();
+    let resized_img = transform::apply_resize(img, &resize, &Some(Gravity::Center), &None).unwrap();
     assert_eq!(resized_img.get_width(), 200);
     assert_eq!(resized_img.get_height(), 150);
 }
@@ -211,30 +211,23 @@ fn test_resize_extreme_aspect_ratio() {
 #[test]
 fn test_resize_fill_with_different_gravities() {
     init_vips();
-    for gravity in &["north", "south", "east", "west", "center"] {
+    for gravity in [
+        Gravity::North,
+        Gravity::South,
+        Gravity::East,
+        Gravity::West,
+        Gravity::Center,
+    ] {
         let img = VipsImage::new_from_buffer(&create_test_image(200, 100), "").unwrap();
         let resize = Resize {
             resizing_type: "fill".to_string(),
             width: 100,
             height: 100,
         };
-        let resized = transform::apply_resize(img, &resize, &Some(gravity.to_string()), &None).unwrap();
+        let resized = transform::apply_resize(img, &resize, &Some(gravity), &None).unwrap();
         assert_eq!(resized.get_width(), 100);
         assert_eq!(resized.get_height(), 100);
     }
-}
-
-#[test]
-fn test_resize_fill_rejects_invalid_gravity() {
-    init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(200, 100), "").unwrap();
-    let resize = Resize {
-        resizing_type: "fill".to_string(),
-        width: 100,
-        height: 100,
-    };
-    let err = transform::apply_resize(img, &resize, &Some("northeast".to_string()), &None).unwrap_err();
-    assert!(err.contains("Unsupported gravity"));
 }
 
 #[test]
@@ -246,8 +239,7 @@ fn test_resize_fill_with_lanczos2_kernel() {
         width: 300,
         height: 400,
     };
-    let resized =
-        transform::apply_resize(img, &resize, &Some("center".to_string()), &Some("lanczos2".to_string())).unwrap();
+    let resized = transform::apply_resize(img, &resize, &Some(Gravity::Center), &Some("lanczos2".to_string())).unwrap();
     assert_eq!(resized.get_width(), 300);
     assert_eq!(resized.get_height(), 400);
 }
