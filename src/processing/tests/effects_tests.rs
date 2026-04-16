@@ -91,6 +91,24 @@ fn test_apply_pixelate() {
 }
 
 #[test]
+fn test_apply_pixelate_ignores_requested_resizing_kernel() {
+    init_vips();
+    let img = VipsImage::new_from_buffer(&create_quadrant_test_image(40, 40), "").unwrap();
+    let pixelated_img = transform::apply_pixelate(img, 10, &Some("lanczos3".to_string())).unwrap();
+    assert_eq!(pixelated_img.get_width(), 40);
+    assert_eq!(pixelated_img.get_height(), 40);
+}
+
+#[test]
+fn test_apply_pixelate_with_extreme_amount_keeps_dimensions() {
+    init_vips();
+    let img = VipsImage::new_from_buffer(&create_test_image(10, 10), "").unwrap();
+    let pixelated_img = transform::apply_pixelate(img, 1_000, &None).unwrap();
+    assert_eq!(pixelated_img.get_width(), 10);
+    assert_eq!(pixelated_img.get_height(), 10);
+}
+
+#[test]
 fn test_crop_at_edge() {
     init_vips();
     let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
@@ -252,6 +270,14 @@ fn test_apply_blur_extreme() {
     let blurred = transform::apply_blur(img, 50.0).unwrap();
     assert_eq!(blurred.get_width(), 100);
     assert_eq!(blurred.get_height(), 100);
+}
+
+#[test]
+fn test_apply_blur_rejects_non_positive_sigma() {
+    init_vips();
+    let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
+    let err = transform::apply_blur(img, 0.0).unwrap_err();
+    assert!(err.contains("blur sigma must be a finite positive number"));
 }
 
 // Sharpen edge cases

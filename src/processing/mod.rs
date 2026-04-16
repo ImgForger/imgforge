@@ -133,10 +133,12 @@ pub fn process_image(
         debug!("Applying extend option");
         if let Some((target_w, target_h)) = resolved_resize_dims {
             if img.get_width() < target_w as i32 || img.get_height() < target_h as i32 {
+                let extend_w = target_w.max(img.get_width() as u32);
+                let extend_h = target_h.max(img.get_height() as u32);
                 img = transform::extend_image(
                     img,
-                    target_w,
-                    target_h,
+                    extend_w,
+                    extend_h,
                     &parsed_options.gravity,
                     &parsed_options.background,
                 )?;

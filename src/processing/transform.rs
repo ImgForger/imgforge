@@ -350,6 +350,9 @@ pub fn apply_rotation(img: VipsImage, rotation: u16) -> Result<VipsImage, String
 
 /// Applies blur to an image.
 pub fn apply_blur(img: VipsImage, sigma: f32) -> Result<VipsImage, String> {
+    if !sigma.is_finite() || sigma <= 0.0 {
+        return Err("blur sigma must be a finite positive number".to_string());
+    }
     ops::gaussblur(&img, sigma as f64).map_err(|e| format!("Error applying blur: {}", e))
 }
 
@@ -432,18 +435,26 @@ pub fn apply_sharpen(img: VipsImage, sigma: f32) -> Result<VipsImage, String> {
 }
 
 /// Pixelates an image.
-pub fn apply_pixelate(img: VipsImage, amount: u32, resizing_algorithm: &Option<String>) -> Result<VipsImage, String> {
+pub fn apply_pixelate(img: VipsImage, amount: u32, _resizing_algorithm: &Option<String>) -> Result<VipsImage, String> {
     if amount == 0 {
         return Ok(img);
     }
-    let (w, _h) = (img.get_width(), img.get_height());
-    let factor = 1.0 / amount as f64;
-    let pixelated = resize_with_algorithm(&img, factor, None, resizing_algorithm, "Error pixelating (down)")?;
+    let (w, h) = (img.get_width() as u32, img.get_height() as u32);
+    let target_w = (w / amount).max(1);
+    let target_h = (h / amount).max(1);
+    let nearest = Some("nearest".to_string());
+    let pixelated = resize_with_algorithm(
+        &img,
+        target_w as f64 / w as f64,
+        Some(target_h as f64 / h as f64),
+        &nearest,
+        "Error pixelating (down)",
+    )?;
     resize_with_algorithm(
         &pixelated,
         w as f64 / pixelated.get_width() as f64,
-        None,
-        resizing_algorithm,
+        Some(h as f64 / pixelated.get_height() as f64),
+        &nearest,
         "Error pixelating (up)",
     )
 }

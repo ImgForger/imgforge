@@ -44,6 +44,16 @@ fn test_parse_blur_option() {
 }
 
 #[test]
+fn test_parse_blur_option_rejects_non_positive_value() {
+    let options = vec![ProcessingOption {
+        name: "blur".to_string(),
+        args: vec!["0".to_string()],
+    }];
+    let err = parse_all_options(options).unwrap_err();
+    assert!(err.contains("blur must be a finite positive number"));
+}
+
+#[test]
 fn test_parse_background_option() {
     let options = vec![ProcessingOption {
         name: "background".to_string(),

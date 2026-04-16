@@ -1,6 +1,9 @@
-use crate::processing::options::{Crop, Resize, Watermark};
+use crate::processing::options::{Crop, ParsedOptions, Resize, Watermark};
+use crate::processing::process_image;
 use crate::processing::transform;
 use crate::processing::watermark;
+use bytes::Bytes;
+use image::GenericImageView;
 use libvips::VipsImage;
 
 use super::tests_support::*;
@@ -122,4 +125,28 @@ fn test_complex_pipeline_resize_padding_watermark() {
     };
     let img = watermark::apply_watermark(img, &watermark, &watermark_opts, &None).unwrap();
     assert_eq!(img.get_width(), 170);
+}
+
+#[test]
+fn test_process_image_extend_uses_current_dimensions_after_min_height() {
+    init_vips();
+    let source_bytes = Bytes::from(create_test_image(200, 100));
+    let img = VipsImage::new_from_buffer(&source_bytes, "").unwrap();
+    let parsed_options = ParsedOptions {
+        resize: Some(Resize {
+            resizing_type: "fit".to_string(),
+            width: 100,
+            height: 200,
+        }),
+        format: Some("png".to_string()),
+        enlarge: true,
+        extend: true,
+        min_height: Some(150),
+        ..ParsedOptions::default()
+    };
+
+    let output = process_image(img, parsed_options, &source_bytes, None).unwrap();
+    let decoded = image::load_from_memory(&output).unwrap();
+
+    assert_eq!(decoded.dimensions(), (300, 200));
 }

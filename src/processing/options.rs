@@ -506,10 +506,7 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
                     error!("Blur option requires one argument: sigma");
                     return Err("blur option requires one argument: sigma".to_string());
                 }
-                parsed_options.blur = Some(option.args[0].parse::<f32>().map_err(|e: std::num::ParseFloatError| {
-                    error!("Invalid sigma for blur: {}", e);
-                    e.to_string()
-                })?);
+                parsed_options.blur = Some(parse_positive_f32(&option.args[0], "blur")?);
             }
             CROP => {
                 if option.args.len() < 4 {
