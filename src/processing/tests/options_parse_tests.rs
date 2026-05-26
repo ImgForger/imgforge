@@ -1,5 +1,6 @@
 use crate::processing::options::{parse_all_options, Gravity, ProcessingOption};
 use crate::processing::utils;
+use base64::Engine as _;
 
 #[test]
 fn test_parse_all_options_empty() {
@@ -64,6 +65,22 @@ fn test_parse_background_option() {
 }
 
 #[test]
+fn test_parse_background_rgb_and_alpha_options() {
+    let options = vec![
+        ProcessingOption {
+            name: "background_alpha".to_string(),
+            args: vec!["0.5".to_string()],
+        },
+        ProcessingOption {
+            name: "bg".to_string(),
+            args: vec!["10".to_string(), "20".to_string(), "30".to_string()],
+        },
+    ];
+    let parsed = parse_all_options(options).unwrap();
+    assert_eq!(parsed.background, Some([10, 20, 30, 128]));
+}
+
+#[test]
 fn test_parse_padding_option() {
     let options = vec![ProcessingOption {
         name: "padding".to_string(),
@@ -117,17 +134,27 @@ fn test_parse_extend_option() {
 fn test_parse_gravity_option() {
     let options = vec![ProcessingOption {
         name: "gravity".to_string(),
-        args: vec!["north".to_string()],
+        args: vec!["no".to_string()],
     }];
     let parsed = parse_all_options(options).unwrap();
     assert_eq!(parsed.gravity, Some(Gravity::North));
 }
 
 #[test]
+fn test_parse_imgproxy_gravity_alias() {
+    let options = vec![ProcessingOption {
+        name: "g".to_string(),
+        args: vec!["soea".to_string()],
+    }];
+    let parsed = parse_all_options(options).unwrap();
+    assert_eq!(parsed.gravity, Some(Gravity::SouthEast));
+}
+
+#[test]
 fn test_parse_gravity_option_rejects_invalid_value() {
     let options = vec![ProcessingOption {
         name: "gravity".to_string(),
-        args: vec!["northeast".to_string()],
+        args: vec!["center".to_string()],
     }];
     let err = parse_all_options(options).unwrap_err();
     assert!(err.contains("gravity must be one of"));
@@ -137,14 +164,23 @@ fn test_parse_gravity_option_rejects_invalid_value() {
 fn test_parse_crop_option() {
     let options = vec![ProcessingOption {
         name: "crop".to_string(),
-        args: vec!["10".to_string(), "20".to_string(), "100".to_string(), "150".to_string()],
+        args: vec!["100".to_string(), "150".to_string(), "soea".to_string()],
     }];
     let parsed = parse_all_options(options).unwrap();
     let crop = parsed.crop.unwrap();
-    assert_eq!(crop.x, 10);
-    assert_eq!(crop.y, 20);
     assert_eq!(crop.width, 100);
     assert_eq!(crop.height, 150);
+    assert_eq!(crop.gravity, Some(Gravity::SouthEast));
+}
+
+#[test]
+fn test_parse_crop_short_option() {
+    let options = vec![ProcessingOption {
+        name: "c".to_string(),
+        args: vec!["3".to_string(), "4".to_string()],
+    }];
+    let parsed = parse_all_options(options).unwrap();
+    assert!(parsed.crop.is_some());
 }
 
 #[test]
@@ -155,6 +191,18 @@ fn test_parse_format_option() {
     }];
     let parsed = parse_all_options(options).unwrap();
     assert_eq!(parsed.format, Some("webp".to_string()));
+}
+
+#[test]
+fn test_parse_format_aliases() {
+    for name in ["f", "ext"] {
+        let options = vec![ProcessingOption {
+            name: name.to_string(),
+            args: vec!["webp".to_string()],
+        }];
+        let parsed = parse_all_options(options).unwrap();
+        assert_eq!(parsed.format, Some("webp".to_string()));
+    }
 }
 
 #[test]
@@ -208,9 +256,9 @@ fn test_parse_max_src_file_size_option() {
 }
 
 #[test]
-fn test_parse_cache_buster_option() {
+fn test_parse_cachebuster_option() {
     let options = vec![ProcessingOption {
-        name: "cache_buster".to_string(),
+        name: "cachebuster".to_string(),
         args: vec!["12345".to_string()],
     }];
     let parsed = parse_all_options(options).unwrap();
@@ -218,9 +266,52 @@ fn test_parse_cache_buster_option() {
 }
 
 #[test]
+fn test_parse_cachebuster_short_option() {
+    let options = vec![ProcessingOption {
+        name: "cb".to_string(),
+        args: vec!["v2".to_string()],
+    }];
+    let parsed = parse_all_options(options).unwrap();
+    assert_eq!(parsed.cache_buster, Some("v2".to_string()));
+}
+
+#[test]
+fn test_imgforge_only_spellings_are_not_accepted() {
+    let parsed = parse_all_options(vec![
+        ProcessingOption {
+            name: "cache_buster".to_string(),
+            args: vec!["legacy".to_string()],
+        },
+        ProcessingOption {
+            name: "min_width".to_string(),
+            args: vec!["500".to_string()],
+        },
+        ProcessingOption {
+            name: "min_height".to_string(),
+            args: vec!["600".to_string()],
+        },
+        ProcessingOption {
+            name: "px".to_string(),
+            args: vec!["10".to_string()],
+        },
+        ProcessingOption {
+            name: "sz".to_string(),
+            args: vec!["300".to_string(), "200".to_string()],
+        },
+    ])
+    .unwrap();
+
+    assert_eq!(parsed.cache_buster, None);
+    assert_eq!(parsed.min_width, None);
+    assert_eq!(parsed.min_height, None);
+    assert_eq!(parsed.pixelate, None);
+    assert!(parsed.resize.is_none());
+}
+
+#[test]
 fn test_parse_min_width_option() {
     let options = vec![ProcessingOption {
-        name: "min_width".to_string(),
+        name: "min-width".to_string(),
         args: vec!["500".to_string()],
     }];
     let parsed = parse_all_options(options).unwrap();
@@ -230,7 +321,7 @@ fn test_parse_min_width_option() {
 #[test]
 fn test_parse_min_height_option() {
     let options = vec![ProcessingOption {
-        name: "min_height".to_string(),
+        name: "min-height".to_string(),
         args: vec!["600".to_string()],
     }];
     let parsed = parse_all_options(options).unwrap();
@@ -288,15 +379,147 @@ fn test_parse_pixelate_option() {
 }
 
 #[test]
+fn test_parse_pixelate_short_option() {
+    let options = vec![ProcessingOption {
+        name: "pix".to_string(),
+        args: vec!["10".to_string()],
+    }];
+    let parsed = parse_all_options(options).unwrap();
+    assert_eq!(parsed.pixelate, Some(10));
+}
+
+#[test]
+fn test_parse_flip_option() {
+    let options = vec![ProcessingOption {
+        name: "fl".to_string(),
+        args: vec!["true".to_string(), "1".to_string()],
+    }];
+    let parsed = parse_all_options(options).unwrap();
+    let flip = parsed.flip.unwrap();
+    assert!(flip.horizontal);
+    assert!(flip.vertical);
+}
+
+#[test]
+fn test_parse_adjust_meta_option() {
+    let options = vec![ProcessingOption {
+        name: "adjust".to_string(),
+        args: vec!["10".to_string(), "1.2".to_string(), "0.8".to_string()],
+    }];
+    let parsed = parse_all_options(options).unwrap();
+    let adjust = parsed.adjust.unwrap();
+    assert_eq!(adjust.brightness, 10);
+    assert_eq!(adjust.contrast, 1.2);
+    assert_eq!(adjust.saturation, 0.8);
+}
+
+#[test]
+fn test_parse_format_quality_option() {
+    let options = vec![ProcessingOption {
+        name: "fq".to_string(),
+        args: vec![
+            "webp".to_string(),
+            "80".to_string(),
+            "jpeg".to_string(),
+            "90".to_string(),
+        ],
+    }];
+    let parsed = parse_all_options(options).unwrap();
+    assert_eq!(parsed.save.format_quality.get("webp"), Some(&80));
+    assert_eq!(parsed.save.format_quality.get("jpeg"), Some(&90));
+}
+
+#[test]
+fn test_parse_encoder_options() {
+    let options = vec![
+        ProcessingOption {
+            name: "jpgo".to_string(),
+            args: vec![
+                "true".to_string(),
+                "true".to_string(),
+                "true".to_string(),
+                "false".to_string(),
+                "true".to_string(),
+                "2".to_string(),
+            ],
+        },
+        ProcessingOption {
+            name: "pngo".to_string(),
+            args: vec!["true".to_string(), "true".to_string(), "128".to_string()],
+        },
+        ProcessingOption {
+            name: "webpo".to_string(),
+            args: vec!["true".to_string(), "true".to_string(), "photo".to_string()],
+        },
+        ProcessingOption {
+            name: "avifo".to_string(),
+            args: vec!["true".to_string()],
+        },
+    ];
+    let parsed = parse_all_options(options).unwrap();
+    assert_eq!(parsed.save.jpeg.progressive, Some(true));
+    assert_eq!(parsed.save.jpeg.no_subsample, Some(true));
+    assert_eq!(parsed.save.jpeg.quant_table, Some(2));
+    assert_eq!(parsed.save.png.interlaced, Some(true));
+    assert_eq!(parsed.save.png.quantization_colors, Some(128));
+    assert_eq!(parsed.save.webp.lossless, Some(true));
+    assert_eq!(parsed.save.webp.preset.as_deref(), Some("photo"));
+    assert_eq!(parsed.save.avif.no_subsample, Some(true));
+}
+
+#[test]
+fn test_parse_response_and_pagination_options() {
+    let filename = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode("image out.jpg");
+    let options = vec![
+        ProcessingOption {
+            name: "expires".to_string(),
+            args: vec!["1893456000".to_string()],
+        },
+        ProcessingOption {
+            name: "fn".to_string(),
+            args: vec![filename, "true".to_string()],
+        },
+        ProcessingOption {
+            name: "att".to_string(),
+            args: vec!["true".to_string()],
+        },
+        ProcessingOption {
+            name: "pg".to_string(),
+            args: vec!["2".to_string()],
+        },
+        ProcessingOption {
+            name: "pgs".to_string(),
+            args: vec!["3".to_string()],
+        },
+        ProcessingOption {
+            name: "da".to_string(),
+            args: vec!["true".to_string()],
+        },
+        ProcessingOption {
+            name: "skp".to_string(),
+            args: vec!["jpg".to_string(), "png".to_string()],
+        },
+    ];
+    let parsed = parse_all_options(options).unwrap();
+    assert_eq!(parsed.expires, Some(1_893_456_000));
+    assert_eq!(parsed.filename.as_deref(), Some("image out.jpg"));
+    assert!(parsed.return_attachment);
+    assert_eq!(parsed.page, Some(2));
+    assert_eq!(parsed.pages, Some(3));
+    assert!(parsed.disable_animation);
+    assert_eq!(parsed.skip_processing, vec!["jpg".to_string(), "png".to_string()]);
+}
+
+#[test]
 fn test_parse_watermark_option() {
     let options = vec![ProcessingOption {
         name: "watermark".to_string(),
-        args: vec!["0.5".to_string(), "center".to_string()],
+        args: vec!["0.5".to_string(), "ce".to_string()],
     }];
     let parsed = parse_all_options(options).unwrap();
     let watermark = parsed.watermark.unwrap();
     assert_eq!(watermark.opacity, 0.5);
-    assert_eq!(watermark.position, "center");
+    assert_eq!(watermark.position, "ce");
 }
 
 // Error handling tests
@@ -415,7 +638,7 @@ fn test_parse_dpr_below_minimum() {
 fn test_parse_crop_invalid_args() {
     let options = vec![ProcessingOption {
         name: "crop".to_string(),
-        args: vec!["10".to_string(), "20".to_string()],
+        args: vec!["10".to_string()],
     }];
     assert!(parse_all_options(options).is_err());
 }
@@ -509,7 +732,7 @@ fn test_parse_blur_short() {
 fn test_parse_watermark_short() {
     let options = vec![ProcessingOption {
         name: "wm".to_string(),
-        args: vec!["0.8".to_string(), "south".to_string()],
+        args: vec!["0.8".to_string(), "so".to_string()],
     }];
     let parsed = parse_all_options(options).unwrap();
     assert!(parsed.watermark.is_some());
@@ -561,7 +784,7 @@ fn test_parse_size_option() {
 #[test]
 fn test_parse_size_short() {
     let options = vec![ProcessingOption {
-        name: "sz".to_string(),
+        name: "s".to_string(),
         args: vec!["800".to_string(), "600".to_string()],
     }];
     let parsed = parse_all_options(options).unwrap();

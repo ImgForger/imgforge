@@ -144,15 +144,15 @@ fn calculate_watermark_position(main_img: &VipsImage, watermark_img: &VipsImage,
     let margin = (main_w.min(main_h) as f32 * 0.05).round() as u32; // 5% margin
 
     match position {
-        "north" => ((main_w - wm_w) / 2, margin),
-        "south" => ((main_w - wm_w) / 2, main_h - wm_h - margin),
-        "east" => (main_w - wm_w - margin, (main_h - wm_h) / 2),
-        "west" => (margin, (main_h - wm_h) / 2),
-        "north_west" => (margin, margin),
-        "north_east" => (main_w - wm_w - margin, margin),
-        "south_west" => (margin, main_h - wm_h - margin),
-        "south_east" => (main_w - wm_w - margin, main_h - wm_h - margin),
-        "center" => ((main_w - wm_w) / 2, (main_h - wm_h) / 2),
+        "no" => ((main_w - wm_w) / 2, margin),
+        "so" => ((main_w - wm_w) / 2, main_h - wm_h - margin),
+        "ea" => (main_w - wm_w - margin, (main_h - wm_h) / 2),
+        "we" => (margin, (main_h - wm_h) / 2),
+        "nowe" => (margin, margin),
+        "noea" => (main_w - wm_w - margin, margin),
+        "sowe" => (margin, main_h - wm_h - margin),
+        "soea" => (main_w - wm_w - margin, main_h - wm_h - margin),
+        "ce" => ((main_w - wm_w) / 2, (main_h - wm_h) / 2),
         _ => ((main_w - wm_w) / 2, (main_h - wm_h) / 2),
     }
 }

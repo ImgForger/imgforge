@@ -18,7 +18,7 @@ fn test_apply_watermark() {
     let img = VipsImage::new_from_buffer(&create_test_image(200, 200), "").unwrap();
     let watermark_opts = Watermark {
         opacity: 0.5,
-        position: "center".to_string(),
+        position: "ce".to_string(),
     };
     let watermarked_img = watermark::apply_watermark(img, &watermark, &watermark_opts, &None).unwrap();
 
@@ -31,17 +31,7 @@ fn test_apply_watermark() {
 fn test_watermark_all_positions() {
     init_vips();
     let watermark = cached_watermark_from_bytes(create_test_image(50, 50));
-    let positions = vec![
-        "north",
-        "south",
-        "east",
-        "west",
-        "center",
-        "north_west",
-        "north_east",
-        "south_west",
-        "south_east",
-    ];
+    let positions = vec!["no", "so", "ea", "we", "ce", "nowe", "noea", "sowe", "soea"];
 
     for position in positions {
         let img = VipsImage::new_from_buffer(&create_test_image(200, 200), "").unwrap();
@@ -62,7 +52,7 @@ fn test_watermark_full_opacity() {
     let watermark = cached_watermark_from_bytes(create_test_image(50, 50));
     let watermark_opts = Watermark {
         opacity: 1.0,
-        position: "center".to_string(),
+        position: "ce".to_string(),
     };
     let watermarked = watermark::apply_watermark(img, &watermark, &watermark_opts, &None).unwrap();
     assert_eq!(watermarked.get_width(), 200);
@@ -76,7 +66,7 @@ fn test_watermark_zero_opacity() {
     let watermark = cached_watermark_from_bytes(create_test_image(50, 50));
     let watermark_opts = Watermark {
         opacity: 0.0,
-        position: "center".to_string(),
+        position: "ce".to_string(),
     };
     let watermarked = watermark::apply_watermark(img, &watermark, &watermark_opts, &None).unwrap();
     assert_eq!(watermarked.get_width(), 200);

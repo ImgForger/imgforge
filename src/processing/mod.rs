@@ -158,6 +158,18 @@ pub fn process_image(
         img = transform::apply_rotation(img, rotation)?;
     }
 
+    // Apply flip if specified
+    if let Some(flip) = parsed_options.flip {
+        debug!("Applying flip: {:?}", flip);
+        img = transform::apply_flip(img, flip)?;
+    }
+
+    // Apply color adjustments if specified
+    if let Some(adjust) = parsed_options.adjust {
+        debug!("Applying color adjustments: {:?}", adjust);
+        img = transform::apply_adjust(img, adjust)?;
+    }
+
     // Apply blur if specified
     if let Some(sigma) = parsed_options.blur {
         debug!("Applying blur with sigma: {}", sigma);
@@ -194,8 +206,11 @@ pub fn process_image(
     }
 
     // Save image to bytes
-    let quality = parsed_options.quality.unwrap_or(85);
-    let output_vec = save::save_image(img, output_format, quality)?;
+    let quality = parsed_options
+        .quality
+        .or_else(|| parsed_options.save.format_quality.get(output_format).copied())
+        .unwrap_or(85);
+    let output_vec = save::save_image_with_options(img, output_format, quality, &parsed_options.save)?;
     let output_bytes = Bytes::from(output_vec);
 
     debug!("Image processing complete");

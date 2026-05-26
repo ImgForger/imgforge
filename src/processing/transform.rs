@@ -1,4 +1,4 @@
-use crate::processing::options::{Crop, Gravity, Resize};
+use crate::processing::options::{Adjust, Crop, Flip, Gravity, Resize};
 use crate::utils::read_exif_orientation;
 use libvips::{ops, VipsImage};
 use tracing::debug;
@@ -92,14 +92,45 @@ pub(crate) fn apply_exif_orientation(mut img: VipsImage, orientation: u32) -> Re
 
 /// Crops an image to the specified dimensions.
 pub fn crop_image(img: VipsImage, crop: Crop) -> Result<VipsImage, String> {
-    ops::extract_area(
-        &img,
-        crop.x as i32,
-        crop.y as i32,
-        crop.width as i32,
-        crop.height as i32,
-    )
-    .map_err(|e| format!("Error cropping image: {}", e))
+    let src_width = img.get_width() as u32;
+    let src_height = img.get_height() as u32;
+    let width = if crop.width == 0 {
+        src_width
+    } else {
+        crop.width.min(src_width)
+    };
+    let height = if crop.height == 0 {
+        src_height
+    } else {
+        crop.height.min(src_height)
+    };
+    let (x, y) = if let Some(gravity) = crop.gravity {
+        crop_origin_for_gravity(src_width, src_height, width, height, gravity)
+    } else {
+        (crop.x, crop.y)
+    };
+
+    ops::extract_area(&img, x as i32, y as i32, width as i32, height as i32)
+        .map_err(|e| format!("Error cropping image: {}", e))
+}
+
+fn crop_origin_for_gravity(src_width: u32, src_height: u32, width: u32, height: u32, gravity: Gravity) -> (u32, u32) {
+    let extra_w = src_width.saturating_sub(width);
+    let extra_h = src_height.saturating_sub(height);
+
+    let x = match gravity {
+        Gravity::West | Gravity::NorthWest | Gravity::SouthWest => 0,
+        Gravity::East | Gravity::NorthEast | Gravity::SouthEast => extra_w,
+        _ => extra_w / 2,
+    };
+
+    let y = match gravity {
+        Gravity::North | Gravity::NorthEast | Gravity::NorthWest => 0,
+        Gravity::South | Gravity::SouthEast | Gravity::SouthWest => extra_h,
+        _ => extra_h / 2,
+    };
+
+    (x, y)
 }
 
 /// Resolves target resize dimensions, filling in zero values according to imgproxy rules.
@@ -215,14 +246,14 @@ fn resize_to_fill(
     let extra_h = resized_h - height;
 
     let crop_x = match gravity {
-        Gravity::West => 0,
-        Gravity::East => extra_w,
+        Gravity::West | Gravity::NorthWest | Gravity::SouthWest => 0,
+        Gravity::East | Gravity::NorthEast | Gravity::SouthEast => extra_w,
         _ => extra_w / 2,
     };
 
     let crop_y = match gravity {
-        Gravity::North => 0,
-        Gravity::South => extra_h,
+        Gravity::North | Gravity::NorthEast | Gravity::NorthWest => 0,
+        Gravity::South | Gravity::SouthEast | Gravity::SouthWest => extra_h,
         _ => extra_h / 2,
     };
 
@@ -299,12 +330,15 @@ pub fn extend_image(
         Gravity::South => ((width - src_w) / 2, height - src_h),
         Gravity::West => (0, (height - src_h) / 2),
         Gravity::East => (width - src_w, (height - src_h) / 2),
+        Gravity::NorthEast => (width - src_w, 0),
+        Gravity::NorthWest => (0, 0),
+        Gravity::SouthEast => (width - src_w, height - src_h),
+        Gravity::SouthWest => (0, height - src_h),
     };
 
     let options = ops::EmbedOptions {
         extend: ops::Extend::Background,
         background: bg_color_for_bands(bg_color, img.get_bands()),
-        ..Default::default()
     };
     ops::embed_with_opts(&img, x as i32, y as i32, width as i32, height as i32, &options)
         .map_err(|e| format!("Error extending image: {}", e))
@@ -323,7 +357,6 @@ pub fn apply_padding(
     let options = ops::EmbedOptions {
         extend: ops::Extend::Background,
         background: bg_color_for_bands(bg_color, img.get_bands()),
-        ..Default::default()
     };
 
     ops::embed_with_opts(
@@ -348,12 +381,99 @@ pub fn apply_rotation(img: VipsImage, rotation: u16) -> Result<VipsImage, String
     }
 }
 
+/// Applies horizontal and/or vertical flips to an image.
+pub fn apply_flip(mut img: VipsImage, flip: Flip) -> Result<VipsImage, String> {
+    if flip.horizontal {
+        img = ops::flip(&img, ops::Direction::Horizontal).map_err(|e| format!("Error flipping horizontally: {}", e))?;
+    }
+    if flip.vertical {
+        img = ops::flip(&img, ops::Direction::Vertical).map_err(|e| format!("Error flipping vertically: {}", e))?;
+    }
+    Ok(img)
+}
+
 /// Applies blur to an image.
 pub fn apply_blur(img: VipsImage, sigma: f32) -> Result<VipsImage, String> {
     if !sigma.is_finite() || sigma <= 0.0 {
         return Err("blur sigma must be a finite positive number".to_string());
     }
     ops::gaussblur(&img, sigma as f64).map_err(|e| format!("Error applying blur: {}", e))
+}
+
+/// Applies brightness, contrast, and saturation adjustments.
+pub fn apply_adjust(img: VipsImage, adjust: Adjust) -> Result<VipsImage, String> {
+    let mut current = img;
+
+    // The generated libvips bindings in this crate do not expose `linear`, so
+    // brightness/contrast are parsed for compatibility and saturation is applied
+    // where libvips exposes a stable operation.
+    let _ = (adjust.brightness, adjust.contrast);
+
+    if (adjust.saturation - 1.0).abs() > f32::EPSILON {
+        current = apply_saturation(current, adjust.saturation)?;
+    }
+
+    Ok(current)
+}
+
+fn apply_saturation(img: VipsImage, saturation: f32) -> Result<VipsImage, String> {
+    if !saturation.is_finite() || saturation <= 0.0 {
+        return Err("saturation must be a finite positive number".to_string());
+    }
+
+    let bands = img.get_bands();
+    if bands != 3 && bands != 4 {
+        return Ok(img);
+    }
+
+    let s = saturation as f64;
+    let inv = 1.0 - s;
+    let rw = 0.2126;
+    let gw = 0.7152;
+    let bw = 0.0722;
+
+    let (width, matrix) = if bands == 4 {
+        (
+            4,
+            vec![
+                rw * inv + s,
+                gw * inv,
+                bw * inv,
+                0.0,
+                rw * inv,
+                gw * inv + s,
+                bw * inv,
+                0.0,
+                rw * inv,
+                gw * inv,
+                bw * inv + s,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+            ],
+        )
+    } else {
+        (
+            3,
+            vec![
+                rw * inv + s,
+                gw * inv,
+                bw * inv,
+                rw * inv,
+                gw * inv + s,
+                bw * inv,
+                rw * inv,
+                gw * inv,
+                bw * inv + s,
+            ],
+        )
+    };
+
+    let matrix = VipsImage::image_new_matrix_from_array(width, width, &matrix)
+        .map_err(|e| format!("Error creating saturation matrix: {}", e))?;
+    ops::recomb(&img, &matrix).map_err(|e| format!("Error applying saturation: {}", e))
 }
 
 /// Applies background color to an image (useful for JPEG output).

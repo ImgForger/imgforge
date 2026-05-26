@@ -1,3 +1,4 @@
+use crate::processing::options::SaveOptions;
 use libvips::{bindings, ops, VipsImage};
 use std::collections::HashSet;
 use std::ffi::CString;
@@ -6,6 +7,16 @@ use std::sync::OnceLock;
 
 /// Saves an image to bytes in the specified format.
 pub fn save_image(img: VipsImage, format: &str, quality: u8) -> Result<Vec<u8>, String> {
+    save_image_with_options(img, format, quality, &SaveOptions::default())
+}
+
+/// Saves an image to bytes using imgproxy-compatible encoder controls.
+pub fn save_image_with_options(
+    img: VipsImage,
+    format: &str,
+    quality: u8,
+    options: &SaveOptions,
+) -> Result<Vec<u8>, String> {
     let format = format.to_lowercase();
 
     if !is_format_supported(&format) {
@@ -15,28 +26,87 @@ pub fn save_image(img: VipsImage, format: &str, quality: u8) -> Result<Vec<u8>, 
         ));
     }
 
+    encode_with_max_bytes(&img, &format, quality, options)
+}
+
+fn encode_with_max_bytes(img: &VipsImage, format: &str, quality: u8, options: &SaveOptions) -> Result<Vec<u8>, String> {
+    let Some(max_bytes) = options.max_bytes else {
+        return encode_once(img, format, quality, options);
+    };
+
+    let mut quality = quality.clamp(1, 100);
+    loop {
+        let bytes = encode_once(img, format, quality, options)?;
+        if bytes.len() <= max_bytes || quality <= 1 {
+            return Ok(bytes);
+        }
+        quality = quality.saturating_sub(5).max(1);
+    }
+}
+
+fn metadata_keep(options: &SaveOptions) -> ops::ForeignKeep {
+    if options.strip_metadata.unwrap_or(false) || options.strip_color_profile.unwrap_or(false) {
+        ops::ForeignKeep::None
+    } else {
+        ops::ForeignKeep::All
+    }
+}
+
+fn encode_once(img: &VipsImage, format: &str, quality: u8, options: &SaveOptions) -> Result<Vec<u8>, String> {
     // map quality to effort (1-10), higher quality = more effort
     let effort = ((quality as i32).clamp(1, 100) / 10).clamp(1, 10);
-    match format.as_str() {
+    let keep = metadata_keep(options);
+
+    match format {
         "jpeg" | "jpg" => encode_image("JPEG", || {
             let opts = ops::JpegsaveBufferOptions {
                 q: quality as i32,
                 optimize_coding: true,
+                interlace: options.save_jpeg_progressive(),
+                trellis_quant: options.jpeg.trellis_quant.unwrap_or(false),
+                overshoot_deringing: options.jpeg.overshoot_deringing.unwrap_or(false),
+                optimize_scans: options.jpeg.optimize_scans.unwrap_or(false),
+                quant_table: options.jpeg.quant_table.unwrap_or(0).clamp(0, 8),
+                subsample_mode: if options.jpeg.no_subsample.unwrap_or(false) {
+                    ops::ForeignSubsample::Off
+                } else {
+                    ops::ForeignSubsample::Auto
+                },
+                keep,
                 ..Default::default()
             };
-            ops::jpegsave_buffer_with_opts(&img, &opts)
+            ops::jpegsave_buffer_with_opts(img, &opts)
         }),
         "png" => encode_image("PNG", || {
             let opts = ops::PngsaveBufferOptions {
+                interlace: options.png.interlaced.unwrap_or(false),
+                palette: options.png.quantize.unwrap_or(false),
+                q: options
+                    .png
+                    .quantization_colors
+                    .map(|colors| colors.min(256) as i32)
+                    .unwrap_or(100),
                 effort,
+                keep,
                 ..Default::default()
             };
-            ops::pngsave_buffer_with_opts(&img, &opts)
+            ops::pngsave_buffer_with_opts(img, &opts)
         }),
         "webp" => encode_image("WebP", || {
-            // Note: WebpsaveBufferOptions in libvips 1.7.1 causes crashes when used with _with_opts.
-            // Using default save for WebP until the library is updated.
-            ops::webpsave_buffer(&img)
+            let opts = ops::WebpsaveBufferOptions {
+                q: quality as i32,
+                lossless: options.webp.lossless.unwrap_or(false),
+                smart_subsample: options.webp.smart_subsample.unwrap_or(false),
+                preset: webp_preset(options.webp.preset.as_deref()),
+                effort: (effort - 4).clamp(0, 6),
+                target_size: options
+                    .max_bytes
+                    .and_then(|bytes| i32::try_from(bytes).ok())
+                    .unwrap_or(0),
+                keep,
+                ..Default::default()
+            };
+            ops::webpsave_buffer_with_opts(img, &opts)
         }),
         "tiff" => encode_image("TIFF", || {
             let clamped_quality = (quality as i32).clamp(1, 100);
@@ -50,10 +120,11 @@ pub fn save_image(img: VipsImage, format: &str, quality: u8) -> Result<Vec<u8>, 
             let opts = ops::TiffsaveBufferOptions {
                 q: clamped_quality,
                 compression,
+                keep,
                 ..Default::default()
             };
 
-            ops::tiffsave_buffer_with_opts(&img, &opts)
+            ops::tiffsave_buffer_with_opts(img, &opts)
         }),
         "gif" => encode_image("GIF", || {
             let opts = ops::GifsaveBufferOptions {
@@ -61,9 +132,59 @@ pub fn save_image(img: VipsImage, format: &str, quality: u8) -> Result<Vec<u8>, 
                 ..Default::default()
             };
 
-            ops::gifsave_buffer_with_opts(&img, &opts)
+            ops::gifsave_buffer_with_opts(img, &opts)
+        }),
+        "avif" => encode_image("AVIF", || {
+            let opts = ops::HeifsaveBufferOptions {
+                q: quality as i32,
+                compression: ops::ForeignHeifCompression::Av1,
+                effort: (effort - 1).clamp(0, 9),
+                subsample_mode: if options.avif.no_subsample.unwrap_or(false) {
+                    ops::ForeignSubsample::Off
+                } else {
+                    ops::ForeignSubsample::Auto
+                },
+                keep,
+                ..Default::default()
+            };
+            ops::heifsave_buffer_with_opts(img, &opts)
+        }),
+        "heif" | "heic" => encode_image("HEIF", || {
+            let opts = ops::HeifsaveBufferOptions {
+                q: quality as i32,
+                effort: (effort - 1).clamp(0, 9),
+                subsample_mode: if options.avif.no_subsample.unwrap_or(false) {
+                    ops::ForeignSubsample::Off
+                } else {
+                    ops::ForeignSubsample::Auto
+                },
+                keep,
+                ..Default::default()
+            };
+            ops::heifsave_buffer_with_opts(img, &opts)
         }),
         _ => Err(format!("Unsupported output format: {}", format)),
+    }
+}
+
+trait SaveOptionExt {
+    fn save_jpeg_progressive(&self) -> bool;
+}
+
+impl SaveOptionExt for SaveOptions {
+    fn save_jpeg_progressive(&self) -> bool {
+        self.jpeg.progressive.unwrap_or(false)
+    }
+}
+
+fn webp_preset(value: Option<&str>) -> ops::ForeignWebpPreset {
+    match value {
+        Some("picture") => ops::ForeignWebpPreset::Picture,
+        Some("photo") => ops::ForeignWebpPreset::Photo,
+        Some("drawing") => ops::ForeignWebpPreset::Drawing,
+        Some("icon") => ops::ForeignWebpPreset::Icon,
+        Some("text") => ops::ForeignWebpPreset::Text,
+        _ => ops::ForeignWebpPreset::Default,
     }
 }
 

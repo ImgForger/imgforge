@@ -12,6 +12,7 @@ pub struct ProcessingOption {
 }
 use base64::engine::general_purpose;
 use base64::Engine as _;
+use std::collections::HashMap;
 use tracing::{debug, error};
 
 /// Option name for resizing.
@@ -25,9 +26,7 @@ const RESIZING_TYPE_SHORT: &str = "rt";
 /// Option name for size.
 const SIZE: &str = "size";
 /// Shorthand for size.
-const SIZE_SHORT: &str = "sz";
-/// Alternate shorthand for size.
-const SIZE_SHORT_ALT: &str = "s";
+const SIZE_SHORT: &str = "s";
 /// Option name for width.
 const WIDTH: &str = "width";
 /// Shorthand for width.
@@ -44,6 +43,10 @@ const GRAVITY_SHORT: &str = "g";
 const QUALITY: &str = "quality";
 /// Shorthand for quality.
 const QUALITY_SHORT: &str = "q";
+/// Option name for format-specific quality.
+const FORMAT_QUALITY: &str = "format_quality";
+/// Shorthand for format_quality.
+const FORMAT_QUALITY_SHORT: &str = "fq";
 /// Option name for auto_rotate.
 const AUTO_ROTATE: &str = "auto_rotate";
 /// Shorthand for auto_rotate.
@@ -68,6 +71,10 @@ const PADDING_SHORT: &str = "pd";
 const ROTATE: &str = "rotate";
 /// Shorthand for rotation.
 const ROTATE_SHORT: &str = "rot";
+/// Option name for flip.
+const FLIP: &str = "flip";
+/// Shorthand for flip.
+const FLIP_SHORT: &str = "fl";
 /// Option name for raw.
 const RAW: &str = "raw";
 /// Option name for blur.
@@ -76,22 +83,34 @@ const BLUR: &str = "blur";
 const BLUR_SHORT: &str = "bl";
 /// Option name for crop.
 const CROP: &str = "crop";
+/// Shorthand for crop.
+const CROP_SHORT: &str = "c";
 /// Option name for format.
 const FORMAT: &str = "format";
+/// Shorthand for format.
+const FORMAT_SHORT: &str = "f";
+/// Alternate shorthand for format.
+const FORMAT_EXT: &str = "ext";
 /// Option name for max_src_resolution.
 const MAX_SRC_RESOLUTION: &str = "max_src_resolution";
+/// Shorthand for max_src_resolution.
+const MAX_SRC_RESOLUTION_SHORT: &str = "msr";
 /// Option name for max_src_file_size.
 const MAX_SRC_FILE_SIZE: &str = "max_src_file_size";
-/// Option name for cache_buster.
-const CACHE_BUSTER: &str = "cache_buster";
+/// Shorthand for max_src_file_size.
+const MAX_SRC_FILE_SIZE_SHORT: &str = "msfs";
+/// Option name for cache buster.
+const CACHEBUSTER: &str = "cachebuster";
+/// Shorthand for cachebuster.
+const CACHEBUSTER_SHORT: &str = "cb";
 /// Option name for dpr.
 const DPR: &str = "dpr";
-/// Option name for min_width.
-const MIN_WIDTH: &str = "min_width";
+/// Option name for min-width.
+const MIN_WIDTH: &str = "min-width";
 /// Shorthand for min_width.
 const MIN_WIDTH_SHORT: &str = "mw";
-/// Option name for min_height.
-const MIN_HEIGHT: &str = "min_height";
+/// Option name for min-height.
+const MIN_HEIGHT: &str = "min-height";
 /// Shorthand for min_height.
 const MIN_HEIGHT_SHORT: &str = "mh";
 /// Option name for zoom.
@@ -105,7 +124,7 @@ const SHARPEN_SHORT: &str = "sh";
 /// Option name for pixelate.
 const PIXELATE: &str = "pixelate";
 /// Shorthand for pixelate.
-const PIXELATE_SHORT: &str = "px";
+const PIXELATE_SHORT: &str = "pix";
 /// Option name for watermark.
 const WATERMARK: &str = "watermark";
 /// Shorthand for watermark.
@@ -118,6 +137,82 @@ const WATERMARK_URL_SHORT: &str = "wmu";
 const RESIZING_ALGORITHM: &str = "resizing_algorithm";
 /// Shorthand for resizing_algorithm.
 const RESIZING_ALGORITHM_SHORT: &str = "ra";
+/// Option name for background_alpha.
+const BACKGROUND_ALPHA: &str = "background_alpha";
+/// Shorthand for background_alpha.
+const BACKGROUND_ALPHA_SHORT: &str = "bga";
+/// Option name for adjust.
+const ADJUST: &str = "adjust";
+/// Shorthand for adjust.
+const ADJUST_SHORT: &str = "a";
+/// Option name for brightness.
+const BRIGHTNESS: &str = "brightness";
+/// Shorthand for brightness.
+const BRIGHTNESS_SHORT: &str = "br";
+/// Option name for contrast.
+const CONTRAST: &str = "contrast";
+/// Shorthand for contrast.
+const CONTRAST_SHORT: &str = "co";
+/// Option name for saturation.
+const SATURATION: &str = "saturation";
+/// Shorthand for saturation.
+const SATURATION_SHORT: &str = "sa";
+/// Option name for max_bytes.
+const MAX_BYTES: &str = "max_bytes";
+/// Shorthand for max_bytes.
+const MAX_BYTES_SHORT: &str = "mb";
+/// Option name for strip_metadata.
+const STRIP_METADATA: &str = "strip_metadata";
+/// Shorthand for strip_metadata.
+const STRIP_METADATA_SHORT: &str = "sm";
+/// Option name for strip_color_profile.
+const STRIP_COLOR_PROFILE: &str = "strip_color_profile";
+/// Shorthand for strip_color_profile.
+const STRIP_COLOR_PROFILE_SHORT: &str = "scp";
+/// Option name for JPEG options.
+const JPEG_OPTIONS: &str = "jpeg_options";
+/// Shorthand for JPEG options.
+const JPEG_OPTIONS_SHORT: &str = "jpgo";
+/// Option name for PNG options.
+const PNG_OPTIONS: &str = "png_options";
+/// Shorthand for PNG options.
+const PNG_OPTIONS_SHORT: &str = "pngo";
+/// Option name for WebP options.
+const WEBP_OPTIONS: &str = "webp_options";
+/// Shorthand for WebP options.
+const WEBP_OPTIONS_SHORT: &str = "webpo";
+/// Option name for AVIF options.
+const AVIF_OPTIONS: &str = "avif_options";
+/// Shorthand for AVIF options.
+const AVIF_OPTIONS_SHORT: &str = "avifo";
+/// Option name for page.
+const PAGE: &str = "page";
+/// Shorthand for page.
+const PAGE_SHORT: &str = "pg";
+/// Option name for pages.
+const PAGES: &str = "pages";
+/// Shorthand for pages.
+const PAGES_SHORT: &str = "pgs";
+/// Option name for disable_animation.
+const DISABLE_ANIMATION: &str = "disable_animation";
+/// Shorthand for disable_animation.
+const DISABLE_ANIMATION_SHORT: &str = "da";
+/// Option name for skip_processing.
+const SKIP_PROCESSING: &str = "skip_processing";
+/// Shorthand for skip_processing.
+const SKIP_PROCESSING_SHORT: &str = "skp";
+/// Option name for expires.
+const EXPIRES: &str = "expires";
+/// Shorthand for expires.
+const EXPIRES_SHORT: &str = "exp";
+/// Option name for filename.
+const FILENAME: &str = "filename";
+/// Shorthand for filename.
+const FILENAME_SHORT: &str = "fn";
+/// Option name for return_attachment.
+const RETURN_ATTACHMENT: &str = "return_attachment";
+/// Shorthand for return_attachment.
+const RETURN_ATTACHMENT_SHORT: &str = "att";
 
 const VALID_ROTATIONS: [u16; 4] = [0, 90, 180, 270];
 
@@ -139,6 +234,39 @@ fn parse_positive_f32(value: &str, option_name: &str) -> Result<f32, String> {
     Ok(parsed)
 }
 
+fn parse_unit_f32(value: &str, option_name: &str) -> Result<f32, String> {
+    let parsed = value.parse::<f32>().map_err(|e| {
+        error!("Invalid {}: {}", option_name, e);
+        e.to_string()
+    })?;
+
+    if !parsed.is_finite() || !(0.0..=1.0).contains(&parsed) {
+        error!(
+            "{} must be a finite number between 0 and 1, received: {}",
+            option_name, parsed
+        );
+        return Err(format!("{} must be a finite number between 0 and 1", option_name));
+    }
+
+    Ok(parsed)
+}
+
+fn parse_quality(value: &str, option_name: &str) -> Result<u8, String> {
+    Ok(value
+        .parse::<u8>()
+        .map_err(|e| {
+            error!("Invalid {}: {}", option_name, e);
+            e.to_string()
+        })?
+        .clamp(1, 100))
+}
+
+fn parse_optional_bool(args: &[String], index: usize) -> Option<bool> {
+    args.get(index)
+        .filter(|arg| !arg.is_empty())
+        .map(|arg| super::utils::parse_boolean(arg))
+}
+
 /// Represents the parameters for a resize operation.
 #[derive(Debug, Default)]
 pub struct Resize {
@@ -158,19 +286,98 @@ pub enum Gravity {
     South,
     East,
     West,
+    NorthEast,
+    NorthWest,
+    SouthEast,
+    SouthWest,
 }
 
 impl Gravity {
     pub fn parse(value: &str) -> Option<Self> {
         match value {
-            "center" => Some(Self::Center),
-            "north" => Some(Self::North),
-            "south" => Some(Self::South),
-            "east" => Some(Self::East),
-            "west" => Some(Self::West),
+            "ce" => Some(Self::Center),
+            "no" => Some(Self::North),
+            "so" => Some(Self::South),
+            "ea" => Some(Self::East),
+            "we" => Some(Self::West),
+            "noea" => Some(Self::NorthEast),
+            "nowe" => Some(Self::NorthWest),
+            "soea" => Some(Self::SouthEast),
+            "sowe" => Some(Self::SouthWest),
             _ => None,
         }
     }
+}
+
+/// Represents the parameters for a flip operation.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Flip {
+    pub horizontal: bool,
+    pub vertical: bool,
+}
+
+/// Represents the parameters for color adjustment.
+#[derive(Debug, Clone, Copy)]
+pub struct Adjust {
+    pub brightness: i16,
+    pub contrast: f32,
+    pub saturation: f32,
+}
+
+impl Default for Adjust {
+    fn default() -> Self {
+        Self {
+            brightness: 0,
+            contrast: 1.0,
+            saturation: 1.0,
+        }
+    }
+}
+
+/// Encoder-specific output controls.
+#[derive(Debug, Clone, Default)]
+pub struct SaveOptions {
+    pub format_quality: HashMap<String, u8>,
+    pub max_bytes: Option<usize>,
+    pub strip_metadata: Option<bool>,
+    pub strip_color_profile: Option<bool>,
+    pub jpeg: JpegOptions,
+    pub png: PngOptions,
+    pub webp: WebpOptions,
+    pub avif: AvifOptions,
+}
+
+/// JPEG encoder controls.
+#[derive(Debug, Clone, Default)]
+pub struct JpegOptions {
+    pub progressive: Option<bool>,
+    pub no_subsample: Option<bool>,
+    pub trellis_quant: Option<bool>,
+    pub overshoot_deringing: Option<bool>,
+    pub optimize_scans: Option<bool>,
+    pub quant_table: Option<i32>,
+}
+
+/// PNG encoder controls.
+#[derive(Debug, Clone, Default)]
+pub struct PngOptions {
+    pub interlaced: Option<bool>,
+    pub quantize: Option<bool>,
+    pub quantization_colors: Option<u16>,
+}
+
+/// WebP encoder controls.
+#[derive(Debug, Clone, Default)]
+pub struct WebpOptions {
+    pub lossless: Option<bool>,
+    pub smart_subsample: Option<bool>,
+    pub preset: Option<String>,
+}
+
+/// AVIF/HEIF encoder controls.
+#[derive(Debug, Clone, Default)]
+pub struct AvifOptions {
+    pub no_subsample: Option<bool>,
 }
 
 /// Represents the parameters for a crop operation.
@@ -184,6 +391,8 @@ pub struct Crop {
     pub width: u32,
     /// The height of the crop area.
     pub height: u32,
+    /// Optional crop gravity.
+    pub gravity: Option<Gravity>,
 }
 
 /// Represents the parameters for a watermark operation.
@@ -224,6 +433,8 @@ pub struct ParsedOptions {
     pub padding: Option<(u32, u32, u32, u32)>,
     /// Optional image rotation (rotation angle).
     pub rotation: Option<u16>,
+    /// Optional flip operation.
+    pub flip: Option<Flip>,
     /// Whether to automatically rotate the image based on EXIF data.
     pub auto_rotate: bool,
     /// Whether to bypass processing limits (e.g., worker limits).
@@ -234,6 +445,12 @@ pub struct ParsedOptions {
     pub max_src_file_size: Option<usize>,
     /// Value to bypass cache (e.g., timestamp).
     pub cache_buster: Option<String>,
+    /// Optional unix timestamp after which the request expires.
+    pub expires: Option<u64>,
+    /// Optional response filename for Content-Disposition.
+    pub filename: Option<String>,
+    /// Whether to return Content-Disposition as attachment.
+    pub return_attachment: bool,
     /// Device pixel ratio factor to scale up dimensions.
     pub dpr: Option<f32>,
     /// Minimum width for the image.
@@ -251,6 +468,20 @@ pub struct ParsedOptions {
     pub watermark_url: Option<String>,
     /// Resizing algorithm to use (nearest, linear, cubic, lanczos2, lanczos3).
     pub resizing_algorithm: Option<String>,
+    /// Optional alpha value applied to background.
+    pub background_alpha: Option<f32>,
+    /// Optional color adjustments.
+    pub adjust: Option<Adjust>,
+    /// Encoder-specific output options.
+    pub save: SaveOptions,
+    /// Optional page number for multi-page sources.
+    pub page: Option<u32>,
+    /// Optional page count for multi-page sources.
+    pub pages: Option<u32>,
+    /// Whether to disable animation handling.
+    pub disable_animation: bool,
+    /// Source formats that may bypass processing when output format matches.
+    pub skip_processing: Vec<String>,
 }
 
 impl Default for ParsedOptions {
@@ -269,11 +500,15 @@ impl Default for ParsedOptions {
             extend: false,
             padding: None,
             rotation: None,
+            flip: None,
             auto_rotate: true,
             raw: false,
             max_src_resolution: None,
             max_src_file_size: None,
             cache_buster: None,
+            expires: None,
+            filename: None,
+            return_attachment: false,
             dpr: Some(1.0),
             min_width: None,
             min_height: None,
@@ -283,6 +518,13 @@ impl Default for ParsedOptions {
             watermark: None,
             watermark_url: None,
             resizing_algorithm: Some("lanczos3".to_string()),
+            background_alpha: None,
+            adjust: None,
+            save: SaveOptions::default(),
+            page: None,
+            pages: None,
+            disable_animation: false,
+            skip_processing: Vec::new(),
         }
     }
 }
@@ -356,7 +598,7 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
                     resize.resizing_type = option.args[0].clone();
                 }
             }
-            SIZE | SIZE_SHORT | SIZE_SHORT_ALT => {
+            SIZE | SIZE_SHORT => {
                 let mut store_resize = parsed_options.resize.is_some();
                 let mut resize = parsed_options.resize.take().unwrap_or_default();
                 let mut width_height_set = false;
@@ -433,7 +675,7 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
                 let gravity = option.args[0].as_str();
                 let gravity = Gravity::parse(gravity).ok_or_else(|| {
                     error!("Invalid gravity: {}", gravity);
-                    "gravity must be one of: center, north, south, east, west".to_string()
+                    "gravity must be one of: ce, no, so, ea, we, noea, nowe, soea, sowe".to_string()
                 })?;
                 parsed_options.gravity = Some(gravity);
             }
@@ -450,6 +692,12 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
                     return Err("extend option requires one argument".to_string());
                 }
                 parsed_options.extend = super::utils::parse_boolean(&option.args[0]);
+                if let Some(gravity) = option.args.get(1).filter(|arg| !arg.is_empty()) {
+                    parsed_options.gravity = Some(Gravity::parse(gravity).ok_or_else(|| {
+                        error!("Invalid extend gravity: {}", gravity);
+                        "extend gravity must be one of: ce, no, so, ea, we, noea, nowe, soea, sowe".to_string()
+                    })?);
+                }
             }
             PADDING | PADDING_SHORT => {
                 if option.args.is_empty() {
@@ -491,6 +739,12 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
                 }
                 parsed_options.rotation = Some(rotation);
             }
+            FLIP | FLIP_SHORT => {
+                parsed_options.flip = Some(Flip {
+                    horizontal: parse_optional_bool(&option.args, 0).unwrap_or(false),
+                    vertical: parse_optional_bool(&option.args, 1).unwrap_or(false),
+                });
+            }
             AUTO_ROTATE | AUTO_ROTATE_SHORT => {
                 if option.args.is_empty() {
                     error!("Auto_rotate option requires one argument");
@@ -499,7 +753,12 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
                 parsed_options.auto_rotate = super::utils::parse_boolean(&option.args[0]);
             }
             RAW => {
-                parsed_options.raw = true;
+                parsed_options.raw = option
+                    .args
+                    .first()
+                    .filter(|arg| !arg.is_empty())
+                    .map(|arg| super::utils::parse_boolean(arg))
+                    .unwrap_or(true);
             }
             BLUR | BLUR_SHORT => {
                 if option.args.is_empty() {
@@ -508,31 +767,37 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
                 }
                 parsed_options.blur = Some(parse_positive_f32(&option.args[0], "blur")?);
             }
-            CROP => {
-                if option.args.len() < 4 {
-                    error!("Crop option requires four arguments");
-                    return Err("crop option requires four arguments: x, y, width, height".to_string());
+            CROP | CROP_SHORT => {
+                if option.args.len() < 2 {
+                    error!("Crop option requires at least two arguments");
+                    return Err("crop option requires at least two arguments: width, height".to_string());
                 }
+                let gravity = option
+                    .args
+                    .get(2)
+                    .filter(|arg| !arg.is_empty())
+                    .map(|arg| {
+                        Gravity::parse(arg).ok_or_else(|| {
+                            error!("Invalid crop gravity: {}", arg);
+                            "crop gravity must be one of: ce, no, so, ea, we, noea, nowe, soea, sowe".to_string()
+                        })
+                    })
+                    .transpose()?;
                 parsed_options.crop = Some(Crop {
-                    x: option.args[0].parse::<u32>().map_err(|e: std::num::ParseIntError| {
-                        error!("Invalid x for crop: {}", e);
-                        e.to_string()
-                    })?,
-                    y: option.args[1].parse::<u32>().map_err(|e: std::num::ParseIntError| {
-                        error!("Invalid y for crop: {}", e);
-                        e.to_string()
-                    })?,
-                    width: option.args[2].parse::<u32>().map_err(|e: std::num::ParseIntError| {
+                    x: 0,
+                    y: 0,
+                    width: option.args[0].parse::<u32>().map_err(|e: std::num::ParseIntError| {
                         error!("Invalid width for crop: {}", e);
                         e.to_string()
                     })?,
-                    height: option.args[3].parse::<u32>().map_err(|e: std::num::ParseIntError| {
+                    height: option.args[1].parse::<u32>().map_err(|e: std::num::ParseIntError| {
                         error!("Invalid height for crop: {}", e);
                         e.to_string()
                     })?,
+                    gravity,
                 });
             }
-            FORMAT => {
+            FORMAT | FORMAT_SHORT | FORMAT_EXT => {
                 if option.args.is_empty() {
                     error!("Format option requires one argument");
                     return Err("format option requires one argument".to_string());
@@ -544,27 +809,65 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
                     error!("Quality option requires one argument");
                     return Err("quality option requires one argument".to_string());
                 }
-                parsed_options.quality = Some(
-                    option.args[0]
-                        .parse::<u8>()
-                        .map_err(|e| {
-                            error!("Invalid quality: {}", e);
-                            e.to_string()
-                        })?
-                        .clamp(1, 100),
-                );
+                parsed_options.quality = Some(parse_quality(&option.args[0], "quality")?);
+            }
+            FORMAT_QUALITY | FORMAT_QUALITY_SHORT => {
+                if option.args.len() < 2 || option.args.len() % 2 != 0 {
+                    error!("Format_quality option requires format/quality pairs");
+                    return Err("format_quality option requires format/quality pairs".to_string());
+                }
+
+                for pair in option.args.chunks_exact(2) {
+                    parsed_options
+                        .save
+                        .format_quality
+                        .insert(pair[0].to_lowercase(), parse_quality(&pair[1], "format_quality")?);
+                }
             }
             BACKGROUND | BACKGROUND_SHORT => {
                 if option.args.is_empty() {
-                    error!("Background option requires one argument");
-                    return Err("background option requires one argument".to_string());
+                    parsed_options.background = None;
+                    continue;
                 }
-                parsed_options.background = Some(super::utils::parse_hex_color(&option.args[0]).map_err(|e| {
-                    error!("Invalid hex color for background: {}", e);
-                    e.to_string()
-                })?);
+                let mut background = if option.args.len() >= 3 {
+                    [
+                        option.args[0].parse::<u8>().map_err(|e| {
+                            error!("Invalid red channel for background: {}", e);
+                            e.to_string()
+                        })?,
+                        option.args[1].parse::<u8>().map_err(|e| {
+                            error!("Invalid green channel for background: {}", e);
+                            e.to_string()
+                        })?,
+                        option.args[2].parse::<u8>().map_err(|e| {
+                            error!("Invalid blue channel for background: {}", e);
+                            e.to_string()
+                        })?,
+                        255,
+                    ]
+                } else {
+                    super::utils::parse_hex_color(&option.args[0]).map_err(|e| {
+                        error!("Invalid hex color for background: {}", e);
+                        e.to_string()
+                    })?
+                };
+                if let Some(alpha) = parsed_options.background_alpha {
+                    background[3] = (alpha * 255.0).round() as u8;
+                }
+                parsed_options.background = Some(background);
             }
-            MAX_SRC_RESOLUTION => {
+            BACKGROUND_ALPHA | BACKGROUND_ALPHA_SHORT => {
+                if option.args.is_empty() {
+                    error!("Background_alpha option requires one argument");
+                    return Err("background_alpha option requires one argument".to_string());
+                }
+                let alpha = parse_unit_f32(&option.args[0], "background_alpha")?;
+                parsed_options.background_alpha = Some(alpha);
+                if let Some(ref mut background) = parsed_options.background {
+                    background[3] = (alpha * 255.0).round() as u8;
+                }
+            }
+            MAX_SRC_RESOLUTION | MAX_SRC_RESOLUTION_SHORT => {
                 if option.args.is_empty() {
                     error!("Max_src_resolution option requires one argument");
                     return Err("max_src_resolution option requires one argument".to_string());
@@ -575,7 +878,7 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
                         e.to_string()
                     })?);
             }
-            MAX_SRC_FILE_SIZE => {
+            MAX_SRC_FILE_SIZE | MAX_SRC_FILE_SIZE_SHORT => {
                 if option.args.is_empty() {
                     error!("Max_src_file_size option requires one argument");
                     return Err("max_src_file_size option requires one argument".to_string());
@@ -586,10 +889,10 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
                         e.to_string()
                     })?);
             }
-            CACHE_BUSTER => {
+            CACHEBUSTER | CACHEBUSTER_SHORT => {
                 if option.args.is_empty() {
-                    error!("Cache_buster option requires one argument");
-                    return Err("cache_buster option requires one argument".to_string());
+                    error!("Cachebuster option requires one argument");
+                    return Err("cachebuster option requires one argument".to_string());
                 }
                 parsed_options.cache_buster = Some(option.args[0].clone());
             }
@@ -610,21 +913,21 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
             }
             MIN_WIDTH | MIN_WIDTH_SHORT => {
                 if option.args.is_empty() {
-                    error!("Min_width option requires one argument");
-                    return Err("min_width option requires one argument".to_string());
+                    error!("Min-width option requires one argument");
+                    return Err("min-width option requires one argument".to_string());
                 }
                 parsed_options.min_width = Some(option.args[0].parse::<u32>().map_err(|e| {
-                    error!("Invalid min_width: {}", e);
+                    error!("Invalid min-width: {}", e);
                     e.to_string()
                 })?);
             }
             MIN_HEIGHT | MIN_HEIGHT_SHORT => {
                 if option.args.is_empty() {
-                    error!("Min_height option requires one argument");
-                    return Err("min_height option requires one argument".to_string());
+                    error!("Min-height option requires one argument");
+                    return Err("min-height option requires one argument".to_string());
                 }
                 parsed_options.min_height = Some(option.args[0].parse::<u32>().map_err(|e| {
-                    error!("Invalid min_height: {}", e);
+                    error!("Invalid min-height: {}", e);
                     e.to_string()
                 })?);
             }
@@ -651,6 +954,46 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
                     error!("Invalid pixelate: {}", e);
                     e.to_string()
                 })?);
+            }
+            ADJUST | ADJUST_SHORT => {
+                let mut adjust = parsed_options.adjust.unwrap_or_default();
+                if let Some(arg) = option.args.first().filter(|arg| !arg.is_empty()) {
+                    adjust.brightness = parse_brightness(arg)?;
+                }
+                if let Some(arg) = option.args.get(1).filter(|arg| !arg.is_empty()) {
+                    adjust.contrast = parse_positive_f32(arg, "contrast")?;
+                }
+                if let Some(arg) = option.args.get(2).filter(|arg| !arg.is_empty()) {
+                    adjust.saturation = parse_positive_f32(arg, "saturation")?;
+                }
+                parsed_options.adjust = Some(adjust);
+            }
+            BRIGHTNESS | BRIGHTNESS_SHORT => {
+                if option.args.is_empty() {
+                    error!("Brightness option requires one argument");
+                    return Err("brightness option requires one argument".to_string());
+                }
+                let mut adjust = parsed_options.adjust.unwrap_or_default();
+                adjust.brightness = parse_brightness(&option.args[0])?;
+                parsed_options.adjust = Some(adjust);
+            }
+            CONTRAST | CONTRAST_SHORT => {
+                if option.args.is_empty() {
+                    error!("Contrast option requires one argument");
+                    return Err("contrast option requires one argument".to_string());
+                }
+                let mut adjust = parsed_options.adjust.unwrap_or_default();
+                adjust.contrast = parse_positive_f32(&option.args[0], "contrast")?;
+                parsed_options.adjust = Some(adjust);
+            }
+            SATURATION | SATURATION_SHORT => {
+                if option.args.is_empty() {
+                    error!("Saturation option requires one argument");
+                    return Err("saturation option requires one argument".to_string());
+                }
+                let mut adjust = parsed_options.adjust.unwrap_or_default();
+                adjust.saturation = parse_positive_f32(&option.args[0], "saturation")?;
+                parsed_options.adjust = Some(adjust);
             }
             WATERMARK | WATERMARK_SHORT => {
                 if option.args.len() < 2 {
@@ -701,6 +1044,141 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
                 }
                 parsed_options.resizing_algorithm = Some(algorithm);
             }
+            MAX_BYTES | MAX_BYTES_SHORT => {
+                if option.args.is_empty() {
+                    error!("Max_bytes option requires one argument");
+                    return Err("max_bytes option requires one argument".to_string());
+                }
+                parsed_options.save.max_bytes = Some(option.args[0].parse::<usize>().map_err(|e| {
+                    error!("Invalid max_bytes: {}", e);
+                    e.to_string()
+                })?);
+            }
+            STRIP_METADATA | STRIP_METADATA_SHORT => {
+                parsed_options.save.strip_metadata = Some(
+                    option
+                        .args
+                        .first()
+                        .map(|arg| super::utils::parse_boolean(arg))
+                        .unwrap_or(true),
+                );
+            }
+            STRIP_COLOR_PROFILE | STRIP_COLOR_PROFILE_SHORT => {
+                parsed_options.save.strip_color_profile = Some(
+                    option
+                        .args
+                        .first()
+                        .map(|arg| super::utils::parse_boolean(arg))
+                        .unwrap_or(true),
+                );
+            }
+            JPEG_OPTIONS | JPEG_OPTIONS_SHORT => {
+                parsed_options.save.jpeg.progressive = parse_optional_bool(&option.args, 0);
+                parsed_options.save.jpeg.no_subsample = parse_optional_bool(&option.args, 1);
+                parsed_options.save.jpeg.trellis_quant = parse_optional_bool(&option.args, 2);
+                parsed_options.save.jpeg.overshoot_deringing = parse_optional_bool(&option.args, 3);
+                parsed_options.save.jpeg.optimize_scans = parse_optional_bool(&option.args, 4);
+                if let Some(arg) = option.args.get(5).filter(|arg| !arg.is_empty()) {
+                    parsed_options.save.jpeg.quant_table = Some(arg.parse::<i32>().map_err(|e| {
+                        error!("Invalid jpeg quant_table: {}", e);
+                        e.to_string()
+                    })?);
+                }
+            }
+            PNG_OPTIONS | PNG_OPTIONS_SHORT => {
+                parsed_options.save.png.interlaced = parse_optional_bool(&option.args, 0);
+                parsed_options.save.png.quantize = parse_optional_bool(&option.args, 1);
+                if let Some(arg) = option.args.get(2).filter(|arg| !arg.is_empty()) {
+                    parsed_options.save.png.quantization_colors = Some(arg.parse::<u16>().map_err(|e| {
+                        error!("Invalid png quantization_colors: {}", e);
+                        e.to_string()
+                    })?);
+                }
+            }
+            WEBP_OPTIONS | WEBP_OPTIONS_SHORT => {
+                parsed_options.save.webp.lossless = parse_optional_bool(&option.args, 0);
+                parsed_options.save.webp.smart_subsample = parse_optional_bool(&option.args, 1);
+                if let Some(arg) = option.args.get(2).filter(|arg| !arg.is_empty()) {
+                    parsed_options.save.webp.preset = Some(arg.to_lowercase());
+                }
+            }
+            AVIF_OPTIONS | AVIF_OPTIONS_SHORT => {
+                parsed_options.save.avif.no_subsample = parse_optional_bool(&option.args, 0);
+            }
+            PAGE | PAGE_SHORT => {
+                if option.args.is_empty() {
+                    error!("Page option requires one argument");
+                    return Err("page option requires one argument".to_string());
+                }
+                parsed_options.page = Some(option.args[0].parse::<u32>().map_err(|e| {
+                    error!("Invalid page: {}", e);
+                    e.to_string()
+                })?);
+            }
+            PAGES | PAGES_SHORT => {
+                if option.args.is_empty() {
+                    error!("Pages option requires one argument");
+                    return Err("pages option requires one argument".to_string());
+                }
+                parsed_options.pages = Some(option.args[0].parse::<u32>().map_err(|e| {
+                    error!("Invalid pages: {}", e);
+                    e.to_string()
+                })?);
+            }
+            DISABLE_ANIMATION | DISABLE_ANIMATION_SHORT => {
+                parsed_options.disable_animation = option
+                    .args
+                    .first()
+                    .map(|arg| super::utils::parse_boolean(arg))
+                    .unwrap_or(true);
+            }
+            SKIP_PROCESSING | SKIP_PROCESSING_SHORT => {
+                if option.args.is_empty() {
+                    error!("Skip_processing option requires at least one argument");
+                    return Err("skip_processing option requires at least one argument".to_string());
+                }
+                parsed_options.skip_processing = option.args.iter().map(|arg| arg.to_lowercase()).collect();
+            }
+            EXPIRES | EXPIRES_SHORT => {
+                if option.args.is_empty() {
+                    error!("Expires option requires one argument");
+                    return Err("expires option requires one argument".to_string());
+                }
+                parsed_options.expires = Some(option.args[0].parse::<u64>().map_err(|e| {
+                    error!("Invalid expires timestamp: {}", e);
+                    e.to_string()
+                })?);
+            }
+            FILENAME | FILENAME_SHORT => {
+                if option.args.is_empty() {
+                    error!("Filename option requires one argument");
+                    return Err("filename option requires one argument".to_string());
+                }
+                let encoded = option
+                    .args
+                    .get(1)
+                    .map(|arg| super::utils::parse_boolean(arg))
+                    .unwrap_or(false);
+                parsed_options.filename = Some(if encoded {
+                    let decoded = general_purpose::URL_SAFE_NO_PAD.decode(&option.args[0]).map_err(|e| {
+                        error!("Invalid base64 for filename: {}", e);
+                        e.to_string()
+                    })?;
+                    String::from_utf8(decoded).map_err(|e| {
+                        error!("Invalid UTF-8 for filename: {}", e);
+                        e.to_string()
+                    })?
+                } else {
+                    option.args[0].clone()
+                });
+            }
+            RETURN_ATTACHMENT | RETURN_ATTACHMENT_SHORT => {
+                parsed_options.return_attachment = option
+                    .args
+                    .first()
+                    .map(|arg| super::utils::parse_boolean(arg))
+                    .unwrap_or(true);
+            }
             _ => {
                 debug!("Unknown option: {}", option.name);
             }
@@ -718,4 +1196,16 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
     }
 
     Ok(parsed_options)
+}
+
+fn parse_brightness(value: &str) -> Result<i16, String> {
+    let parsed = value.parse::<i16>().map_err(|e| {
+        error!("Invalid brightness: {}", e);
+        e.to_string()
+    })?;
+    if !(-255..=255).contains(&parsed) {
+        error!("Brightness must be between -255 and 255, received: {}", parsed);
+        return Err("brightness must be between -255 and 255".to_string());
+    }
+    Ok(parsed)
 }

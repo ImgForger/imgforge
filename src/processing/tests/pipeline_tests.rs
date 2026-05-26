@@ -17,6 +17,7 @@ fn test_crop_then_resize() {
         y: 50,
         width: 200,
         height: 200,
+        gravity: None,
     };
     let cropped = transform::crop_image(img, crop).unwrap();
     let resize = Resize {
@@ -84,6 +85,7 @@ fn test_complex_pipeline_crop_resize_blur_rotate() {
         y: 50,
         width: 300,
         height: 300,
+        gravity: None,
     };
     let img = transform::crop_image(img, crop).unwrap();
     assert_eq!(img.get_width(), 300);
@@ -121,7 +123,7 @@ fn test_complex_pipeline_resize_padding_watermark() {
     let watermark = cached_watermark_from_bytes(create_test_image(30, 30));
     let watermark_opts = Watermark {
         opacity: 0.7,
-        position: "south_east".to_string(),
+        position: "soea".to_string(),
     };
     let img = watermark::apply_watermark(img, &watermark, &watermark_opts, &None).unwrap();
     assert_eq!(img.get_width(), 170);

@@ -1,4 +1,4 @@
-use crate::processing::options::Crop;
+use crate::processing::options::{Adjust, Crop, Flip};
 use crate::processing::transform;
 use libvips::VipsImage;
 
@@ -13,6 +13,7 @@ fn test_crop_image() {
         y: 20,
         width: 100,
         height: 150,
+        gravity: None,
     };
     let cropped_img = transform::crop_image(img, crop).unwrap();
     assert_eq!(cropped_img.get_width(), 100);
@@ -26,6 +27,38 @@ fn test_apply_rotation() {
     let rotated_img = transform::apply_rotation(img, 90).unwrap();
     assert_eq!(rotated_img.get_width(), 200);
     assert_eq!(rotated_img.get_height(), 100);
+}
+
+#[test]
+fn test_apply_flip() {
+    init_vips();
+    let img = VipsImage::new_from_buffer(&create_test_image(100, 50), "").unwrap();
+    let flipped_img = transform::apply_flip(
+        img,
+        Flip {
+            horizontal: true,
+            vertical: true,
+        },
+    )
+    .unwrap();
+    assert_eq!(flipped_img.get_width(), 100);
+    assert_eq!(flipped_img.get_height(), 50);
+}
+
+#[test]
+fn test_apply_adjust_saturation_keeps_dimensions() {
+    init_vips();
+    let img = VipsImage::new_from_buffer(&create_test_image_jpeg(100, 50), "").unwrap();
+    let adjusted_img = transform::apply_adjust(
+        img,
+        Adjust {
+            saturation: 0.5,
+            ..Adjust::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(adjusted_img.get_width(), 100);
+    assert_eq!(adjusted_img.get_height(), 50);
 }
 
 #[test]
@@ -117,6 +150,7 @@ fn test_crop_at_edge() {
         y: 0,
         width: 50,
         height: 50,
+        gravity: None,
     };
     let cropped_img = transform::crop_image(img, crop).unwrap();
     assert_eq!(cropped_img.get_width(), 50);
@@ -132,6 +166,7 @@ fn test_crop_bottom_right_corner() {
         y: 50,
         width: 50,
         height: 50,
+        gravity: None,
     };
     let cropped_img = transform::crop_image(img, crop).unwrap();
     assert_eq!(cropped_img.get_width(), 50);

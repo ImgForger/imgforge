@@ -13,6 +13,7 @@ use libvips::VipsImage;
 use std::error::Error;
 use std::fmt::Display;
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::fs;
 use tracing::{debug, error, info};
 
@@ -37,6 +38,7 @@ pub struct ProcessedImage {
     pub bytes: Bytes,
     pub content_type: &'static str,
     pub cache_status: CacheStatus,
+    pub content_disposition: Option<String>,
 }
 
 /// Result of fetching image metadata.
@@ -148,21 +150,6 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
 
     let url_parts = parse_and_authorize(config, path, request.bearer_token)?;
 
-    if let Some(cached_image) = state.cache.get(path).await {
-        debug!("Image found in cache for path={}", path);
-
-        return Ok(ProcessedImage {
-            bytes: cached_image.bytes,
-            content_type: cached_image.content_type,
-            cache_status: CacheStatus::Hit,
-        });
-    }
-
-    let decoded_url = url_parts.source_url.decode().map_err(|e| {
-        error!("Error decoding URL: {}", e);
-        ServiceError::new(StatusCode::BAD_REQUEST, format!("Error decoding URL: {}", e))
-    })?;
-
     let expanded_options = expand_presets(
         url_parts.processing_options.clone(),
         &config.presets,
@@ -173,12 +160,32 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
         ServiceError::new(StatusCode::BAD_REQUEST, e)
     })?;
 
-    debug!("Processing image forge request for URL: {}", decoded_url);
-
     let parsed_options = parse_all_options(expanded_options).map_err(|e| {
         error!("Error parsing processing options: {}", e);
         ServiceError::new(StatusCode::BAD_REQUEST, e)
     })?;
+
+    enforce_expiration(&parsed_options)?;
+
+    if let Some(cached_image) = state.cache.get(path).await {
+        debug!("Image found in cache for path={}", path);
+
+        return Ok(ProcessedImage {
+            bytes: cached_image.bytes,
+            content_type: cached_image.content_type,
+            cache_status: CacheStatus::Hit,
+            content_disposition: None,
+        });
+    }
+
+    let content_disposition = content_disposition_for(&parsed_options);
+
+    let decoded_url = url_parts.source_url.decode().map_err(|e| {
+        error!("Error decoding URL: {}", e);
+        ServiceError::new(StatusCode::BAD_REQUEST, format!("Error decoding URL: {}", e))
+    })?;
+
+    debug!("Processing image forge request for URL: {}", decoded_url);
 
     let max_src_file_size = resolve_max_src_file_size(config, &parsed_options);
     let (image_bytes, source_content_type) = fetch_image(&state.http_client, &decoded_url, max_src_file_size)
@@ -195,7 +202,14 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
     );
 
     if parsed_options.raw {
-        return serve_raw_response(state.as_ref(), path, image_bytes, source_content_type).await;
+        return serve_raw_response(
+            state.as_ref(),
+            path,
+            image_bytes,
+            source_content_type,
+            content_disposition,
+        )
+        .await;
     }
 
     let watermark = if needs_watermark(&parsed_options) {
@@ -235,7 +249,7 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
     };
 
     let content_type = format_to_content_type(&output_format);
-    if !matches!(state.cache, ImgforgeCache::None) {
+    if content_disposition.is_none() && !matches!(state.cache, ImgforgeCache::None) {
         if let Err(err) = state
             .cache
             .insert(
@@ -262,6 +276,7 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
         bytes: processed_image_bytes,
         content_type,
         cache_status: CacheStatus::Miss,
+        content_disposition,
     })
 }
 
@@ -545,13 +560,14 @@ async fn serve_raw_response(
     path: &str,
     image_bytes: Bytes,
     source_content_type: Option<String>,
+    content_disposition: Option<String>,
 ) -> Result<ProcessedImage, ServiceError> {
     let content_type = source_content_type
         .as_deref()
         .map(format_to_content_type)
         .unwrap_or("image/jpeg");
 
-    if !matches!(state.cache, ImgforgeCache::None) {
+    if content_disposition.is_none() && !matches!(state.cache, ImgforgeCache::None) {
         if let Err(err) = state
             .cache
             .insert(
@@ -573,5 +589,37 @@ async fn serve_raw_response(
         bytes: image_bytes,
         content_type,
         cache_status: CacheStatus::Miss,
+        content_disposition,
     })
+}
+
+fn enforce_expiration(parsed_options: &ParsedOptions) -> Result<(), ServiceError> {
+    let Some(expires) = parsed_options.expires else {
+        return Ok(());
+    };
+
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| ServiceError::new(StatusCode::INTERNAL_SERVER_ERROR, "system clock is before unix epoch"))?
+        .as_secs();
+
+    if now > expires {
+        return Err(ServiceError::new(StatusCode::NOT_FOUND, "URL has expired"));
+    }
+
+    Ok(())
+}
+
+fn content_disposition_for(parsed_options: &ParsedOptions) -> Option<String> {
+    let filename = parsed_options.filename.as_ref()?;
+    let disposition = if parsed_options.return_attachment {
+        "attachment"
+    } else {
+        "inline"
+    };
+    Some(format!(
+        "{}; filename=\"{}\"",
+        disposition,
+        filename.replace(['\\', '"', '\r', '\n'], "_")
+    ))
 }

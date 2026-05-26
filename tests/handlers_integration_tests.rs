@@ -859,7 +859,7 @@ async fn test_image_forge_handler_with_crop() {
 
     let source_url = format!("{}/crop.jpg", mock_server.uri());
     let encoded_url = URL_SAFE_NO_PAD.encode(source_url.as_bytes());
-    let path = format!("/unsafe/crop:50:50:200:200/{}", encoded_url);
+    let path = format!("/unsafe/crop:200:200:ce/{}", encoded_url);
 
     let app = axum::Router::new()
         .route("/{*path}", axum::routing::get(image_forge_handler))
@@ -1120,7 +1120,7 @@ async fn test_image_forge_handler_with_background_color_jpeg_source() {
     let source_url = format!("{}/bg.jpg", mock_server.uri());
     let encoded_url = URL_SAFE_NO_PAD.encode(source_url.as_bytes());
     let path = format!(
-        "/unsafe/resize:fill:800:600/gravity:center/quality:88/sharpen:1/background:FFFFFF/{}",
+        "/unsafe/resize:fill:800:600/gravity:ce/quality:88/sharpen:1/background:FFFFFF/{}",
         encoded_url
     );
 

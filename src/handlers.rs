@@ -77,6 +77,16 @@ pub async fn image_forge_handler(
                     HeaderValue::from_static(CacheStatus::Hit.as_header_value()),
                 );
             }
+            if let Some(content_disposition) = result.content_disposition {
+                match HeaderValue::from_str(&content_disposition) {
+                    Ok(value) => {
+                        headers.insert(header::CONTENT_DISPOSITION, value);
+                    }
+                    Err(err) => {
+                        error!("Invalid Content-Disposition header value: {}", err);
+                    }
+                }
+            }
 
             (StatusCode::OK, headers, result.bytes).into_response()
         }
