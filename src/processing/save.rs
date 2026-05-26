@@ -93,20 +93,9 @@ fn encode_once(img: &VipsImage, format: &str, quality: u8, options: &SaveOptions
             ops::pngsave_buffer_with_opts(img, &opts)
         }),
         "webp" => encode_image("WebP", || {
-            let opts = ops::WebpsaveBufferOptions {
-                q: quality as i32,
-                lossless: options.webp.lossless.unwrap_or(false),
-                smart_subsample: options.webp.smart_subsample.unwrap_or(false),
-                preset: webp_preset(options.webp.preset.as_deref()),
-                effort: (effort - 4).clamp(0, 6),
-                target_size: options
-                    .max_bytes
-                    .and_then(|bytes| i32::try_from(bytes).ok())
-                    .unwrap_or(0),
-                keep,
-                ..Default::default()
-            };
-            ops::webpsave_buffer_with_opts(img, &opts)
+            // libvips 1.7.x's generated WebP save bindings can abort the process, so
+            // WebP encoder options are parsed for imgproxy compatibility but not applied.
+            img.image_write_to_buffer(".webp")
         }),
         "tiff" => encode_image("TIFF", || {
             let clamped_quality = (quality as i32).clamp(1, 100);
@@ -174,17 +163,6 @@ trait SaveOptionExt {
 impl SaveOptionExt for SaveOptions {
     fn save_jpeg_progressive(&self) -> bool {
         self.jpeg.progressive.unwrap_or(false)
-    }
-}
-
-fn webp_preset(value: Option<&str>) -> ops::ForeignWebpPreset {
-    match value {
-        Some("picture") => ops::ForeignWebpPreset::Picture,
-        Some("photo") => ops::ForeignWebpPreset::Photo,
-        Some("drawing") => ops::ForeignWebpPreset::Drawing,
-        Some("icon") => ops::ForeignWebpPreset::Icon,
-        Some("text") => ops::ForeignWebpPreset::Text,
-        _ => ops::ForeignWebpPreset::Default,
     }
 }
 
