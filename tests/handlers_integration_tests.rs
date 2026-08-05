@@ -1133,3 +1133,111 @@ async fn test_image_forge_handler_with_background_color_jpeg_source() {
 
     assert_eq!(status, StatusCode::OK);
 }
+
+#[tokio::test]
+async fn test_default_output_format_preserves_png_source() {
+    // #45: with no explicit format, a PNG source must stay PNG (with its
+    // alpha channel) instead of being flattened to the old JPEG default.
+    let mock_server = MockServer::start().await;
+    let test_image = create_test_image(64, 64, [255, 0, 0, 128]);
+
+    Mock::given(method("GET"))
+        .and(path("/transparent.png"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_bytes(test_image)
+                .insert_header("Content-Type", "image/png"),
+        )
+        .mount(&mock_server)
+        .await;
+
+    let config = create_test_config(vec![], vec![], true);
+    let state = create_test_state(config).await;
+
+    let source_url = format!("{}/transparent.png", mock_server.uri());
+    let encoded_url = URL_SAFE_NO_PAD.encode(source_url.as_bytes());
+    let path = format!("/unsafe/{}", encoded_url);
+
+    let app = axum::Router::new()
+        .route("/{*path}", axum::routing::get(image_forge_handler))
+        .with_state(state)
+        .layer(axum::middleware::from_fn(request_id_middleware));
+
+    let (status, body, headers) = make_request_bytes(app, &path, None).await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(headers.get("content-type").unwrap(), "image/png");
+    let decoded = image::load_from_memory(&body).unwrap().to_rgba8();
+    assert_eq!(decoded.get_pixel(32, 32)[3], 128, "alpha channel was not preserved");
+}
+
+#[tokio::test]
+async fn test_default_output_format_env_override_restores_jpeg() {
+    // IMGFORGE_DEFAULT_FORMAT with a concrete format restores the fixed
+    // default (pre-#45 behavior when set to jpeg).
+    let mock_server = MockServer::start().await;
+    let test_image = create_test_image(64, 64, [0, 255, 0, 255]);
+
+    Mock::given(method("GET"))
+        .and(path("/source.png"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_bytes(test_image)
+                .insert_header("Content-Type", "image/png"),
+        )
+        .mount(&mock_server)
+        .await;
+
+    let mut config = create_test_config(vec![], vec![], true);
+    config.default_format = "jpeg".to_string();
+    let state = create_test_state(config).await;
+
+    let source_url = format!("{}/source.png", mock_server.uri());
+    let encoded_url = URL_SAFE_NO_PAD.encode(source_url.as_bytes());
+    let path = format!("/unsafe/{}", encoded_url);
+
+    let app = axum::Router::new()
+        .route("/{*path}", axum::routing::get(image_forge_handler))
+        .with_state(state)
+        .layer(axum::middleware::from_fn(request_id_middleware));
+
+    let (status, _body, headers) = make_request_bytes(app, &path, None).await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(headers.get("content-type").unwrap(), "image/jpeg");
+}
+
+#[tokio::test]
+async fn test_default_output_format_explicit_format_wins() {
+    // An explicit format option is never overridden by the source-format
+    // default.
+    let mock_server = MockServer::start().await;
+    let test_image = create_test_image(64, 64, [0, 0, 255, 255]);
+
+    Mock::given(method("GET"))
+        .and(path("/explicit.png"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_bytes(test_image)
+                .insert_header("Content-Type", "image/png"),
+        )
+        .mount(&mock_server)
+        .await;
+
+    let config = create_test_config(vec![], vec![], true);
+    let state = create_test_state(config).await;
+
+    let source_url = format!("{}/explicit.png", mock_server.uri());
+    let encoded_url = URL_SAFE_NO_PAD.encode(source_url.as_bytes());
+    let path = format!("/unsafe/format:jpeg/{}", encoded_url);
+
+    let app = axum::Router::new()
+        .route("/{*path}", axum::routing::get(image_forge_handler))
+        .with_state(state)
+        .layer(axum::middleware::from_fn(request_id_middleware));
+
+    let (status, _body, headers) = make_request_bytes(app, &path, None).await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(headers.get("content-type").unwrap(), "image/jpeg");
+}

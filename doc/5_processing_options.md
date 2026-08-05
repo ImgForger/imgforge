@@ -166,7 +166,7 @@ imgforge accepts imgproxy's gravity anchors: `ce`, `no`, `so`, `ea`, `we`, `noea
 
 ### `format`
 
-If omitted, imgforge encodes output as JPEG. Provide an explicit format (`webp`, `png`, `avif`, etc.) or use the `@extension` suffix following the source URL. Some formats may not be available if libvips lacks support.
+If omitted, imgforge keeps the **source image's format** (a PNG stays a PNG, preserving transparency; imgproxy-compatible). Set `IMGFORGE_DEFAULT_FORMAT` to a concrete format to fix the default instead (see [Configuration](3_configuration.md)); sources that can't be sniffed or that this libvips build can't encode fall back to JPEG. Provide an explicit format (`webp`, `png`, `avif`, etc.) or use the `@extension` suffix following the source URL to override per request. Some formats may not be available if libvips lacks support.
 
 ### `quality`
 

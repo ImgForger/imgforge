@@ -42,6 +42,7 @@ imgforge reads configuration exclusively from environment variables. This docume
 | `IMGFORGE_MAX_SRC_RESOLUTION` | unset   | Maximum allowed megapixels (width × height ÷ 1_000_000). Helps avoid processing extremely large images.                               |
 | `IMGFORGE_ALLOWED_MIME_TYPES` | unset   | Comma-separated allowlist (e.g., `image/jpeg,image/png,image/webp`). Requests with other MIME types fail with `400 Bad Request`.      |
 | `IMGFORGE_WATERMARK_PATH`     | unset   | Filesystem path to a watermark image automatically applied when the `watermark` option is present and no `watermark_url` is supplied. |
+| `IMGFORGE_DEFAULT_FORMAT`     | `source` | Output format when the URL requests none. `source` keeps the source image's format (imgproxy-compatible); a concrete format (`jpeg`, `webp`, ...) fixes the default — `jpeg` restores the pre-0.11 behavior. |
 
 ## Cache configuration
 

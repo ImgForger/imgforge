@@ -22,6 +22,7 @@ pub struct Config {
     pub presets: HashMap<String, Vec<ProcessingOption>>,
     pub only_presets: bool,
     pub watermark_path: Option<String>,
+    pub default_format: String,
     pub rate_limit_per_minute: Option<u32>,
 }
 
@@ -85,6 +86,7 @@ impl Config {
             presets: HashMap::new(),
             only_presets: false,
             watermark_path: None,
+            default_format: "source".to_string(),
             rate_limit_per_minute: None,
         }
     }
@@ -136,6 +138,19 @@ impl Config {
         config.only_presets = env::var(ENV_ONLY_PRESETS).unwrap_or_default().to_lowercase() == "true";
 
         config.watermark_path = env::var(ENV_WATERMARK_PATH).ok();
+        if let Ok(default_format) = env::var(ENV_DEFAULT_FORMAT) {
+            let default_format = default_format.trim().to_lowercase();
+            const ALLOWED: [&str; 10] = [
+                "source", "jpeg", "jpg", "png", "webp", "gif", "tiff", "avif", "heif", "heic",
+            ];
+            if !ALLOWED.contains(&default_format.as_str()) {
+                return Err(format!(
+                    "{} must be \"source\" or a supported output format, got \"{}\"",
+                    ENV_DEFAULT_FORMAT, default_format
+                ));
+            }
+            config.default_format = default_format;
+        }
         config.rate_limit_per_minute = env::var(ENV_RATE_LIMIT_PER_MINUTE)
             .ok()
             .and_then(|s| s.parse::<u32>().ok());
@@ -250,6 +265,25 @@ mod tests {
     fn test_parse_presets_missing_options() {
         let presets_str = "thumbnail=";
         assert!(parse_presets(presets_str).is_err());
+    }
+
+    #[test]
+    fn test_config_default_format_from_env() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let original = env::var(ENV_DEFAULT_FORMAT).ok();
+
+        env::remove_var(ENV_DEFAULT_FORMAT);
+        let config = Config::from_env().expect("config loads");
+        assert_eq!(config.default_format, "source");
+
+        env::set_var(ENV_DEFAULT_FORMAT, "JPEG");
+        let config = Config::from_env().expect("config loads");
+        assert_eq!(config.default_format, "jpeg");
+
+        env::set_var(ENV_DEFAULT_FORMAT, "bmp");
+        assert!(Config::from_env().is_err());
+
+        restore_env_var(ENV_DEFAULT_FORMAT, original);
     }
 
     #[test]

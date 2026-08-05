@@ -90,6 +90,20 @@ impl Display for ServiceError {
 
 impl Error for ServiceError {}
 
+/// Default output format when the URL requests none (#45): the source
+/// image's format (imgproxy-compatible — a transparent PNG stays a PNG
+/// instead of being flattened to JPEG), or a fixed format when
+/// IMGFORGE_DEFAULT_FORMAT names one. Returns None (-> JPEG fallback)
+/// when the source can't be sniffed or this build can't encode it.
+fn default_output_format(configured: &str, image_bytes: &[u8]) -> Option<String> {
+    if configured != "source" {
+        return Some(configured.to_string());
+    }
+    sniff_image_format(image_bytes)
+        .filter(|format| crate::processing::save::is_format_supported(format))
+        .map(|format| format.to_string())
+}
+
 fn detect_image_format(content_type: Option<&str>, image_bytes: &[u8]) -> String {
     if let Some(format) = content_type.and_then(content_type_to_format) {
         return format.to_string();
@@ -160,7 +174,7 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
         ServiceError::new(StatusCode::BAD_REQUEST, e)
     })?;
 
-    let parsed_options = parse_all_options(expanded_options).map_err(|e| {
+    let mut parsed_options = parse_all_options(expanded_options).map_err(|e| {
         error!("Error parsing processing options: {}", e);
         ServiceError::new(StatusCode::BAD_REQUEST, e)
     })?;
@@ -225,6 +239,9 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
         .await
         .map_err(|_| ServiceError::new(StatusCode::INTERNAL_SERVER_ERROR, "Semaphore closed"))?;
 
+    if parsed_options.format.is_none() {
+        parsed_options.format = default_output_format(&state.config.default_format, &image_bytes);
+    }
     let output_format = parsed_options.format.clone().unwrap_or_else(|| "jpeg".to_string());
 
     let processed_image_bytes = {
