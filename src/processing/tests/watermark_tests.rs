@@ -1,6 +1,7 @@
 use crate::constants::ENV_WATERMARK_PATH;
 use crate::processing::options::Watermark;
 use crate::processing::watermark;
+use bytes::Bytes;
 use libvips::VipsImage;
 use std::io::Write;
 use tempfile::NamedTempFile;
@@ -25,6 +26,27 @@ fn test_apply_watermark() {
     assert_eq!(watermarked_img.get_width(), 200);
     assert_eq!(watermarked_img.get_height(), 200);
     std::env::remove_var(ENV_WATERMARK_PATH);
+}
+
+#[test]
+fn test_apply_watermark_prepared() {
+    init_vips();
+    // File-based watermarks (IMGFORGE_WATERMARK_PATH) go through
+    // prepare_cached_watermark, which caches decoded pixels and must
+    // survive the raw-memory round trip with its colourspace intact —
+    // otherwise composite_2 rejects the multiband overlay (issue #47).
+    let watermark = watermark::prepare_cached_watermark(Bytes::from(create_test_image(50, 50))).unwrap();
+    assert!(watermark.prepared_rgba.is_some());
+
+    let img = VipsImage::new_from_buffer(&create_test_image_jpeg(200, 200), "").unwrap();
+    let watermark_opts = Watermark {
+        opacity: 0.5,
+        position: "soea".to_string(),
+    };
+    let watermarked = watermark::apply_watermark(img, &watermark, &watermark_opts, &None).unwrap();
+
+    assert_eq!(watermarked.get_width(), 200);
+    assert_eq!(watermarked.get_height(), 200);
 }
 
 #[test]
