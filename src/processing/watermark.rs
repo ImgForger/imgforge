@@ -82,7 +82,7 @@ pub fn apply_watermark(
     img: VipsImage,
     watermark: &CachedWatermark,
     watermark_opts: &Watermark,
-    resizing_algorithm: &Option<String>,
+    resizing_algorithm: Option<&str>,
 ) -> Result<VipsImage, String> {
     let watermark_img = resolve_watermark_image(watermark)?;
 

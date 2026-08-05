@@ -25,7 +25,7 @@ fn test_crop_then_resize() {
         width: 100,
         height: 100,
     };
-    let final_img = transform::apply_resize(cropped, &resize, &None, &None).unwrap();
+    let final_img = transform::apply_resize(cropped, &resize, &None, None).unwrap();
     assert_eq!(final_img.get_width(), 100);
     assert_eq!(final_img.get_height(), 100);
 }
@@ -39,7 +39,7 @@ fn test_resize_then_blur() {
         width: 100,
         height: 100,
     };
-    let resized = transform::apply_resize(img, &resize, &None, &None).unwrap();
+    let resized = transform::apply_resize(img, &resize, &None, None).unwrap();
     let blurred = transform::apply_blur(resized, 3.0).unwrap();
     assert_eq!(blurred.get_width(), 100);
     assert_eq!(blurred.get_height(), 100);
@@ -54,7 +54,7 @@ fn test_resize_then_sharpen() {
         width: 300,
         height: 300,
     };
-    let resized = transform::apply_resize(img, &resize, &None, &None).unwrap();
+    let resized = transform::apply_resize(img, &resize, &None, None).unwrap();
     let sharpened = transform::apply_sharpen(resized, 1.0).unwrap();
     assert_eq!(sharpened.get_width(), 300);
     assert_eq!(sharpened.get_height(), 300);
@@ -70,7 +70,7 @@ fn test_rotation_then_resize() {
         width: 100,
         height: 100,
     };
-    let resized = transform::apply_resize(rotated, &resize, &None, &None).unwrap();
+    let resized = transform::apply_resize(rotated, &resize, &None, None).unwrap();
     assert_eq!(resized.get_width(), 100);
     assert_eq!(resized.get_height(), 50);
 }
@@ -95,7 +95,7 @@ fn test_complex_pipeline_crop_resize_blur_rotate() {
         width: 200,
         height: 200,
     };
-    let img = transform::apply_resize(img, &resize, &None, &None).unwrap();
+    let img = transform::apply_resize(img, &resize, &None, None).unwrap();
     assert_eq!(img.get_width(), 200);
 
     let img = transform::apply_blur(img, 2.0).unwrap();
@@ -114,7 +114,7 @@ fn test_complex_pipeline_resize_padding_watermark() {
         width: 150,
         height: 150,
     };
-    let img = transform::apply_resize(img, &resize, &None, &None).unwrap();
+    let img = transform::apply_resize(img, &resize, &None, None).unwrap();
 
     let img = transform::apply_padding(img, 10, 10, 10, 10, &Some([255, 255, 255, 255])).unwrap();
     assert_eq!(img.get_width(), 170);
@@ -125,7 +125,7 @@ fn test_complex_pipeline_resize_padding_watermark() {
         opacity: 0.7,
         position: "soea".to_string(),
     };
-    let img = watermark::apply_watermark(img, &watermark, &watermark_opts, &None).unwrap();
+    let img = watermark::apply_watermark(img, &watermark, &watermark_opts, None).unwrap();
     assert_eq!(img.get_width(), 170);
 }
 

@@ -6,8 +6,8 @@ use tracing::debug;
 const SCALE_EPSILON: f64 = 1e-6;
 
 /// Converts a resizing algorithm string to a libvips Kernel enum.
-fn get_resize_kernel(algorithm: &Option<String>) -> ops::Kernel {
-    match algorithm.as_deref().unwrap_or("lanczos3") {
+fn get_resize_kernel(algorithm: Option<&str>) -> ops::Kernel {
+    match algorithm.unwrap_or("lanczos3") {
         "nearest" => ops::Kernel::Nearest,
         "linear" => ops::Kernel::Linear,
         "cubic" => ops::Kernel::Cubic,
@@ -38,7 +38,7 @@ pub fn resize_with_algorithm(
     img: &VipsImage,
     hscale: f64,
     vscale: Option<f64>,
-    resizing_algorithm: &Option<String>,
+    resizing_algorithm: Option<&str>,
     error_context: &str,
 ) -> Result<VipsImage, String> {
     let options = ops::ResizeOptions {
@@ -172,7 +172,7 @@ pub fn apply_resize(
     img: VipsImage,
     resize: &Resize,
     gravity: &Option<Gravity>,
-    resizing_algorithm: &Option<String>,
+    resizing_algorithm: Option<&str>,
 ) -> Result<VipsImage, String> {
     let src_width = img.get_width() as u32;
     let src_height = img.get_height() as u32;
@@ -216,7 +216,7 @@ fn resize_to_fill(
     width: u32,
     height: u32,
     gravity: Gravity,
-    resizing_algorithm: &Option<String>,
+    resizing_algorithm: Option<&str>,
 ) -> Result<VipsImage, String> {
     let (img_w, img_h) = (img.get_width() as u32, img.get_height() as u32);
     let aspect_ratio = img_w as f32 / img_h as f32;
@@ -266,7 +266,7 @@ fn resize_to_force(
     img: VipsImage,
     width: u32,
     height: u32,
-    resizing_algorithm: &Option<String>,
+    resizing_algorithm: Option<&str>,
 ) -> Result<VipsImage, String> {
     let (src_w, src_h) = (img.get_width() as f64, img.get_height() as f64);
     let scale_x = width as f64 / src_w;
@@ -283,7 +283,7 @@ fn resize_to_fit(
     img: VipsImage,
     width: u32,
     height: u32,
-    resizing_algorithm: &Option<String>,
+    resizing_algorithm: Option<&str>,
 ) -> Result<VipsImage, String> {
     let (img_w, img_h) = (img.get_width() as u32, img.get_height() as u32);
     let aspect_ratio = img_w as f32 / img_h as f32;
@@ -500,7 +500,7 @@ pub fn apply_min_dimensions(
     img: VipsImage,
     min_width: Option<u32>,
     min_height: Option<u32>,
-    resizing_algorithm: &Option<String>,
+    resizing_algorithm: Option<&str>,
 ) -> Result<VipsImage, String> {
     let mut current_img = img;
     let (img_w, img_h) = (current_img.get_width() as u32, current_img.get_height() as u32);
@@ -534,7 +534,7 @@ pub fn apply_min_dimensions(
 }
 
 /// Applies zoom to an image.
-pub fn apply_zoom(img: VipsImage, zoom: f32, resizing_algorithm: &Option<String>) -> Result<VipsImage, String> {
+pub fn apply_zoom(img: VipsImage, zoom: f32, resizing_algorithm: Option<&str>) -> Result<VipsImage, String> {
     if !zoom.is_finite() || zoom <= 0.0 {
         return Err("zoom must be a finite positive number".to_string());
     }
@@ -555,26 +555,25 @@ pub fn apply_sharpen(img: VipsImage, sigma: f32) -> Result<VipsImage, String> {
 }
 
 /// Pixelates an image.
-pub fn apply_pixelate(img: VipsImage, amount: u32, _resizing_algorithm: &Option<String>) -> Result<VipsImage, String> {
+pub fn apply_pixelate(img: VipsImage, amount: u32, _resizing_algorithm: Option<&str>) -> Result<VipsImage, String> {
     if amount == 0 {
         return Ok(img);
     }
     let (w, h) = (img.get_width() as u32, img.get_height() as u32);
     let target_w = (w / amount).max(1);
     let target_h = (h / amount).max(1);
-    let nearest = Some("nearest".to_string());
     let pixelated = resize_with_algorithm(
         &img,
         target_w as f64 / w as f64,
         Some(target_h as f64 / h as f64),
-        &nearest,
+        Some("nearest"),
         "Error pixelating (down)",
     )?;
     resize_with_algorithm(
         &pixelated,
         w as f64 / pixelated.get_width() as f64,
         Some(h as f64 / pixelated.get_height() as f64),
-        &nearest,
+        Some("nearest"),
         "Error pixelating (up)",
     )
 }

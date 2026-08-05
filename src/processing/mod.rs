@@ -104,7 +104,12 @@ pub fn process_image(
                 target_w, target_h, src_width, src_height
             );
         } else {
-            img = transform::apply_resize(img, resize, &parsed_options.gravity, &parsed_options.resizing_algorithm)?;
+            img = transform::apply_resize(
+                img,
+                resize,
+                &parsed_options.gravity,
+                parsed_options.resizing_algorithm.as_deref(),
+            )?;
         }
     }
 
@@ -118,14 +123,14 @@ pub fn process_image(
             img,
             parsed_options.min_width,
             parsed_options.min_height,
-            &parsed_options.resizing_algorithm,
+            parsed_options.resizing_algorithm.as_deref(),
         )?;
     }
 
     // Apply zoom if specified
     if let Some(zoom) = parsed_options.zoom {
         debug!("Applying zoom: {}", zoom);
-        img = transform::apply_zoom(img, zoom, &parsed_options.resizing_algorithm)?;
+        img = transform::apply_zoom(img, zoom, parsed_options.resizing_algorithm.as_deref())?;
     }
 
     // Apply extend if specified
@@ -185,14 +190,19 @@ pub fn process_image(
     // Apply pixelate if specified
     if let Some(amount) = parsed_options.pixelate {
         debug!("Applying pixelate with amount: {}", amount);
-        img = transform::apply_pixelate(img, amount, &parsed_options.resizing_algorithm)?;
+        img = transform::apply_pixelate(img, amount, parsed_options.resizing_algorithm.as_deref())?;
     }
 
     // Apply watermark if specified
     if let Some(ref watermark_opts) = parsed_options.watermark {
         if let Some(watermark) = watermark {
             debug!("Applying watermark with options: {:?}", watermark_opts);
-            img = watermark::apply_watermark(img, watermark, watermark_opts, &parsed_options.resizing_algorithm)?;
+            img = watermark::apply_watermark(
+                img,
+                watermark,
+                watermark_opts,
+                parsed_options.resizing_algorithm.as_deref(),
+            )?;
         }
     }
 

@@ -91,7 +91,7 @@ fn test_apply_background_color_no_alpha() {
 fn test_apply_min_dimensions() {
     init_vips();
     let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
-    let min_dims_img = transform::apply_min_dimensions(img, Some(200), Some(150), &None).unwrap();
+    let min_dims_img = transform::apply_min_dimensions(img, Some(200), Some(150), None).unwrap();
     assert_eq!(min_dims_img.get_width(), 200);
     assert_eq!(min_dims_img.get_height(), 200); // Scales by max(2, 1.5) = 2
 }
@@ -100,7 +100,7 @@ fn test_apply_min_dimensions() {
 fn test_apply_zoom() {
     init_vips();
     let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
-    let zoomed_img = transform::apply_zoom(img, 2.0, &None).unwrap();
+    let zoomed_img = transform::apply_zoom(img, 2.0, None).unwrap();
     assert_eq!(zoomed_img.get_width(), 200);
     assert_eq!(zoomed_img.get_height(), 200);
 }
@@ -118,7 +118,7 @@ fn test_apply_sharpen() {
 fn test_apply_pixelate() {
     init_vips();
     let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
-    let pixelated_img = transform::apply_pixelate(img, 10, &None).unwrap();
+    let pixelated_img = transform::apply_pixelate(img, 10, None).unwrap();
     assert_eq!(pixelated_img.get_width(), 100);
     assert_eq!(pixelated_img.get_height(), 100);
 }
@@ -127,7 +127,7 @@ fn test_apply_pixelate() {
 fn test_apply_pixelate_ignores_requested_resizing_kernel() {
     init_vips();
     let img = VipsImage::new_from_buffer(&create_quadrant_test_image(40, 40), "").unwrap();
-    let pixelated_img = transform::apply_pixelate(img, 10, &Some("lanczos3".to_string())).unwrap();
+    let pixelated_img = transform::apply_pixelate(img, 10, Some("lanczos3")).unwrap();
     assert_eq!(pixelated_img.get_width(), 40);
     assert_eq!(pixelated_img.get_height(), 40);
 }
@@ -136,7 +136,7 @@ fn test_apply_pixelate_ignores_requested_resizing_kernel() {
 fn test_apply_pixelate_with_extreme_amount_keeps_dimensions() {
     init_vips();
     let img = VipsImage::new_from_buffer(&create_test_image(10, 10), "").unwrap();
-    let pixelated_img = transform::apply_pixelate(img, 1_000, &None).unwrap();
+    let pixelated_img = transform::apply_pixelate(img, 1_000, None).unwrap();
     assert_eq!(pixelated_img.get_width(), 10);
     assert_eq!(pixelated_img.get_height(), 10);
 }
@@ -213,7 +213,7 @@ fn test_pixelate_zero() {
     init_vips();
     let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
     let original_width = img.get_width();
-    let pixelated_img = transform::apply_pixelate(img, 0, &None).unwrap();
+    let pixelated_img = transform::apply_pixelate(img, 0, None).unwrap();
     assert_eq!(pixelated_img.get_width(), original_width);
 }
 
@@ -221,7 +221,7 @@ fn test_pixelate_zero() {
 fn test_pixelate_small_amount() {
     init_vips();
     let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
-    let pixelated_img = transform::apply_pixelate(img, 1, &None).unwrap();
+    let pixelated_img = transform::apply_pixelate(img, 1, None).unwrap();
     assert_eq!(pixelated_img.get_width(), 100);
 }
 
@@ -229,7 +229,7 @@ fn test_pixelate_small_amount() {
 fn test_pixelate_large_amount() {
     init_vips();
     let img = VipsImage::new_from_buffer(&create_test_image(200, 200), "").unwrap();
-    let pixelated_img = transform::apply_pixelate(img, 50, &None).unwrap();
+    let pixelated_img = transform::apply_pixelate(img, 50, None).unwrap();
     assert_eq!(pixelated_img.get_width(), 200);
     assert_eq!(pixelated_img.get_height(), 200);
 }
@@ -239,7 +239,7 @@ fn test_pixelate_large_amount() {
 fn test_apply_min_width_only() {
     init_vips();
     let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
-    let result = transform::apply_min_dimensions(img, Some(200), None, &None).unwrap();
+    let result = transform::apply_min_dimensions(img, Some(200), None, None).unwrap();
     assert_eq!(result.get_width(), 200);
     assert_eq!(result.get_height(), 200);
 }
@@ -248,7 +248,7 @@ fn test_apply_min_width_only() {
 fn test_apply_min_height_only() {
     init_vips();
     let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
-    let result = transform::apply_min_dimensions(img, None, Some(150), &None).unwrap();
+    let result = transform::apply_min_dimensions(img, None, Some(150), None).unwrap();
     assert_eq!(result.get_width(), 150);
     assert_eq!(result.get_height(), 150);
 }
@@ -257,7 +257,7 @@ fn test_apply_min_height_only() {
 fn test_apply_min_dimensions_already_larger() {
     init_vips();
     let img = VipsImage::new_from_buffer(&create_test_image(200, 200), "").unwrap();
-    let result = transform::apply_min_dimensions(img, Some(100), Some(100), &None).unwrap();
+    let result = transform::apply_min_dimensions(img, Some(100), Some(100), None).unwrap();
     assert_eq!(result.get_width(), 200);
     assert_eq!(result.get_height(), 200);
 }
@@ -266,7 +266,7 @@ fn test_apply_min_dimensions_already_larger() {
 fn test_apply_zoom_scale_down() {
     init_vips();
     let img = VipsImage::new_from_buffer(&create_test_image(200, 200), "").unwrap();
-    let zoomed = transform::apply_zoom(img, 0.5, &None).unwrap();
+    let zoomed = transform::apply_zoom(img, 0.5, None).unwrap();
     assert_eq!(zoomed.get_width(), 100);
     assert_eq!(zoomed.get_height(), 100);
 }
@@ -275,7 +275,7 @@ fn test_apply_zoom_scale_down() {
 fn test_apply_zoom_scale_up() {
     init_vips();
     let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
-    let zoomed = transform::apply_zoom(img, 3.0, &None).unwrap();
+    let zoomed = transform::apply_zoom(img, 3.0, None).unwrap();
     assert_eq!(zoomed.get_width(), 300);
     assert_eq!(zoomed.get_height(), 300);
 }
@@ -284,7 +284,7 @@ fn test_apply_zoom_scale_up() {
 fn test_apply_zoom_rejects_non_positive_values() {
     init_vips();
     let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
-    let err = transform::apply_zoom(img, 0.0, &None).unwrap_err();
+    let err = transform::apply_zoom(img, 0.0, None).unwrap_err();
     assert!(err.contains("zoom must be a finite positive number"));
 }
 

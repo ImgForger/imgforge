@@ -21,7 +21,7 @@ fn test_apply_watermark() {
         opacity: 0.5,
         position: "ce".to_string(),
     };
-    let watermarked_img = watermark::apply_watermark(img, &watermark, &watermark_opts, &None).unwrap();
+    let watermarked_img = watermark::apply_watermark(img, &watermark, &watermark_opts, None).unwrap();
 
     assert_eq!(watermarked_img.get_width(), 200);
     assert_eq!(watermarked_img.get_height(), 200);
@@ -44,7 +44,7 @@ fn test_apply_watermark_prepared() {
         opacity: 0.5,
         position: "soea".to_string(),
     };
-    let watermarked = watermark::apply_watermark(img, &watermark, &watermark_opts, &None).unwrap();
+    let watermarked = watermark::apply_watermark(img, &watermark, &watermark_opts, None).unwrap();
 
     assert_eq!(watermarked.get_width(), 200);
     assert_eq!(watermarked.get_height(), 200);
@@ -71,11 +71,11 @@ fn test_apply_watermark_prepared_matches_bytes_path() {
 
     let from_bytes = cached_watermark_from_bytes(watermark_bytes.clone());
     let img = VipsImage::new_from_buffer(&base_a, "").unwrap();
-    let via_bytes = watermark::apply_watermark(img, &from_bytes, &watermark_opts, &None).unwrap();
+    let via_bytes = watermark::apply_watermark(img, &from_bytes, &watermark_opts, None).unwrap();
 
     let prepared = watermark::prepare_cached_watermark(Bytes::from(watermark_bytes)).unwrap();
     let img = VipsImage::new_from_buffer(&base_b, "").unwrap();
-    let via_prepared = watermark::apply_watermark(img, &prepared, &watermark_opts, &None).unwrap();
+    let via_prepared = watermark::apply_watermark(img, &prepared, &watermark_opts, None).unwrap();
 
     assert_eq!(via_bytes.get_width(), via_prepared.get_width());
     assert_eq!(via_bytes.get_height(), via_prepared.get_height());
@@ -104,7 +104,7 @@ fn test_apply_watermark_prepared_rgb_watermark() {
         opacity: 0.5,
         position: "ce".to_string(),
     };
-    let watermarked = watermark::apply_watermark(img, &watermark, &watermark_opts, &None).unwrap();
+    let watermarked = watermark::apply_watermark(img, &watermark, &watermark_opts, None).unwrap();
 
     assert_eq!(watermarked.get_width(), 200);
     assert_eq!(watermarked.get_height(), 200);
@@ -123,7 +123,7 @@ fn test_watermark_all_positions() {
             opacity: 0.5,
             position: position.to_string(),
         };
-        let watermarked = watermark::apply_watermark(img, &watermark, &watermark_opts, &None).unwrap();
+        let watermarked = watermark::apply_watermark(img, &watermark, &watermark_opts, None).unwrap();
         assert_eq!(watermarked.get_width(), 200);
         assert_eq!(watermarked.get_height(), 200);
     }
@@ -138,7 +138,7 @@ fn test_watermark_full_opacity() {
         opacity: 1.0,
         position: "ce".to_string(),
     };
-    let watermarked = watermark::apply_watermark(img, &watermark, &watermark_opts, &None).unwrap();
+    let watermarked = watermark::apply_watermark(img, &watermark, &watermark_opts, None).unwrap();
     assert_eq!(watermarked.get_width(), 200);
     assert_eq!(watermarked.get_height(), 200);
 }
@@ -152,7 +152,7 @@ fn test_watermark_zero_opacity() {
         opacity: 0.0,
         position: "ce".to_string(),
     };
-    let watermarked = watermark::apply_watermark(img, &watermark, &watermark_opts, &None).unwrap();
+    let watermarked = watermark::apply_watermark(img, &watermark, &watermark_opts, None).unwrap();
     assert_eq!(watermarked.get_width(), 200);
     assert_eq!(watermarked.get_height(), 200);
 }

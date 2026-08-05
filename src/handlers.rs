@@ -70,7 +70,7 @@ pub async fn image_forge_handler(
     {
         Ok(result) => {
             let mut headers = header::HeaderMap::new();
-            headers.insert(header::CONTENT_TYPE, result.content_type.parse().unwrap());
+            headers.insert(header::CONTENT_TYPE, HeaderValue::from_static(result.content_type));
             if result.cache_status == CacheStatus::Hit {
                 headers.insert(
                     header::CACHE_STATUS,

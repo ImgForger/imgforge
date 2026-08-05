@@ -250,17 +250,13 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
 
     let content_type = format_to_content_type(&output_format);
     if content_disposition.is_none() && !matches!(state.cache, ImgforgeCache::None) {
-        if let Err(err) = state
-            .cache
-            .insert(
-                path.to_string(),
-                CachedImage {
-                    bytes: processed_image_bytes.clone(),
-                    content_type,
-                },
-            )
-            .await
-        {
+        if let Err(err) = state.cache.insert(
+            path.to_string(),
+            CachedImage {
+                bytes: processed_image_bytes.clone(),
+                content_type,
+            },
+        ) {
             error!("Failed to cache image: {}", err);
         }
     }
@@ -352,7 +348,7 @@ pub async fn image_info(state: Arc<AppState>, request: ProcessRequest<'_>) -> Re
     };
 
     if cacheable && !matches!(state.metadata_cache, MetadataCache::None) {
-        if let Err(err) = state.metadata_cache.insert(path.to_string(), metadata).await {
+        if let Err(err) = state.metadata_cache.insert(path.to_string(), metadata) {
             error!("Failed to cache metadata: {}", err);
         }
     }
@@ -524,29 +520,22 @@ async fn resolve_watermark(
         }
     } else if parsed_options.watermark.is_some() {
         if let Some(path) = &state.config.watermark_path {
-            if let Some(cached) = state.watermark_cache.lock().await.clone() {
-                return Ok(Some(cached));
-            }
+            let watermark = state
+                .watermark_cache
+                .get_or_try_init(|| async {
+                    debug!("Loading watermark from path: {} (cached on first load)", path);
+                    let bytes = fs::read(path).await.map(Bytes::from).map_err(|e| {
+                        error!("Failed to read watermark image from path: {}", e);
+                        ServiceError::new(StatusCode::BAD_REQUEST, "Failed to read watermark image from path")
+                    })?;
 
-            debug!("Loading watermark from path: {} (cached on first load)", path);
-            let bytes = match fs::read(path).await {
-                Ok(bytes) => Bytes::from(bytes),
-                Err(e) => {
-                    error!("Failed to read watermark image from path: {}", e);
-                    return Err(ServiceError::new(
-                        StatusCode::BAD_REQUEST,
-                        "Failed to read watermark image from path",
-                    ));
-                }
-            };
-
-            let watermark = watermark::prepare_cached_watermark(bytes.clone()).map_err(|e| {
-                error!("Failed to decode watermark image: {}", e);
-                ServiceError::new(StatusCode::BAD_REQUEST, "Failed to decode watermark image")
-            })?;
-            let mut cache = state.watermark_cache.lock().await;
-            *cache = Some(watermark.clone());
-            Ok(Some(watermark))
+                    watermark::prepare_cached_watermark(bytes).map_err(|e| {
+                        error!("Failed to decode watermark image: {}", e);
+                        ServiceError::new(StatusCode::BAD_REQUEST, "Failed to decode watermark image")
+                    })
+                })
+                .await?;
+            Ok(Some(watermark.clone()))
         } else {
             Ok(None)
         }
@@ -568,17 +557,13 @@ async fn serve_raw_response(
         .unwrap_or("image/jpeg");
 
     if content_disposition.is_none() && !matches!(state.cache, ImgforgeCache::None) {
-        if let Err(err) = state
-            .cache
-            .insert(
-                path.to_string(),
-                CachedImage {
-                    bytes: image_bytes.clone(),
-                    content_type,
-                },
-            )
-            .await
-        {
+        if let Err(err) = state.cache.insert(
+            path.to_string(),
+            CachedImage {
+                bytes: image_bytes.clone(),
+                content_type,
+            },
+        ) {
             error!("Failed to cache raw image: {}", err);
         }
     }
