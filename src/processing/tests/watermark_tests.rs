@@ -38,7 +38,8 @@ fn test_apply_watermark_prepared() {
     let watermark = watermark::prepare_cached_watermark(Bytes::from(create_test_image(50, 50))).unwrap();
     assert!(watermark.prepared_rgba.is_some());
 
-    let img = VipsImage::new_from_buffer(&create_test_image_jpeg(200, 200), "").unwrap();
+    let base = create_test_image_jpeg(200, 200);
+    let img = VipsImage::new_from_buffer(&base, "").unwrap();
     let watermark_opts = Watermark {
         opacity: 0.5,
         position: "soea".to_string(),
@@ -47,6 +48,7 @@ fn test_apply_watermark_prepared() {
 
     assert_eq!(watermarked.get_width(), 200);
     assert_eq!(watermarked.get_height(), 200);
+    assert!(!watermarked.image_write_to_memory().is_empty());
 }
 
 #[test]
@@ -96,7 +98,8 @@ fn test_apply_watermark_prepared_rgb_watermark() {
     let watermark = watermark::prepare_cached_watermark(Bytes::from(create_test_image_jpeg(50, 50))).unwrap();
     assert!(watermark.prepared_rgba.is_some());
 
-    let img = VipsImage::new_from_buffer(&create_test_image(200, 200), "").unwrap();
+    let base = create_test_image(200, 200);
+    let img = VipsImage::new_from_buffer(&base, "").unwrap();
     let watermark_opts = Watermark {
         opacity: 0.5,
         position: "ce".to_string(),
@@ -105,6 +108,7 @@ fn test_apply_watermark_prepared_rgb_watermark() {
 
     assert_eq!(watermarked.get_width(), 200);
     assert_eq!(watermarked.get_height(), 200);
+    assert!(!watermarked.image_write_to_memory().is_empty());
 }
 
 #[test]

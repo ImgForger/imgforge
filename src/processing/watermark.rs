@@ -37,7 +37,6 @@ impl PreparedWatermark {
                 yres: self.yres,
                 xoffset: 0,
                 yoffset: 0,
-                ..ops::CopyOptions::default()
             },
         )
         .map_err(|e| format!("Failed to restore watermark image header: {}", e))
