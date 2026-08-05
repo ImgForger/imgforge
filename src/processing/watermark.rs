@@ -10,12 +10,36 @@ pub struct PreparedWatermark {
     height: i32,
     bands: i32,
     format: ops::BandFormat,
+    interpretation: ops::Interpretation,
+    xres: f64,
+    yres: f64,
 }
 
 impl PreparedWatermark {
     fn to_image(&self) -> Result<VipsImage, String> {
-        VipsImage::new_from_memory(&self.bytes, self.width, self.height, self.bands, self.format)
-            .map_err(|e| format!("Failed to load watermark from prepared bytes: {}", e))
+        let raw = VipsImage::new_from_memory(&self.bytes, self.width, self.height, self.bands, self.format)
+            .map_err(|e| format!("Failed to load watermark from prepared bytes: {}", e))?;
+
+        // new_from_memory yields a header-less raw image (interpretation
+        // MULTIBAND), which vips_composite2 refuses to blend with an sRGB
+        // base. Restore the full header captured at decode time; every
+        // CopyOptions field must be set because copy applies them all.
+        ops::copy_with_opts(
+            &raw,
+            &ops::CopyOptions {
+                width: self.width,
+                height: self.height,
+                bands: self.bands,
+                format: self.format,
+                coding: ops::Coding::None,
+                interpretation: self.interpretation,
+                xres: self.xres,
+                yres: self.yres,
+                xoffset: 0,
+                yoffset: 0,
+            },
+        )
+        .map_err(|e| format!("Failed to restore watermark image header: {}", e))
     }
 }
 
@@ -125,12 +149,18 @@ fn build_prepared_watermark_image(watermark_img: VipsImage) -> Result<PreparedWa
     let format = watermark_img
         .get_format()
         .map_err(|e| format!("Failed to determine watermark format: {}", e))?;
+    let interpretation = watermark_img
+        .get_interpretation()
+        .map_err(|e| format!("Failed to determine watermark interpretation: {}", e))?;
     let prepared = PreparedWatermark {
         bytes: Bytes::from(watermark_img.image_write_to_memory()),
         width: watermark_img.get_width(),
         height: watermark_img.get_height(),
         bands: watermark_img.get_bands(),
         format,
+        interpretation,
+        xres: watermark_img.get_xres(),
+        yres: watermark_img.get_yres(),
     };
 
     Ok(prepared)
