@@ -26,44 +26,44 @@ name = "imgforge"
 path = "src/main.rs"
 
 [dependencies]
-axum = "0.8.8"
+axum = "0.8.9"
 base64 = "0.22.1"
 hex = "0.4.3"
 hmac = "0.12.1"
-libvips = "1.7.3"
+libvips = "1.7.6"
 kamadak-exif = "0.6.1"
 percent-encoding = "2.3.2"
-reqwest = { version = "0.13.2", features = ["json"] }
+reqwest = { version = "0.13.4", features = ["json"] }
 sha2 = "0.10.9"
-tokio = { version = "1.50.0", features = ["full"] }
-axum-extra = { version = "0.12.5", features = ["typed-header"] }
+tokio = { version = "1.53.1", features = ["full"] }
+axum-extra = { version = "0.12.6", features = ["typed-header"] }
 num_cpus = "1.17.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-rand = "0.10.0"
-tower-http = { version = "0.6.8", features = ["trace", "timeout"] }
-thiserror = "2.0.18"
+rand = "0.10.2"
+tower-http = { version = "0.6.11", features = ["trace", "timeout"] }
+thiserror = "2.0.19"
 foyer = "0.22.3"
-axum-prometheus = "0.10.0"
+axum-prometheus = "0.10.1"
 lazy_static = "1.5.0"
 governor = "0.10.4"
-bytes = "1.11.1"
-metrics = "0.24.3"
+bytes = "1.12.1"
+metrics = "0.24.6"
 
 [dev-dependencies]
-tempfile = "3.26.0"
-image = "0.25.9"
+tempfile = "3.27.0"
+image = "0.25.10"
 lazy_static = "1.5.0"
 percent-encoding = "2.3.2"
-reqwest = "0.13.2"
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.149"
+reqwest = "0.13.4"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
 sha2 = "0.10.9"
-tokio = { version = "1.50.0", features = ["full"] }
+tokio = { version = "1.53.1", features = ["full"] }
 tracing = "0.1.44"
-tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
 wiremock = "0.6"
