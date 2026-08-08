@@ -11,7 +11,20 @@ use crate::processing::watermark::CachedWatermark;
 use bytes::Bytes;
 use libvips::VipsImage;
 use std::time::Instant;
+use thiserror::Error;
 use tracing::debug;
+
+/// Errors produced by the image processing pipeline.
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum ProcessingError {
+    #[error(transparent)]
+    Transform(#[from] transform::TransformError),
+    #[error(transparent)]
+    Watermark(#[from] watermark::WatermarkError),
+    #[error(transparent)]
+    Save(#[from] save::SaveError),
+}
 
 /// Processes an image by applying the given `ParsedOptions`.
 ///
@@ -28,13 +41,13 @@ use tracing::debug;
 ///
 /// # Returns
 ///
-/// A `Result` containing the processed image bytes on success, or an error message as a `String`.
+/// A `Result` containing the processed image bytes on success, or a typed processing error.
 pub fn process_image(
     mut img: VipsImage,
     mut parsed_options: ParsedOptions,
     source_bytes: &Bytes,
     watermark: Option<&CachedWatermark>,
-) -> Result<Bytes, String> {
+) -> Result<Bytes, ProcessingError> {
     let start = Instant::now();
     debug!("Starting image processing with options: {:?}", parsed_options);
 

@@ -1,5 +1,5 @@
 use crate::processing::options::{Gravity, Resize};
-use crate::processing::transform;
+use crate::processing::transform::{self, TransformError};
 use libvips::VipsImage;
 
 use super::tests_support::*;
@@ -111,8 +111,13 @@ fn test_apply_resize_unknown_type_error() {
         height: 100,
     };
     let result = transform::apply_resize(img, &resize, &None, None);
-    assert!(result.is_err());
-    assert!(result.unwrap_err().contains("Unknown resize type"));
+    assert!(matches!(
+        result,
+        Err(TransformError::InvalidArgument {
+            operation: "resize",
+            ref message,
+        }) if message.contains("Unknown resize type")
+    ));
 }
 
 #[test]
@@ -123,8 +128,13 @@ fn test_resolve_resize_dimensions_rejects_both_zero() {
         height: 0,
     };
     let result = transform::resolve_resize_dimensions(&resize, 400, 300);
-    assert!(result.is_err());
-    assert!(result.unwrap_err().contains("at least one non-zero"));
+    assert!(matches!(
+        result,
+        Err(TransformError::InvalidArgument {
+            operation: "resize",
+            ref message,
+        }) if message.contains("at least one non-zero")
+    ));
 }
 
 #[test]

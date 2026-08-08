@@ -1,5 +1,5 @@
 use crate::processing::options::{Adjust, Crop, Flip};
-use crate::processing::transform;
+use crate::processing::transform::{self, TransformError};
 use libvips::VipsImage;
 
 use super::tests_support::*;
@@ -204,8 +204,13 @@ fn test_rotation_270_degrees() {
 fn test_rotation_unsupported_angle() {
     init_vips();
     let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
-    let err = transform::apply_rotation(img, 45).unwrap_err();
-    assert!(err.contains("Unsupported rotation angle"));
+    assert!(matches!(
+        transform::apply_rotation(img, 45),
+        Err(TransformError::InvalidArgument {
+            operation: "rotation",
+            ..
+        })
+    ));
 }
 
 #[test]
@@ -284,8 +289,10 @@ fn test_apply_zoom_scale_up() {
 fn test_apply_zoom_rejects_non_positive_values() {
     init_vips();
     let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
-    let err = transform::apply_zoom(img, 0.0, None).unwrap_err();
-    assert!(err.contains("zoom must be a finite positive number"));
+    assert!(matches!(
+        transform::apply_zoom(img, 0.0, None),
+        Err(TransformError::InvalidArgument { operation: "zoom", .. })
+    ));
 }
 
 // Blur edge cases
@@ -311,8 +318,10 @@ fn test_apply_blur_extreme() {
 fn test_apply_blur_rejects_non_positive_sigma() {
     init_vips();
     let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
-    let err = transform::apply_blur(img, 0.0).unwrap_err();
-    assert!(err.contains("blur sigma must be a finite positive number"));
+    assert!(matches!(
+        transform::apply_blur(img, 0.0),
+        Err(TransformError::InvalidArgument { operation: "blur", .. })
+    ));
 }
 
 // Sharpen edge cases
@@ -347,8 +356,13 @@ fn test_apply_sharpen_clamps_sigma() {
 fn test_apply_sharpen_rejects_non_positive_sigma() {
     init_vips();
     let img = VipsImage::new_from_buffer(&create_test_image(50, 50), "").unwrap();
-    let err = transform::apply_sharpen(img, 0.0).unwrap_err();
-    assert!(err.contains("sharpen sigma must be a finite positive number"));
+    assert!(matches!(
+        transform::apply_sharpen(img, 0.0),
+        Err(TransformError::InvalidArgument {
+            operation: "sharpen",
+            ..
+        })
+    ));
 }
 
 // Background color tests

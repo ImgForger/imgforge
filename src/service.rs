@@ -4,8 +4,9 @@ use crate::fetch::{fetch_image, FetchError};
 use crate::limits::{MaxSourceFileSize, MaxSourceResolution};
 use crate::processing::options::{parse_all_options, OptionParseError, ParsedOptions};
 use crate::processing::presets::{expand_presets, PresetError};
-use crate::processing::process_image;
+use crate::processing::save::SaveError;
 use crate::processing::watermark::{self, CachedWatermark};
+use crate::processing::{process_image, ProcessingError};
 use crate::url::{parse_path, validate_signature, ImgforgeUrl, SourceUrlDecodeError};
 use crate::utils::{content_type_to_format, format_to_content_type, read_exif_orientation};
 use axum::http::StatusCode;
@@ -76,6 +77,13 @@ pub enum ServiceError {
     OptionParse(#[from] OptionParseError),
     #[error(transparent)]
     SourceUrlDecode(#[from] SourceUrlDecodeError),
+    #[error(transparent)]
+    Processing(#[from] ProcessingError),
+    #[error("failed to decode source image")]
+    SourceImageDecode {
+        #[source]
+        source: libvips::error::Error,
+    },
     #[error("{message}")]
     Response { status: StatusCode, message: String },
 }
@@ -94,7 +102,12 @@ impl ServiceError {
             | Self::WatermarkFetch { .. }
             | Self::Preset(_)
             | Self::OptionParse(_)
-            | Self::SourceUrlDecode(_) => StatusCode::BAD_REQUEST,
+            | Self::SourceUrlDecode(_)
+            | Self::SourceImageDecode { .. } => StatusCode::BAD_REQUEST,
+            Self::Processing(ProcessingError::Save(SaveError::Vips { .. } | SaveError::EncoderPanicked { .. })) => {
+                StatusCode::INTERNAL_SERVER_ERROR
+            }
+            Self::Processing(_) => StatusCode::BAD_REQUEST,
             Self::Response { status, .. } => *status,
         }
     }
@@ -110,6 +123,12 @@ impl ServiceError {
             Self::Preset(error) => Cow::Owned(error.to_string()),
             Self::OptionParse(error) => Cow::Owned(error.to_string()),
             Self::SourceUrlDecode(_) => Cow::Borrowed("Error decoding URL"),
+            Self::Processing(ProcessingError::Save(SaveError::UnsupportedFormat { format })) => {
+                Cow::Owned(format!("Unsupported output format: {format}"))
+            }
+            Self::Processing(ProcessingError::Save(_)) => Cow::Borrowed("Failed to encode image"),
+            Self::Processing(_) => Cow::Borrowed("Error processing image"),
+            Self::SourceImageDecode { .. } => Cow::Borrowed("Failed to decode source image"),
             Self::Response { message, .. } => Cow::Borrowed(message),
         }
     }
@@ -238,11 +257,8 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
     let output_format = parsed_options.format.clone().unwrap_or_else(|| "jpeg".to_string());
 
     let processed_image_bytes = {
-        let source_image = VipsImage::new_from_buffer(&image_bytes, "").map_err(|e| {
-            let response = format!("Error loading image from memory: {}", e);
-            error!("{}", response);
-            ServiceError::new(StatusCode::INTERNAL_SERVER_ERROR, response)
-        })?;
+        let source_image = VipsImage::new_from_buffer(&image_bytes, "")
+            .map_err(|source| ServiceError::SourceImageDecode { source })?;
 
         enforce_security_constraints(
             state.as_ref(),
@@ -252,10 +268,7 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
             Some(&source_image),
         )?;
 
-        process_image(source_image, parsed_options, &image_bytes, watermark.as_ref()).map_err(|e| {
-            error!("Error processing image: {}", e);
-            ServiceError::new(StatusCode::BAD_REQUEST, format!("Error processing image: {}", e))
-        })?
+        process_image(source_image, parsed_options, &image_bytes, watermark.as_ref())?
     };
 
     let content_type = format_to_content_type(&output_format);
@@ -544,10 +557,9 @@ async fn resolve_watermark(
                         ServiceError::new(StatusCode::BAD_REQUEST, "Failed to read watermark image from path")
                     })?;
 
-                    watermark::prepare_cached_watermark(bytes).map_err(|e| {
-                        error!("Failed to decode watermark image: {}", e);
-                        ServiceError::new(StatusCode::BAD_REQUEST, "Failed to decode watermark image")
-                    })
+                    watermark::prepare_cached_watermark(bytes)
+                        .map_err(ProcessingError::from)
+                        .map_err(ServiceError::from)
                 })
                 .await?;
             Ok(Some(watermark.clone()))
@@ -687,6 +699,32 @@ mod tests {
 
         assert_eq!(error.status(), StatusCode::BAD_REQUEST);
         assert_eq!(error.message(), "Error decoding URL");
+        assert!(error.source().is_some());
+    }
+
+    #[test]
+    fn processing_error_preserves_vips_source_and_uses_safe_client_message() {
+        let transform_error = crate::processing::transform::TransformError::Vips {
+            operation: "test resize",
+            source: libvips::error::Error::ResizeError,
+        };
+        let error = ServiceError::from(ProcessingError::from(transform_error));
+
+        assert_eq!(error.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(error.message(), "Error processing image");
+        assert!(error.source().is_some());
+    }
+
+    #[test]
+    fn encoder_failure_maps_to_internal_server_error() {
+        let save_error = SaveError::Vips {
+            format: "JPEG",
+            source: libvips::error::Error::JpegsaveBufferError,
+        };
+        let error = ServiceError::from(ProcessingError::from(save_error));
+
+        assert_eq!(error.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(error.message(), "Failed to encode image");
         assert!(error.source().is_some());
     }
 
