@@ -1,6 +1,7 @@
-use crate::app::Imgforge;
+use crate::app::{Imgforge, InitError};
 use crate::caching::config::CacheConfig;
-use crate::config::Config;
+use crate::caching::error::CacheError;
+use crate::config::{Config, ConfigError};
 use crate::constants::*;
 use crate::handlers::{image_forge_handler, info_handler, status_handler};
 use crate::middleware;
@@ -9,25 +10,54 @@ use axum::http::StatusCode;
 use axum::{extract::Request, routing::get, Router};
 use axum_prometheus::PrometheusMetricLayer;
 use std::time::Duration;
+use thiserror::Error;
 use tokio::net::TcpListener;
 use tower_http::timeout::TimeoutLayer;
 use tower_http::trace::TraceLayer;
 use tracing::{info, info_span, warn};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
-pub async fn start() {
+#[derive(Debug, Error)]
+pub enum ServerError {
+    #[error("failed to install tracing subscriber: {0}")]
+    Tracing(#[from] tracing::subscriber::SetGlobalDefaultError),
+    #[error("failed to load configuration: {0}")]
+    Configuration(#[from] ConfigError),
+    #[error("failed to load cache configuration: {0}")]
+    CacheConfiguration(#[from] CacheError),
+    #[error("failed to initialize imgforge: {0}")]
+    Initialization(#[from] InitError),
+    #[error("failed to bind main server to {address}: {source}")]
+    Bind {
+        address: String,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("{name} server failed: {source}")]
+    Serve {
+        name: &'static str,
+        #[source]
+        source: std::io::Error,
+    },
+}
+
+/// Configure and run the imgforge HTTP servers.
+///
+/// # Errors
+///
+/// Returns an error when tracing or application initialization fails, the main
+/// listener cannot bind, or a running server encounters an I/O failure.
+pub async fn start() -> Result<(), ServerError> {
     let subscriber = FmtSubscriber::builder()
         .with_env_filter(EnvFilter::from_env(ENV_LOG_LEVEL))
         .finish();
-    tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
+    tracing::subscriber::set_global_default(subscriber)?;
 
-    let config = Config::from_env().expect("Failed to load config");
-    let cache_config = CacheConfig::from_env().expect("Failed to load cache config");
+    let config = Config::from_env()?;
+    let cache_config = CacheConfig::from_env()?;
     info!("{}", CacheConfig::startup_log_message(cache_config.as_ref()));
 
-    let imgforge = Imgforge::new(config, cache_config)
-        .await
-        .expect("Failed to initialize imgforge");
+    let imgforge = Imgforge::new(config, cache_config).await?;
     let state = imgforge.state();
 
     info!("Starting imgforge server with {} workers...", state.config.workers);
@@ -79,8 +109,14 @@ pub async fn start() {
             StatusCode::REQUEST_TIMEOUT,
             Duration::from_secs(state.config.timeout),
         ));
-    let listener = TcpListener::bind(&state.config.bind_address).await.unwrap();
-    info!("Listening on http://{}", &state.config.bind_address);
+    let bind_address = state.config.bind_address.clone();
+    let listener = TcpListener::bind(&bind_address)
+        .await
+        .map_err(|source| ServerError::Bind {
+            address: bind_address.clone(),
+            source,
+        })?;
+    info!("Listening on http://{}", bind_address);
 
     let main_server = axum::serve(listener, app);
 
@@ -103,20 +139,35 @@ pub async fn start() {
 
                 let prometheus_server = axum::serve(prometheus_listener, prometheus_app);
 
-                tokio::select! {
-                    _ = main_server => {},
-                    _ = prometheus_server => {},
-                }
+                let main_server = async {
+                    main_server
+                        .await
+                        .map_err(|source| ServerError::Serve { name: "main", source })
+                };
+                let prometheus_server = async {
+                    prometheus_server.await.map_err(|source| ServerError::Serve {
+                        name: "prometheus",
+                        source,
+                    })
+                };
+
+                tokio::try_join!(main_server, prometheus_server)?;
             }
             Err(e) => {
                 warn!(
                     "Failed to bind Prometheus to {}: {}. Prometheus metrics will not be available.",
                     prometheus_bind_address, e
                 );
-                main_server.await.unwrap();
+                main_server
+                    .await
+                    .map_err(|source| ServerError::Serve { name: "main", source })?;
             }
         }
     } else {
-        main_server.await.unwrap();
+        main_server
+            .await
+            .map_err(|source| ServerError::Serve { name: "main", source })?;
     }
+
+    Ok(())
 }

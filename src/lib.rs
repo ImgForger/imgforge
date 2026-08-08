@@ -15,4 +15,5 @@ pub mod utils;
 
 pub use app::{AppState, Imgforge, InitError};
 pub use limits::{MaxSourceFileSize, MaxSourceResolution, SecurityLimitError};
+pub use server::ServerError;
 pub use service::{CacheStatus, ImageInfo, ProcessRequest, ProcessedImage, ServiceError};
