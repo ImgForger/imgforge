@@ -4,6 +4,7 @@ pub mod config;
 pub mod constants;
 pub mod fetch;
 pub mod handlers;
+pub mod limits;
 pub mod middleware;
 pub mod monitoring;
 pub mod processing;
@@ -13,4 +14,5 @@ pub mod url;
 pub mod utils;
 
 pub use app::{AppState, Imgforge, InitError};
+pub use limits::{MaxSourceFileSize, MaxSourceResolution, SecurityLimitError};
 pub use service::{CacheStatus, ImageInfo, ProcessRequest, ProcessedImage, ServiceError};

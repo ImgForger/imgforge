@@ -1,7 +1,7 @@
 use crate::caching::cache::{ImgforgeCache as Cache, MetadataCache};
 use crate::caching::config::CacheConfig;
 use crate::caching::error::CacheError;
-use crate::config::Config;
+use crate::config::{Config, ConfigError};
 use crate::monitoring;
 use crate::processing::watermark::CachedWatermark;
 use governor::clock::DefaultClock;
@@ -37,7 +37,7 @@ pub struct Imgforge {
 #[derive(Debug, Error)]
 pub enum InitError {
     #[error("configuration error: {0}")]
-    Configuration(String),
+    Configuration(#[from] ConfigError),
     #[error("failed to initialize libvips: {0}")]
     Libvips(String),
     #[error("failed to build HTTP client: {0}")]
@@ -75,7 +75,7 @@ impl Imgforge {
 
     /// Construct imgforge using environment-derived configuration.
     pub async fn from_env() -> Result<Self, InitError> {
-        let config = Config::from_env().map_err(InitError::Configuration)?;
+        let config = Config::from_env()?;
         let cache_config = CacheConfig::from_env().map_err(InitError::Cache)?;
         Self::new(config, cache_config).await
     }

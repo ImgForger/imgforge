@@ -1,8 +1,34 @@
 use crate::constants::*;
+use crate::limits::{MaxSourceFileSize, MaxSourceResolution, SecurityLimitError};
 use crate::processing::options::ProcessingOption;
 use crate::processing::presets::parse_options_string;
 use std::collections::HashMap;
 use std::env;
+use std::str::FromStr;
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum ConfigError {
+    #[error("invalid IMGFORGE_KEY")]
+    InvalidKey(#[source] hex::FromHexError),
+    #[error("invalid IMGFORGE_SALT")]
+    InvalidSalt(#[source] hex::FromHexError),
+    #[error("{name} contains invalid Unicode")]
+    InvalidUnicode {
+        name: &'static str,
+        #[source]
+        source: env::VarError,
+    },
+    #[error("invalid value for {name} ({value:?}): {source}")]
+    InvalidSecurityLimit {
+        name: &'static str,
+        value: String,
+        #[source]
+        source: SecurityLimitError,
+    },
+    #[error("invalid presets: {0}")]
+    InvalidPresets(String),
+}
 
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -14,8 +40,8 @@ pub struct Config {
     pub salt: Vec<u8>,
     pub allow_unsigned: bool,
     pub allow_security_options: bool,
-    pub max_src_file_size: Option<usize>,
-    pub max_src_resolution: Option<f32>,
+    pub max_src_file_size: Option<MaxSourceFileSize>,
+    pub max_src_resolution: Option<MaxSourceResolution>,
     pub allowed_mime_types: Option<Vec<String>>,
     pub download_timeout: u64,
     pub secret: Option<String>,
@@ -65,6 +91,20 @@ fn parse_presets(presets_str: &str) -> Result<HashMap<String, Vec<ProcessingOpti
     Ok(presets)
 }
 
+fn parse_optional_security_limit<T>(name: &'static str) -> Result<Option<T>, ConfigError>
+where
+    T: FromStr<Err = SecurityLimitError>,
+{
+    match env::var(name) {
+        Ok(value) => value
+            .parse()
+            .map(Some)
+            .map_err(|source| ConfigError::InvalidSecurityLimit { name, value, source }),
+        Err(env::VarError::NotPresent) => Ok(None),
+        Err(source @ env::VarError::NotUnicode(_)) => Err(ConfigError::InvalidUnicode { name, source }),
+    }
+}
+
 impl Config {
     /// Create a configuration with default values using raw key and salt bytes.
     pub fn new(key: Vec<u8>, salt: Vec<u8>) -> Self {
@@ -90,13 +130,13 @@ impl Config {
     }
 
     /// Create a configuration from hexadecimal key and salt strings.
-    pub fn with_hex_keys(key_hex: &str, salt_hex: &str) -> Result<Self, String> {
-        let key = hex::decode(key_hex).map_err(|_| "Invalid IMGFORGE_KEY".to_string())?;
-        let salt = hex::decode(salt_hex).map_err(|_| "Invalid IMGFORGE_SALT".to_string())?;
+    pub fn with_hex_keys(key_hex: &str, salt_hex: &str) -> Result<Self, ConfigError> {
+        let key = hex::decode(key_hex).map_err(ConfigError::InvalidKey)?;
+        let salt = hex::decode(salt_hex).map_err(ConfigError::InvalidSalt)?;
         Ok(Self::new(key, salt))
     }
 
-    pub fn from_env() -> Result<Self, String> {
+    pub fn from_env() -> Result<Self, ConfigError> {
         let key_str = env::var(ENV_KEY).unwrap_or_default();
         let salt_str = env::var(ENV_SALT).unwrap_or_default();
         let mut config = Config::with_hex_keys(&key_str, &salt_str)?;
@@ -121,8 +161,8 @@ impl Config {
         config.allow_security_options =
             env::var(ENV_ALLOW_SECURITY_OPTIONS).unwrap_or_default().to_lowercase() == "true";
 
-        config.max_src_file_size = env::var(ENV_MAX_SRC_FILE_SIZE).ok().and_then(|s| s.parse().ok());
-        config.max_src_resolution = env::var(ENV_MAX_SRC_RESOLUTION).ok().and_then(|s| s.parse().ok());
+        config.max_src_file_size = parse_optional_security_limit(ENV_MAX_SRC_FILE_SIZE)?;
+        config.max_src_resolution = parse_optional_security_limit(ENV_MAX_SRC_RESOLUTION)?;
         config.allowed_mime_types = env::var(ENV_ALLOWED_MIME_TYPES)
             .ok()
             .map(|s| s.split(',').map(|s| s.to_string()).collect());
@@ -132,7 +172,8 @@ impl Config {
             .unwrap_or(10);
         config.secret = env::var(ENV_SECRET).ok();
 
-        config.presets = parse_presets(&env::var(ENV_PRESETS).unwrap_or_default())?;
+        config.presets =
+            parse_presets(&env::var(ENV_PRESETS).unwrap_or_default()).map_err(ConfigError::InvalidPresets)?;
         config.only_presets = env::var(ENV_ONLY_PRESETS).unwrap_or_default().to_lowercase() == "true";
 
         config.watermark_path = env::var(ENV_WATERMARK_PATH).ok();
@@ -284,5 +325,63 @@ mod tests {
         assert!(!config.only_presets);
 
         restore_env_var(ENV_ONLY_PRESETS, original_only_presets);
+    }
+
+    #[test]
+    fn invalid_max_source_file_size_fails_configuration() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let original = env::var(ENV_MAX_SRC_FILE_SIZE).ok();
+
+        env::set_var(ENV_MAX_SRC_FILE_SIZE, "invalid");
+        let result = Config::from_env();
+
+        assert!(matches!(
+            result,
+            Err(ConfigError::InvalidSecurityLimit {
+                name: ENV_MAX_SRC_FILE_SIZE,
+                ..
+            })
+        ));
+        restore_env_var(ENV_MAX_SRC_FILE_SIZE, original);
+    }
+
+    #[test]
+    fn non_finite_max_source_resolution_fails_configuration() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let original = env::var(ENV_MAX_SRC_RESOLUTION).ok();
+
+        for value in ["NaN", "inf", "-inf"] {
+            env::set_var(ENV_MAX_SRC_RESOLUTION, value);
+            let result = Config::from_env();
+            assert!(matches!(
+                result,
+                Err(ConfigError::InvalidSecurityLimit {
+                    name: ENV_MAX_SRC_RESOLUTION,
+                    ..
+                })
+            ));
+        }
+
+        restore_env_var(ENV_MAX_SRC_RESOLUTION, original);
+    }
+
+    #[test]
+    fn valid_security_limits_are_stored_as_validated_types() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let original_file_size = env::var(ENV_MAX_SRC_FILE_SIZE).ok();
+        let original_resolution = env::var(ENV_MAX_SRC_RESOLUTION).ok();
+
+        env::set_var(ENV_MAX_SRC_FILE_SIZE, "4096");
+        env::set_var(ENV_MAX_SRC_RESOLUTION, "2.5");
+        let config = Config::from_env().expect("security limits are valid");
+
+        assert_eq!(config.max_src_file_size.map(MaxSourceFileSize::get), Some(4096));
+        assert_eq!(
+            config.max_src_resolution.map(MaxSourceResolution::pixels),
+            Some(2_500_000)
+        );
+
+        restore_env_var(ENV_MAX_SRC_FILE_SIZE, original_file_size);
+        restore_env_var(ENV_MAX_SRC_RESOLUTION, original_resolution);
     }
 }

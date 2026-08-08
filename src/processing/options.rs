@@ -10,6 +10,7 @@ pub struct ProcessingOption {
     /// Arguments for the processing option.
     pub args: Vec<String>,
 }
+use crate::limits::{MaxSourceFileSize, MaxSourceResolution};
 use base64::engine::general_purpose;
 use base64::Engine as _;
 use std::collections::HashMap;
@@ -440,9 +441,9 @@ pub struct ParsedOptions {
     /// Whether to bypass processing limits (e.g., worker limits).
     pub raw: bool,
     /// Maximum allowed source image resolution in megapixels.
-    pub max_src_resolution: Option<f32>,
+    pub max_src_resolution: Option<MaxSourceResolution>,
     /// Maximum allowed source image file size in bytes.
-    pub max_src_file_size: Option<usize>,
+    pub max_src_file_size: Option<MaxSourceFileSize>,
     /// Value to bypass cache (e.g., timestamp).
     pub cache_buster: Option<String>,
     /// Optional unix timestamp after which the request expires.
@@ -873,7 +874,7 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
                     return Err("max_src_resolution option requires one argument".to_string());
                 }
                 parsed_options.max_src_resolution =
-                    Some(option.args[0].parse::<f32>().map_err(|e: std::num::ParseFloatError| {
+                    Some(option.args[0].parse::<MaxSourceResolution>().map_err(|e| {
                         error!("Invalid max_src_resolution: {}", e);
                         e.to_string()
                     })?);
@@ -883,11 +884,10 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
                     error!("Max_src_file_size option requires one argument");
                     return Err("max_src_file_size option requires one argument".to_string());
                 }
-                parsed_options.max_src_file_size =
-                    Some(option.args[0].parse::<usize>().map_err(|e: std::num::ParseIntError| {
-                        error!("Invalid max_src_file_size: {}", e);
-                        e.to_string()
-                    })?);
+                parsed_options.max_src_file_size = Some(option.args[0].parse::<MaxSourceFileSize>().map_err(|e| {
+                    error!("Invalid max_src_file_size: {}", e);
+                    e.to_string()
+                })?);
             }
             CACHEBUSTER | CACHEBUSTER_SHORT => {
                 if option.args.is_empty() {

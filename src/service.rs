@@ -1,6 +1,7 @@
 use crate::app::AppState;
 use crate::caching::cache::{CachedImage, CachedMetadata, ImgforgeCache, MetadataCache};
 use crate::fetch::fetch_image;
+use crate::limits::{MaxSourceFileSize, MaxSourceResolution};
 use crate::processing::options::{parse_all_options, ParsedOptions};
 use crate::processing::presets::expand_presets;
 use crate::processing::process_image;
@@ -187,7 +188,7 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
 
     debug!("Processing image forge request for URL: {}", decoded_url);
 
-    let max_src_file_size = resolve_max_src_file_size(config, &parsed_options);
+    let max_src_file_size = resolve_max_src_file_size(config, &parsed_options).map(MaxSourceFileSize::get);
     let (image_bytes, source_content_type) = fetch_image(&state.http_client, &decoded_url, max_src_file_size)
         .await
         .map_err(|e| {
@@ -434,7 +435,7 @@ fn enforce_security_constraints(
     let max_src_file_size = resolve_max_src_file_size(config, parsed_options);
 
     if let Some(max_size) = max_src_file_size {
-        if image_bytes.len() > max_size {
+        if image_bytes.len() > max_size.get() {
             error!("Source image file size is too large");
             return Err(ServiceError::new(
                 StatusCode::BAD_REQUEST,
@@ -469,8 +470,8 @@ fn enforce_security_constraints(
             }
         };
         debug!("Image resolution: {}x{}", w, h);
-        let res_mp = (w * h) as f32 / 1_000_000.0;
-        if res_mp > max_res {
+        let source_pixels = checked_source_pixel_count(w, h)?;
+        if source_pixels > max_res.pixels() {
             error!("Source image resolution is too large");
             return Err(ServiceError::new(
                 StatusCode::BAD_REQUEST,
@@ -482,7 +483,21 @@ fn enforce_security_constraints(
     Ok(())
 }
 
-fn resolve_max_src_file_size(config: &crate::config::Config, parsed_options: &ParsedOptions) -> Option<usize> {
+fn checked_source_pixel_count(width: i32, height: i32) -> Result<u64, ServiceError> {
+    let width = u64::try_from(width)
+        .map_err(|_| ServiceError::new(StatusCode::BAD_REQUEST, "Invalid source image dimensions"))?;
+    let height = u64::try_from(height)
+        .map_err(|_| ServiceError::new(StatusCode::BAD_REQUEST, "Invalid source image dimensions"))?;
+
+    width
+        .checked_mul(height)
+        .ok_or_else(|| ServiceError::new(StatusCode::BAD_REQUEST, "Source image resolution is too large"))
+}
+
+fn resolve_max_src_file_size(
+    config: &crate::config::Config,
+    parsed_options: &ParsedOptions,
+) -> Option<MaxSourceFileSize> {
     if config.allow_security_options {
         parsed_options.max_src_file_size.or(config.max_src_file_size)
     } else {
@@ -490,7 +505,10 @@ fn resolve_max_src_file_size(config: &crate::config::Config, parsed_options: &Pa
     }
 }
 
-fn resolve_max_src_resolution(config: &crate::config::Config, parsed_options: &ParsedOptions) -> Option<f32> {
+fn resolve_max_src_resolution(
+    config: &crate::config::Config,
+    parsed_options: &ParsedOptions,
+) -> Option<MaxSourceResolution> {
     if config.allow_security_options {
         parsed_options.max_src_resolution.or(config.max_src_resolution)
     } else {
@@ -607,4 +625,20 @@ fn content_disposition_for(parsed_options: &ParsedOptions) -> Option<String> {
         disposition,
         filename.replace(['\\', '"', '\r', '\n'], "_")
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pixel_count_does_not_overflow_i32_sized_dimensions() {
+        assert_eq!(checked_source_pixel_count(50_000, 50_000).unwrap(), 2_500_000_000);
+    }
+
+    #[test]
+    fn pixel_count_rejects_negative_dimensions() {
+        assert!(checked_source_pixel_count(-1, 100).is_err());
+        assert!(checked_source_pixel_count(100, -1).is_err());
+    }
 }

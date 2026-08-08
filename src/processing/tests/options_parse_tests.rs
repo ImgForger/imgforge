@@ -1,3 +1,4 @@
+use crate::limits::{MaxSourceFileSize, MaxSourceResolution};
 use crate::processing::options::{parse_all_options, Gravity, ProcessingOption};
 use crate::processing::utils;
 use base64::Engine as _;
@@ -242,7 +243,10 @@ fn test_parse_max_src_resolution_option() {
         args: vec!["10.5".to_string()],
     }];
     let parsed = parse_all_options(options).unwrap();
-    assert_eq!(parsed.max_src_resolution, Some(10.5));
+    assert_eq!(
+        parsed.max_src_resolution.map(MaxSourceResolution::pixels),
+        Some(10_500_000)
+    );
 }
 
 #[test]
@@ -252,7 +256,31 @@ fn test_parse_max_src_file_size_option() {
         args: vec!["1024".to_string()],
     }];
     let parsed = parse_all_options(options).unwrap();
-    assert_eq!(parsed.max_src_file_size, Some(1024));
+    assert_eq!(parsed.max_src_file_size.map(MaxSourceFileSize::get), Some(1024));
+}
+
+#[test]
+fn test_parse_max_src_resolution_rejects_invalid_limits() {
+    for value in ["invalid", "NaN", "inf", "0", "-1"] {
+        let options = vec![ProcessingOption {
+            name: "max_src_resolution".to_string(),
+            args: vec![value.to_string()],
+        }];
+
+        assert!(parse_all_options(options).is_err(), "accepted {value}");
+    }
+}
+
+#[test]
+fn test_parse_max_src_file_size_rejects_invalid_limits() {
+    for value in ["invalid", "0", "-1"] {
+        let options = vec![ProcessingOption {
+            name: "max_src_file_size".to_string(),
+            args: vec![value.to_string()],
+        }];
+
+        assert!(parse_all_options(options).is_err(), "accepted {value}");
+    }
 }
 
 #[test]

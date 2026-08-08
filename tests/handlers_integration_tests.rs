@@ -12,6 +12,7 @@ use imgforge::caching::cache::ImgforgeCache;
 use imgforge::config::Config;
 use imgforge::handlers::{image_forge_handler, info_handler, status_handler};
 use imgforge::middleware::request_id_middleware;
+use imgforge::{MaxSourceFileSize, MaxSourceResolution};
 use lazy_static::lazy_static;
 use libvips::VipsApp;
 use serde_json::Value;
@@ -653,7 +654,7 @@ async fn test_image_forge_handler_max_file_size_exceeded() {
         .await;
 
     let mut config = create_test_config(vec![], vec![], true);
-    config.max_src_file_size = Some(100);
+    config.max_src_file_size = Some(MaxSourceFileSize::new(100).unwrap());
     let state = create_test_state(config).await;
 
     let source_url = format!("{}/large.jpg", mock_server.uri());
@@ -687,7 +688,7 @@ async fn test_image_forge_handler_max_resolution_exceeded() {
         .await;
 
     let mut config = create_test_config(vec![], vec![], true);
-    config.max_src_resolution = Some(1.0);
+    config.max_src_resolution = Some(MaxSourceResolution::from_megapixels(1.0).unwrap());
     let state = create_test_state(config).await;
 
     let source_url = format!("{}/highres.jpg", mock_server.uri());
