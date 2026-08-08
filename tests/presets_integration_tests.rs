@@ -18,7 +18,7 @@ use sha2::Sha256;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{Mutex, Semaphore};
+use tokio::sync::{OnceCell, Semaphore};
 use tower::ServiceExt;
 use wiremock::{
     matchers::{method, path},
@@ -83,7 +83,7 @@ async fn create_test_state(config: Config) -> Arc<AppState> {
         config,
         vips_app: VIPS_APP.clone(),
         http_client,
-        watermark_cache: Mutex::new(None),
+        watermark_cache: OnceCell::new(),
     })
 }
 

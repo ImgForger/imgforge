@@ -1,7 +1,7 @@
 use crate::caching::cache::{ImgforgeCache as Cache, MetadataCache};
 use crate::caching::config::CacheConfig;
 use crate::caching::error::CacheError;
-use crate::config::Config;
+use crate::config::{Config, ConfigError};
 use crate::monitoring;
 use crate::processing::watermark::CachedWatermark;
 use governor::clock::DefaultClock;
@@ -12,7 +12,7 @@ use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::time::Duration;
 use thiserror::Error;
-use tokio::sync::{Mutex, Semaphore};
+use tokio::sync::{OnceCell, Semaphore};
 use tracing::{info, warn};
 
 pub type RequestRateLimiter = RateLimiter<NotKeyed, InMemoryState, DefaultClock>;
@@ -26,7 +26,7 @@ pub struct AppState {
     pub config: Config,
     pub vips_app: Arc<VipsApp>,
     pub http_client: reqwest::Client,
-    pub watermark_cache: Mutex<Option<CachedWatermark>>,
+    pub watermark_cache: OnceCell<CachedWatermark>,
 }
 
 #[derive(Clone)]
@@ -37,9 +37,9 @@ pub struct Imgforge {
 #[derive(Debug, Error)]
 pub enum InitError {
     #[error("configuration error: {0}")]
-    Configuration(String),
-    #[error("failed to initialize libvips: {0}")]
-    Libvips(String),
+    Configuration(#[from] ConfigError),
+    #[error("failed to initialize libvips")]
+    Libvips(#[source] libvips::error::Error),
     #[error("failed to build HTTP client: {0}")]
     HttpClient(#[from] reqwest::Error),
     #[error("failed to initialize cache: {0}")]
@@ -57,7 +57,7 @@ impl Imgforge {
         let vips_app = Arc::new(init_vips()?);
         let http_client = build_http_client(config.download_timeout)?;
         let rate_limiter = build_rate_limiter(config.rate_limit_per_minute);
-        let watermark_cache = Mutex::new(None);
+        let watermark_cache = OnceCell::new();
 
         let state = Arc::new(AppState {
             semaphore,
@@ -75,7 +75,7 @@ impl Imgforge {
 
     /// Construct imgforge using environment-derived configuration.
     pub async fn from_env() -> Result<Self, InitError> {
-        let config = Config::from_env().map_err(InitError::Configuration)?;
+        let config = Config::from_env()?;
         let cache_config = CacheConfig::from_env().map_err(InitError::Cache)?;
         Self::new(config, cache_config).await
     }
@@ -125,7 +125,7 @@ impl Imgforge {
 }
 
 fn init_vips() -> Result<VipsApp, InitError> {
-    VipsApp::new("imgforge", false).map_err(|err| InitError::Libvips(err.to_string()))
+    VipsApp::new("imgforge", false).map_err(InitError::Libvips)
 }
 
 fn build_http_client(timeout_secs: u64) -> Result<reqwest::Client, reqwest::Error> {

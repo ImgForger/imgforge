@@ -1,9 +1,26 @@
 use crate::processing::options::ProcessingOption;
 use std::collections::HashMap;
+use thiserror::Error;
 use tracing::debug;
 
 const PRESET: &str = "preset";
 const PRESET_SHORT: &str = "pr";
+
+/// Errors produced while parsing or expanding processing presets.
+#[derive(Debug, Error, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum PresetError {
+    #[error("preset option requires a preset name")]
+    MissingName,
+    #[error("unknown preset: {name}")]
+    Unknown { name: String },
+    #[error("only preset references are allowed in only_presets mode, found: {option}")]
+    NonPresetOption { option: String },
+    #[error("only preset references are allowed in only_presets mode")]
+    PresetRequired,
+    #[error("invalid preset option: {option}")]
+    InvalidOption { option: String },
+}
 
 /// Expands preset references in processing options.
 ///
@@ -19,12 +36,12 @@ const PRESET_SHORT: &str = "pr";
 ///
 /// # Returns
 ///
-/// A `Result` containing the expanded processing options, or an error message.
+/// A `Result` containing the expanded processing options, or a typed preset error.
 pub fn expand_presets(
     options: Vec<ProcessingOption>,
     presets: &HashMap<String, Vec<ProcessingOption>>,
     only_presets: bool,
-) -> Result<Vec<ProcessingOption>, String> {
+) -> Result<Vec<ProcessingOption>, PresetError> {
     let mut expanded = Vec::new();
     let mut has_preset_reference = false;
 
@@ -39,12 +56,12 @@ pub fn expand_presets(
         if option.name == PRESET || option.name == PRESET_SHORT {
             has_preset_reference = true;
             if option.args.is_empty() {
-                return Err("preset option requires a preset name".to_string());
+                return Err(PresetError::MissingName);
             }
             let preset_name = &option.args[0];
-            let preset_options = presets
-                .get(preset_name)
-                .ok_or_else(|| format!("unknown preset: {}", preset_name))?;
+            let preset_options = presets.get(preset_name).ok_or_else(|| PresetError::Unknown {
+                name: preset_name.clone(),
+            })?;
             debug!(
                 "Expanding preset '{}' with {} options",
                 preset_name,
@@ -52,10 +69,7 @@ pub fn expand_presets(
             );
             expanded.extend(preset_options.iter().cloned());
         } else if only_presets {
-            return Err(format!(
-                "only preset references are allowed in only_presets mode, found: {}",
-                option.name
-            ));
+            return Err(PresetError::NonPresetOption { option: option.name });
         } else {
             expanded.push(option);
         }
@@ -64,7 +78,7 @@ pub fn expand_presets(
     // If only_presets is enabled, and we have options but no preset reference,
     // and no default preset, reject the request
     if only_presets && !has_preset_reference && !presets.contains_key("default") && !expanded.is_empty() {
-        return Err("only preset references are allowed in only_presets mode".to_string());
+        return Err(PresetError::PresetRequired);
     }
 
     Ok(expanded)
@@ -74,7 +88,7 @@ pub fn expand_presets(
 ///
 /// Preset options are separated by '/' and follow the same format as URL options.
 /// Example: "resize:fit:300:300/dpr:3/quality:85"
-pub fn parse_options_string(options_str: &str) -> Result<Vec<ProcessingOption>, String> {
+pub fn parse_options_string(options_str: &str) -> Result<Vec<ProcessingOption>, PresetError> {
     let mut options = Vec::new();
 
     for part in options_str.split('/') {
@@ -84,10 +98,13 @@ pub fn parse_options_string(options_str: &str) -> Result<Vec<ProcessingOption>, 
         }
 
         let mut segments = part.split(':');
-        let name = segments
-            .next()
-            .ok_or_else(|| format!("invalid preset option: {}", part))?
-            .to_string();
+        let name = segments.next().unwrap_or_default();
+        if name.is_empty() {
+            return Err(PresetError::InvalidOption {
+                option: part.to_string(),
+            });
+        }
+        let name = name.to_string();
         let args: Vec<String> = segments.map(|s| s.to_string()).collect();
 
         options.push(ProcessingOption { name, args });
@@ -192,8 +209,12 @@ mod tests {
         }];
 
         let result = expand_presets(options, &presets, false);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("unknown preset"));
+        assert_eq!(
+            result.unwrap_err(),
+            PresetError::Unknown {
+                name: "unknown".to_string()
+            }
+        );
     }
 
     #[test]
@@ -223,8 +244,12 @@ mod tests {
         }];
 
         let result = expand_presets(options, &presets, true);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("only preset references are allowed"));
+        assert_eq!(
+            result.unwrap_err(),
+            PresetError::NonPresetOption {
+                option: "blur".to_string()
+            }
+        );
     }
 
     #[test]
@@ -263,7 +288,6 @@ mod tests {
         }];
 
         let result = expand_presets(options, &presets, false);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("requires a preset name"));
+        assert_eq!(result.unwrap_err(), PresetError::MissingName);
     }
 }

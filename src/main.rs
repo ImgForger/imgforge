@@ -1,6 +1,6 @@
 use imgforge::server;
 
 #[tokio::main]
-async fn main() {
-    server::start().await;
+async fn main() -> Result<(), server::ServerError> {
+    server::start().await
 }

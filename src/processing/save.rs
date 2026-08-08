@@ -4,9 +4,26 @@ use std::collections::HashSet;
 use std::ffi::CString;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::OnceLock;
+use thiserror::Error;
+
+/// Errors produced while encoding an image.
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum SaveError {
+    #[error("output format {format:?} is not supported by this libvips build")]
+    UnsupportedFormat { format: String },
+    #[error("error encoding {format}: libvips call panicked")]
+    EncoderPanicked { format: &'static str },
+    #[error("error encoding {format}: {source}")]
+    Vips {
+        format: &'static str,
+        #[source]
+        source: libvips::error::Error,
+    },
+}
 
 /// Saves an image to bytes in the specified format.
-pub fn save_image(img: VipsImage, format: &str, quality: u8) -> Result<Vec<u8>, String> {
+pub fn save_image(img: VipsImage, format: &str, quality: u8) -> Result<Vec<u8>, SaveError> {
     save_image_with_options(img, format, quality, &SaveOptions::default())
 }
 
@@ -16,20 +33,22 @@ pub fn save_image_with_options(
     format: &str,
     quality: u8,
     options: &SaveOptions,
-) -> Result<Vec<u8>, String> {
+) -> Result<Vec<u8>, SaveError> {
     let format = format.to_lowercase();
 
     if !is_format_supported(&format) {
-        return Err(format!(
-            "Output format '{}' is not supported by this libvips build",
-            format
-        ));
+        return Err(SaveError::UnsupportedFormat { format });
     }
 
     encode_with_max_bytes(&img, &format, quality, options)
 }
 
-fn encode_with_max_bytes(img: &VipsImage, format: &str, quality: u8, options: &SaveOptions) -> Result<Vec<u8>, String> {
+fn encode_with_max_bytes(
+    img: &VipsImage,
+    format: &str,
+    quality: u8,
+    options: &SaveOptions,
+) -> Result<Vec<u8>, SaveError> {
     let Some(max_bytes) = options.max_bytes else {
         return encode_once(img, format, quality, options);
     };
@@ -52,7 +71,7 @@ fn metadata_keep(options: &SaveOptions) -> ops::ForeignKeep {
     }
 }
 
-fn encode_once(img: &VipsImage, format: &str, quality: u8, options: &SaveOptions) -> Result<Vec<u8>, String> {
+fn encode_once(img: &VipsImage, format: &str, quality: u8, options: &SaveOptions) -> Result<Vec<u8>, SaveError> {
     // map quality to effort (1-10), higher quality = more effort
     let effort = ((quality as i32).clamp(1, 100) / 10).clamp(1, 10);
     let keep = metadata_keep(options);
@@ -152,7 +171,9 @@ fn encode_once(img: &VipsImage, format: &str, quality: u8, options: &SaveOptions
             };
             ops::heifsave_buffer_with_opts(img, &opts)
         }),
-        _ => Err(format!("Unsupported output format: {}", format)),
+        _ => Err(SaveError::UnsupportedFormat {
+            format: format.to_string(),
+        }),
     }
 }
 
@@ -166,13 +187,13 @@ impl SaveOptionExt for SaveOptions {
     }
 }
 
-fn encode_image<F>(label: &str, op: F) -> Result<Vec<u8>, String>
+fn encode_image<F>(label: &'static str, op: F) -> Result<Vec<u8>, SaveError>
 where
     F: FnOnce() -> libvips::Result<Vec<u8>>,
 {
     catch_unwind(AssertUnwindSafe(op))
-        .map_err(|_| format!("Error encoding {}: libvips call panicked", label))?
-        .map_err(|e| format!("Error encoding {}: {}", label, e))
+        .map_err(|_| SaveError::EncoderPanicked { format: label })?
+        .map_err(|source| SaveError::Vips { format: label, source })
 }
 
 pub(crate) fn is_format_supported(format: &str) -> bool {

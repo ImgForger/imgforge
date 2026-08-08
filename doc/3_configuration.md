@@ -38,11 +38,15 @@ imgforge reads configuration exclusively from environment variables. This docume
 
 | Variable                      | Default | Description & tips                                                                                                                    |
 |-------------------------------|---------|---------------------------------------------------------------------------------------------------------------------------------------|
-| `IMGFORGE_MAX_SRC_FILE_SIZE`  | unset   | Rejects source images larger than the specified bytes. Useful to prevent multi-megabyte downloads from untrusted hosts.               |
-| `IMGFORGE_MAX_SRC_RESOLUTION` | unset   | Maximum allowed megapixels (width × height ÷ 1_000_000). Helps avoid processing extremely large images.                               |
+| `IMGFORGE_MAX_SRC_FILE_SIZE`  | unset   | Positive integer byte limit. Rejects larger source images before processing.                                                          |
+| `IMGFORGE_MAX_SRC_RESOLUTION` | unset   | Finite, positive megapixel limit (width × height ÷ 1_000_000). Helps avoid processing extremely large images.                          |
 | `IMGFORGE_ALLOWED_MIME_TYPES` | unset   | Comma-separated allowlist (e.g., `image/jpeg,image/png,image/webp`). Requests with other MIME types fail with `400 Bad Request`.      |
 | `IMGFORGE_WATERMARK_PATH`     | unset   | Filesystem path to a watermark image automatically applied when the `watermark` option is present and no `watermark_url` is supplied. |
 | `IMGFORGE_DEFAULT_FORMAT`     | `source` | Output format when the URL requests none. `source` keeps the source image's format (imgproxy-compatible); a concrete format (`jpeg`, `webp`, ...) fixes the default — `jpeg` restores the pre-0.11 behavior. |
+
+imgforge refuses to start when either source limit is malformed, zero, negative, non-finite, or outside its supported range. An unset variable is the only way to disable its corresponding limit.
+
+Changing `IMGFORGE_DEFAULT_FORMAT` uses a separate cache namespace for format-less URLs, preventing persistent cache entries encoded under the previous default from being served with stale bytes or content types.
 
 ## Cache configuration
 

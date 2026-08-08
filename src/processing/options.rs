@@ -10,10 +10,96 @@ pub struct ProcessingOption {
     /// Arguments for the processing option.
     pub args: Vec<String>,
 }
+use crate::limits::{MaxSourceFileSize, MaxSourceResolution};
 use base64::engine::general_purpose;
 use base64::Engine as _;
 use std::collections::HashMap;
-use tracing::{debug, error};
+use std::str::FromStr;
+use thiserror::Error;
+use tracing::debug;
+
+/// Errors produced while parsing image processing options.
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum OptionParseError {
+    #[error("invalid {option} value {value:?}")]
+    Integer {
+        option: String,
+        value: String,
+        #[source]
+        source: std::num::ParseIntError,
+    },
+    #[error("invalid {option} value {value:?}")]
+    Float {
+        option: String,
+        value: String,
+        #[source]
+        source: std::num::ParseFloatError,
+    },
+    #[error("invalid Base64 for {option}")]
+    Base64 {
+        option: String,
+        #[source]
+        source: base64::DecodeError,
+    },
+    #[error("invalid UTF-8 for {option}")]
+    Utf8 {
+        option: String,
+        #[source]
+        source: std::string::FromUtf8Error,
+    },
+    #[error("invalid {option}: {source}")]
+    SecurityLimit {
+        option: String,
+        #[source]
+        source: crate::limits::SecurityLimitError,
+    },
+    #[error("invalid background color")]
+    Color(#[source] super::utils::ColorParseError),
+    #[error("{0}")]
+    InvalidValue(String),
+}
+
+impl OptionParseError {
+    fn invalid(message: impl Into<String>) -> Self {
+        Self::InvalidValue(message.into())
+    }
+}
+
+fn parse_integer<T>(value: &str, option: &str) -> Result<T, OptionParseError>
+where
+    T: FromStr<Err = std::num::ParseIntError>,
+{
+    value.parse().map_err(|source| OptionParseError::Integer {
+        option: option.to_string(),
+        value: value.to_string(),
+        source,
+    })
+}
+
+fn parse_float(value: &str, option: &str) -> Result<f32, OptionParseError> {
+    value.parse().map_err(|source| OptionParseError::Float {
+        option: option.to_string(),
+        value: value.to_string(),
+        source,
+    })
+}
+
+fn decode_base64(value: &str, option: &str) -> Result<Vec<u8>, OptionParseError> {
+    general_purpose::URL_SAFE_NO_PAD
+        .decode(value)
+        .map_err(|source| OptionParseError::Base64 {
+            option: option.to_string(),
+            source,
+        })
+}
+
+fn decode_utf8(value: Vec<u8>, option: &str) -> Result<String, OptionParseError> {
+    String::from_utf8(value).map_err(|source| OptionParseError::Utf8 {
+        option: option.to_string(),
+        source,
+    })
+}
 
 /// Option name for resizing.
 const RESIZE: &str = "resize";
@@ -215,50 +301,44 @@ const RETURN_ATTACHMENT: &str = "return_attachment";
 const RETURN_ATTACHMENT_SHORT: &str = "att";
 
 const VALID_ROTATIONS: [u16; 4] = [0, 90, 180, 270];
+const VALID_RESIZING_TYPES: [&str; 4] = ["fill", "fit", "force", "auto"];
 
 fn is_valid_rotation(rotation: u16) -> bool {
     VALID_ROTATIONS.contains(&rotation)
 }
 
-fn parse_positive_f32(value: &str, option_name: &str) -> Result<f32, String> {
-    let parsed = value.parse::<f32>().map_err(|e| {
-        error!("Invalid {}: {}", option_name, e);
-        e.to_string()
-    })?;
+fn is_valid_resizing_type(resizing_type: &str) -> bool {
+    VALID_RESIZING_TYPES.contains(&resizing_type)
+}
+
+fn parse_positive_f32(value: &str, option_name: &str) -> Result<f32, OptionParseError> {
+    let parsed = parse_float(value, option_name)?;
 
     if !parsed.is_finite() || parsed <= 0.0 {
-        error!("{} must be a finite positive number, received: {}", option_name, parsed);
-        return Err(format!("{} must be a finite positive number", option_name));
+        return Err(OptionParseError::invalid(format!(
+            "{} must be a finite positive number",
+            option_name
+        )));
     }
 
     Ok(parsed)
 }
 
-fn parse_unit_f32(value: &str, option_name: &str) -> Result<f32, String> {
-    let parsed = value.parse::<f32>().map_err(|e| {
-        error!("Invalid {}: {}", option_name, e);
-        e.to_string()
-    })?;
+fn parse_unit_f32(value: &str, option_name: &str) -> Result<f32, OptionParseError> {
+    let parsed = parse_float(value, option_name)?;
 
     if !parsed.is_finite() || !(0.0..=1.0).contains(&parsed) {
-        error!(
-            "{} must be a finite number between 0 and 1, received: {}",
-            option_name, parsed
-        );
-        return Err(format!("{} must be a finite number between 0 and 1", option_name));
+        return Err(OptionParseError::invalid(format!(
+            "{} must be a finite number between 0 and 1",
+            option_name
+        )));
     }
 
     Ok(parsed)
 }
 
-fn parse_quality(value: &str, option_name: &str) -> Result<u8, String> {
-    Ok(value
-        .parse::<u8>()
-        .map_err(|e| {
-            error!("Invalid {}: {}", option_name, e);
-            e.to_string()
-        })?
-        .clamp(1, 100))
+fn parse_quality(value: &str, option_name: &str) -> Result<u8, OptionParseError> {
+    Ok(parse_integer::<u8>(value, option_name)?.clamp(1, 100))
 }
 
 fn parse_optional_bool(args: &[String], index: usize) -> Option<bool> {
@@ -440,9 +520,9 @@ pub struct ParsedOptions {
     /// Whether to bypass processing limits (e.g., worker limits).
     pub raw: bool,
     /// Maximum allowed source image resolution in megapixels.
-    pub max_src_resolution: Option<f32>,
+    pub max_src_resolution: Option<MaxSourceResolution>,
     /// Maximum allowed source image file size in bytes.
-    pub max_src_file_size: Option<usize>,
+    pub max_src_file_size: Option<MaxSourceFileSize>,
     /// Value to bypass cache (e.g., timestamp).
     pub cache_buster: Option<String>,
     /// Optional unix timestamp after which the request expires.
@@ -540,8 +620,8 @@ impl Default for ParsedOptions {
 ///
 /// # Returns
 ///
-/// A `Result` containing the `ParsedOptions` on success, or an error message as a `String`.
-pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions, String> {
+/// A `Result` containing the `ParsedOptions` on success, or a typed parsing error.
+pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions, OptionParseError> {
     let mut parsed_options = ParsedOptions::default();
 
     for option in options {
@@ -559,19 +639,13 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
                 }
                 if let Some(arg) = option.args.get(1) {
                     if !arg.is_empty() {
-                        resize.width = arg.parse::<u32>().map_err(|e: std::num::ParseIntError| {
-                            error!("Invalid width for resize: {}", e);
-                            e.to_string()
-                        })?;
+                        resize.width = parse_integer(arg, "resize width")?;
                         store_resize = true;
                     }
                 }
                 if let Some(arg) = option.args.get(2) {
                     if !arg.is_empty() {
-                        resize.height = arg.parse::<u32>().map_err(|e: std::num::ParseIntError| {
-                            error!("Invalid height for resize: {}", e);
-                            e.to_string()
-                        })?;
+                        resize.height = parse_integer(arg, "resize height")?;
                         store_resize = true;
                     }
                 }
@@ -591,12 +665,21 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
                 }
             }
             RESIZING_TYPE | RESIZING_TYPE_SHORT => {
-                if parsed_options.resize.is_none() {
-                    parsed_options.resize = Some(Resize::default());
+                let resizing_type = option
+                    .args
+                    .first()
+                    .filter(|value| !value.is_empty())
+                    .ok_or_else(|| OptionParseError::invalid("resizing_type option requires one argument"))?;
+                if !is_valid_resizing_type(resizing_type) {
+                    return Err(OptionParseError::invalid(
+                        "resizing_type must be one of: fill, fit, force, auto",
+                    ));
                 }
-                if let Some(ref mut resize) = parsed_options.resize {
-                    resize.resizing_type = option.args[0].clone();
-                }
+                parsed_options
+                    .resize
+                    .get_or_insert_with(Resize::default)
+                    .resizing_type
+                    .clone_from(resizing_type);
             }
             SIZE | SIZE_SHORT => {
                 let mut store_resize = parsed_options.resize.is_some();
@@ -605,20 +688,14 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
 
                 if let Some(arg) = option.args.first() {
                     if !arg.is_empty() {
-                        resize.width = arg.parse::<u32>().map_err(|e: std::num::ParseIntError| {
-                            error!("Invalid width for size: {}", e);
-                            e.to_string()
-                        })?;
+                        resize.width = parse_integer(arg, "size width")?;
                         store_resize = true;
                         width_height_set = true;
                     }
                 }
                 if let Some(arg) = option.args.get(1) {
                     if !arg.is_empty() {
-                        resize.height = arg.parse::<u32>().map_err(|e: std::num::ParseIntError| {
-                            error!("Invalid height for size: {}", e);
-                            e.to_string()
-                        })?;
+                        resize.height = parse_integer(arg, "size height")?;
                         store_resize = true;
                         width_height_set = true;
                     }
@@ -648,10 +725,7 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
                 let width = if width_arg.is_empty() {
                     0
                 } else {
-                    width_arg.parse::<u32>().map_err(|e: std::num::ParseIntError| {
-                        error!("Invalid width: {}", e);
-                        e.to_string()
-                    })?
+                    parse_integer(width_arg, "width")?
                 };
                 parsed_options.width = Some(width);
             }
@@ -660,82 +734,66 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
                 let height = if height_arg.is_empty() {
                     0
                 } else {
-                    height_arg.parse::<u32>().map_err(|e: std::num::ParseIntError| {
-                        error!("Invalid height: {}", e);
-                        e.to_string()
-                    })?
+                    parse_integer(height_arg, "height")?
                 };
                 parsed_options.height = Some(height);
             }
             GRAVITY | GRAVITY_SHORT => {
                 if option.args.is_empty() {
-                    error!("Gravity option requires one argument");
-                    return Err("gravity option requires one argument".to_string());
+                    return Err(OptionParseError::invalid("gravity option requires one argument"));
                 }
                 let gravity = option.args[0].as_str();
                 let gravity = Gravity::parse(gravity).ok_or_else(|| {
-                    error!("Invalid gravity: {}", gravity);
-                    "gravity must be one of: ce, no, so, ea, we, noea, nowe, soea, sowe".to_string()
+                    OptionParseError::invalid("gravity must be one of: ce, no, so, ea, we, noea, nowe, soea, sowe")
                 })?;
                 parsed_options.gravity = Some(gravity);
             }
             ENLARGE | ENLARGE_SHORT => {
                 if option.args.is_empty() {
-                    error!("Enlarge option requires one argument");
-                    return Err("enlarge option requires one argument".to_string());
+                    return Err(OptionParseError::invalid("enlarge option requires one argument"));
                 }
                 parsed_options.enlarge = super::utils::parse_boolean(&option.args[0]);
             }
             EXTEND | EXTEND_SHORT => {
                 if option.args.is_empty() {
-                    error!("Extend option requires one argument");
-                    return Err("extend option requires one argument".to_string());
+                    return Err(OptionParseError::invalid("extend option requires one argument"));
                 }
                 parsed_options.extend = super::utils::parse_boolean(&option.args[0]);
                 if let Some(gravity) = option.args.get(1).filter(|arg| !arg.is_empty()) {
                     parsed_options.gravity = Some(Gravity::parse(gravity).ok_or_else(|| {
-                        error!("Invalid extend gravity: {}", gravity);
-                        "extend gravity must be one of: ce, no, so, ea, we, noea, nowe, soea, sowe".to_string()
+                        OptionParseError::invalid(
+                            "extend gravity must be one of: ce, no, so, ea, we, noea, nowe, soea, sowe",
+                        )
                     })?);
                 }
             }
             PADDING | PADDING_SHORT => {
                 if option.args.is_empty() {
-                    error!("Padding option requires at least one argument");
-                    return Err("padding option requires at least one argument".to_string());
+                    return Err(OptionParseError::invalid(
+                        "padding option requires at least one argument",
+                    ));
                 }
                 let values: Vec<u32> = option
                     .args
                     .iter()
-                    .map(|s| {
-                        s.parse::<u32>().map_err(|e: std::num::ParseIntError| {
-                            error!("Invalid padding value: {}", e);
-                            e.to_string()
-                        })
-                    })
-                    .collect::<Result<Vec<u32>, String>>()?;
+                    .map(|value| parse_integer(value, "padding"))
+                    .collect::<Result<Vec<_>, _>>()?;
                 parsed_options.padding = Some(match values.len() {
                     1 => (values[0], values[0], values[0], values[0]),
                     2 => (values[0], values[1], values[0], values[1]),
                     4 => (values[0], values[1], values[2], values[3]),
                     _ => {
-                        error!("Padding must have 1, 2, or 4 arguments, received: {}", values.len());
-                        return Err("padding must have 1, 2, or 4 arguments".to_string());
+                        return Err(OptionParseError::invalid("padding must have 1, 2, or 4 arguments"));
                     }
                 });
             }
             ROTATE | ROTATE_SHORT => {
                 if option.args.is_empty() {
-                    error!("Rotation option requires one argument");
-                    return Err("rotation option requires one argument".to_string());
+                    return Err(OptionParseError::invalid("rotation option requires one argument"));
                 }
-                let rotation = option.args[0].parse::<u16>().map_err(|e: std::num::ParseIntError| {
-                    error!("Invalid rotation: {}", e);
-                    e.to_string()
-                })?;
+                let rotation = parse_integer(&option.args[0], "rotation")?;
                 if !is_valid_rotation(rotation) {
-                    error!("Unsupported rotation: {}", rotation);
-                    return Err("rotation must be one of: 0, 90, 180, 270".to_string());
+                    return Err(OptionParseError::invalid("rotation must be one of: 0, 90, 180, 270"));
                 }
                 parsed_options.rotation = Some(rotation);
             }
@@ -747,8 +805,7 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
             }
             AUTO_ROTATE | AUTO_ROTATE_SHORT => {
                 if option.args.is_empty() {
-                    error!("Auto_rotate option requires one argument");
-                    return Err("auto_rotate option requires one argument".to_string());
+                    return Err(OptionParseError::invalid("auto_rotate option requires one argument"));
                 }
                 parsed_options.auto_rotate = super::utils::parse_boolean(&option.args[0]);
             }
@@ -762,15 +819,15 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
             }
             BLUR | BLUR_SHORT => {
                 if option.args.is_empty() {
-                    error!("Blur option requires one argument: sigma");
-                    return Err("blur option requires one argument: sigma".to_string());
+                    return Err(OptionParseError::invalid("blur option requires one argument: sigma"));
                 }
                 parsed_options.blur = Some(parse_positive_f32(&option.args[0], "blur")?);
             }
             CROP | CROP_SHORT => {
                 if option.args.len() < 2 {
-                    error!("Crop option requires at least two arguments");
-                    return Err("crop option requires at least two arguments: width, height".to_string());
+                    return Err(OptionParseError::invalid(
+                        "crop option requires at least two arguments: width, height",
+                    ));
                 }
                 let gravity = option
                     .args
@@ -778,43 +835,37 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
                     .filter(|arg| !arg.is_empty())
                     .map(|arg| {
                         Gravity::parse(arg).ok_or_else(|| {
-                            error!("Invalid crop gravity: {}", arg);
-                            "crop gravity must be one of: ce, no, so, ea, we, noea, nowe, soea, sowe".to_string()
+                            OptionParseError::invalid(
+                                "crop gravity must be one of: ce, no, so, ea, we, noea, nowe, soea, sowe",
+                            )
                         })
                     })
                     .transpose()?;
                 parsed_options.crop = Some(Crop {
                     x: 0,
                     y: 0,
-                    width: option.args[0].parse::<u32>().map_err(|e: std::num::ParseIntError| {
-                        error!("Invalid width for crop: {}", e);
-                        e.to_string()
-                    })?,
-                    height: option.args[1].parse::<u32>().map_err(|e: std::num::ParseIntError| {
-                        error!("Invalid height for crop: {}", e);
-                        e.to_string()
-                    })?,
+                    width: parse_integer(&option.args[0], "crop width")?,
+                    height: parse_integer(&option.args[1], "crop height")?,
                     gravity,
                 });
             }
             FORMAT | FORMAT_SHORT | FORMAT_EXT => {
                 if option.args.is_empty() {
-                    error!("Format option requires one argument");
-                    return Err("format option requires one argument".to_string());
+                    return Err(OptionParseError::invalid("format option requires one argument"));
                 }
                 parsed_options.format = Some(option.args[0].clone());
             }
             QUALITY | QUALITY_SHORT => {
                 if option.args.is_empty() {
-                    error!("Quality option requires one argument");
-                    return Err("quality option requires one argument".to_string());
+                    return Err(OptionParseError::invalid("quality option requires one argument"));
                 }
                 parsed_options.quality = Some(parse_quality(&option.args[0], "quality")?);
             }
             FORMAT_QUALITY | FORMAT_QUALITY_SHORT => {
                 if option.args.len() < 2 || option.args.len() % 2 != 0 {
-                    error!("Format_quality option requires format/quality pairs");
-                    return Err("format_quality option requires format/quality pairs".to_string());
+                    return Err(OptionParseError::invalid(
+                        "format_quality option requires format/quality pairs",
+                    ));
                 }
 
                 for pair in option.args.chunks_exact(2) {
@@ -831,25 +882,13 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
                 }
                 let mut background = if option.args.len() >= 3 {
                     [
-                        option.args[0].parse::<u8>().map_err(|e| {
-                            error!("Invalid red channel for background: {}", e);
-                            e.to_string()
-                        })?,
-                        option.args[1].parse::<u8>().map_err(|e| {
-                            error!("Invalid green channel for background: {}", e);
-                            e.to_string()
-                        })?,
-                        option.args[2].parse::<u8>().map_err(|e| {
-                            error!("Invalid blue channel for background: {}", e);
-                            e.to_string()
-                        })?,
+                        parse_integer(&option.args[0], "background red channel")?,
+                        parse_integer(&option.args[1], "background green channel")?,
+                        parse_integer(&option.args[2], "background blue channel")?,
                         255,
                     ]
                 } else {
-                    super::utils::parse_hex_color(&option.args[0]).map_err(|e| {
-                        error!("Invalid hex color for background: {}", e);
-                        e.to_string()
-                    })?
+                    super::utils::parse_hex_color(&option.args[0]).map_err(OptionParseError::Color)?
                 };
                 if let Some(alpha) = parsed_options.background_alpha {
                     background[3] = (alpha * 255.0).round() as u8;
@@ -858,8 +897,9 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
             }
             BACKGROUND_ALPHA | BACKGROUND_ALPHA_SHORT => {
                 if option.args.is_empty() {
-                    error!("Background_alpha option requires one argument");
-                    return Err("background_alpha option requires one argument".to_string());
+                    return Err(OptionParseError::invalid(
+                        "background_alpha option requires one argument",
+                    ));
                 }
                 let alpha = parse_unit_f32(&option.args[0], "background_alpha")?;
                 parsed_options.background_alpha = Some(alpha);
@@ -869,91 +909,77 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
             }
             MAX_SRC_RESOLUTION | MAX_SRC_RESOLUTION_SHORT => {
                 if option.args.is_empty() {
-                    error!("Max_src_resolution option requires one argument");
-                    return Err("max_src_resolution option requires one argument".to_string());
+                    return Err(OptionParseError::invalid(
+                        "max_src_resolution option requires one argument",
+                    ));
                 }
                 parsed_options.max_src_resolution =
-                    Some(option.args[0].parse::<f32>().map_err(|e: std::num::ParseFloatError| {
-                        error!("Invalid max_src_resolution: {}", e);
-                        e.to_string()
+                    Some(option.args[0].parse::<MaxSourceResolution>().map_err(|source| {
+                        OptionParseError::SecurityLimit {
+                            option: "max_src_resolution".to_string(),
+                            source,
+                        }
                     })?);
             }
             MAX_SRC_FILE_SIZE | MAX_SRC_FILE_SIZE_SHORT => {
                 if option.args.is_empty() {
-                    error!("Max_src_file_size option requires one argument");
-                    return Err("max_src_file_size option requires one argument".to_string());
+                    return Err(OptionParseError::invalid(
+                        "max_src_file_size option requires one argument",
+                    ));
                 }
                 parsed_options.max_src_file_size =
-                    Some(option.args[0].parse::<usize>().map_err(|e: std::num::ParseIntError| {
-                        error!("Invalid max_src_file_size: {}", e);
-                        e.to_string()
+                    Some(option.args[0].parse::<MaxSourceFileSize>().map_err(|source| {
+                        OptionParseError::SecurityLimit {
+                            option: "max_src_file_size".to_string(),
+                            source,
+                        }
                     })?);
             }
             CACHEBUSTER | CACHEBUSTER_SHORT => {
                 if option.args.is_empty() {
-                    error!("Cachebuster option requires one argument");
-                    return Err("cachebuster option requires one argument".to_string());
+                    return Err(OptionParseError::invalid("cachebuster option requires one argument"));
                 }
                 parsed_options.cache_buster = Some(option.args[0].clone());
             }
             DPR => {
                 if option.args.is_empty() {
-                    error!("DPR option requires one argument");
-                    return Err("dpr option requires one argument".to_string());
+                    return Err(OptionParseError::invalid("dpr option requires one argument"));
                 }
-                let dpr = option.args[0].parse::<f32>().map_err(|e| {
-                    error!("Invalid dpr value: {}", e);
-                    e.to_string()
-                })?;
+                let dpr = parse_float(&option.args[0], "dpr")?;
                 if !(1.0..=5.0).contains(&dpr) {
-                    error!("DPR value must be between 1.0 and 5.0, received: {}", dpr);
-                    return Err("dpr value must be between 1.0 and 5.0".to_string());
+                    return Err(OptionParseError::invalid("dpr value must be between 1.0 and 5.0"));
                 }
                 parsed_options.dpr = Some(dpr);
             }
             MIN_WIDTH | MIN_WIDTH_SHORT => {
                 if option.args.is_empty() {
-                    error!("Min-width option requires one argument");
-                    return Err("min-width option requires one argument".to_string());
+                    return Err(OptionParseError::invalid("min-width option requires one argument"));
                 }
-                parsed_options.min_width = Some(option.args[0].parse::<u32>().map_err(|e| {
-                    error!("Invalid min-width: {}", e);
-                    e.to_string()
-                })?);
+                parsed_options.min_width = Some(parse_integer(&option.args[0], "min-width")?);
             }
             MIN_HEIGHT | MIN_HEIGHT_SHORT => {
                 if option.args.is_empty() {
-                    error!("Min-height option requires one argument");
-                    return Err("min-height option requires one argument".to_string());
+                    return Err(OptionParseError::invalid("min-height option requires one argument"));
                 }
-                parsed_options.min_height = Some(option.args[0].parse::<u32>().map_err(|e| {
-                    error!("Invalid min-height: {}", e);
-                    e.to_string()
-                })?);
+                parsed_options.min_height = Some(parse_integer(&option.args[0], "min-height")?);
             }
             ZOOM | ZOOM_SHORT => {
                 if option.args.is_empty() {
-                    error!("Zoom option requires one argument");
-                    return Err("zoom option requires one argument".to_string());
+                    return Err(OptionParseError::invalid("zoom option requires one argument"));
                 }
                 parsed_options.zoom = Some(parse_positive_f32(&option.args[0], "zoom")?);
             }
             SHARPEN | SHARPEN_SHORT => {
                 if option.args.is_empty() {
-                    error!("Sharpen option requires one argument");
-                    return Err("sharpen option requires one argument".to_string());
+                    return Err(OptionParseError::invalid("sharpen option requires one argument"));
                 }
                 parsed_options.sharpen = Some(parse_positive_f32(&option.args[0], "sharpen")?);
             }
             PIXELATE | PIXELATE_SHORT => {
                 if option.args.is_empty() {
-                    error!("Pixelate option requires one argument");
-                    return Err("pixelate option requires one argument".to_string());
+                    return Err(OptionParseError::invalid("pixelate option requires one argument"));
                 }
-                parsed_options.pixelate = Some(option.args[0].parse::<u32>().map_err(|e| {
-                    error!("Invalid pixelate: {}", e);
-                    e.to_string()
-                })?);
+                parsed_options.pixelate = Some(parse_integer(&option.args[0], "pixelate")?);
             }
             ADJUST | ADJUST_SHORT => {
                 let mut adjust = parsed_options.adjust.unwrap_or_default();
@@ -970,8 +996,7 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
             }
             BRIGHTNESS | BRIGHTNESS_SHORT => {
                 if option.args.is_empty() {
-                    error!("Brightness option requires one argument");
-                    return Err("brightness option requires one argument".to_string());
+                    return Err(OptionParseError::invalid("brightness option requires one argument"));
                 }
                 let mut adjust = parsed_options.adjust.unwrap_or_default();
                 adjust.brightness = parse_brightness(&option.args[0])?;
@@ -979,8 +1004,7 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
             }
             CONTRAST | CONTRAST_SHORT => {
                 if option.args.is_empty() {
-                    error!("Contrast option requires one argument");
-                    return Err("contrast option requires one argument".to_string());
+                    return Err(OptionParseError::invalid("contrast option requires one argument"));
                 }
                 let mut adjust = parsed_options.adjust.unwrap_or_default();
                 adjust.contrast = parse_positive_f32(&option.args[0], "contrast")?;
@@ -988,8 +1012,7 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
             }
             SATURATION | SATURATION_SHORT => {
                 if option.args.is_empty() {
-                    error!("Saturation option requires one argument");
-                    return Err("saturation option requires one argument".to_string());
+                    return Err(OptionParseError::invalid("saturation option requires one argument"));
                 }
                 let mut adjust = parsed_options.adjust.unwrap_or_default();
                 adjust.saturation = parse_positive_f32(&option.args[0], "saturation")?;
@@ -997,62 +1020,46 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
             }
             WATERMARK | WATERMARK_SHORT => {
                 if option.args.len() < 2 {
-                    error!("Watermark option requires two arguments: opacity, position");
-                    return Err("watermark option requires two arguments: opacity, position".to_string());
+                    return Err(OptionParseError::invalid(
+                        "watermark option requires two arguments: opacity, position",
+                    ));
                 }
                 parsed_options.watermark = Some(Watermark {
-                    opacity: option.args[0].parse::<f32>().map_err(|e| {
-                        error!("Invalid opacity for watermark: {}", e);
-                        e.to_string()
-                    })?,
+                    opacity: parse_float(&option.args[0], "watermark opacity")?,
                     position: option.args[1].clone(),
                 });
             }
             WATERMARK_URL | WATERMARK_URL_SHORT => {
                 if option.args.is_empty() {
-                    error!("Watermark URL option requires one argument");
-                    return Err("watermark_url option requires one argument".to_string());
+                    return Err(OptionParseError::invalid("watermark_url option requires one argument"));
                 }
-                let decoded_url = general_purpose::URL_SAFE_NO_PAD.decode(&option.args[0]).map_err(|e| {
-                    error!("Invalid base64 for watermark_url: {}", e);
-                    e.to_string()
-                })?;
-                let url = String::from_utf8(decoded_url).map_err(|e| {
-                    error!("Invalid UTF-8 for watermark_url: {}", e);
-                    e.to_string()
-                })?;
+                let decoded_url = decode_base64(&option.args[0], "watermark_url")?;
+                let url = decode_utf8(decoded_url, "watermark_url")?;
                 parsed_options.watermark_url = Some(url);
             }
             RESIZING_ALGORITHM | RESIZING_ALGORITHM_SHORT => {
                 if option.args.is_empty() {
-                    error!("Resizing algorithm option requires one argument");
-                    return Err("resizing_algorithm option requires one argument".to_string());
+                    return Err(OptionParseError::invalid(
+                        "resizing_algorithm option requires one argument",
+                    ));
                 }
                 let algorithm = option.args[0].to_lowercase();
                 if !matches!(
                     algorithm.as_str(),
                     "nearest" | "linear" | "cubic" | "lanczos2" | "lanczos3"
                 ) {
-                    error!(
+                    return Err(OptionParseError::invalid(format!(
                         "Invalid resizing algorithm: {}. Must be one of: nearest, linear, cubic, lanczos2, lanczos3",
                         algorithm
-                    );
-                    return Err(format!(
-                        "Invalid resizing algorithm: {}. Must be one of: nearest, linear, cubic, lanczos2, lanczos3",
-                        algorithm
-                    ));
+                    )));
                 }
                 parsed_options.resizing_algorithm = Some(algorithm);
             }
             MAX_BYTES | MAX_BYTES_SHORT => {
                 if option.args.is_empty() {
-                    error!("Max_bytes option requires one argument");
-                    return Err("max_bytes option requires one argument".to_string());
+                    return Err(OptionParseError::invalid("max_bytes option requires one argument"));
                 }
-                parsed_options.save.max_bytes = Some(option.args[0].parse::<usize>().map_err(|e| {
-                    error!("Invalid max_bytes: {}", e);
-                    e.to_string()
-                })?);
+                parsed_options.save.max_bytes = Some(parse_integer(&option.args[0], "max_bytes")?);
             }
             STRIP_METADATA | STRIP_METADATA_SHORT => {
                 parsed_options.save.strip_metadata = Some(
@@ -1079,20 +1086,14 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
                 parsed_options.save.jpeg.overshoot_deringing = parse_optional_bool(&option.args, 3);
                 parsed_options.save.jpeg.optimize_scans = parse_optional_bool(&option.args, 4);
                 if let Some(arg) = option.args.get(5).filter(|arg| !arg.is_empty()) {
-                    parsed_options.save.jpeg.quant_table = Some(arg.parse::<i32>().map_err(|e| {
-                        error!("Invalid jpeg quant_table: {}", e);
-                        e.to_string()
-                    })?);
+                    parsed_options.save.jpeg.quant_table = Some(parse_integer(arg, "jpeg quant_table")?);
                 }
             }
             PNG_OPTIONS | PNG_OPTIONS_SHORT => {
                 parsed_options.save.png.interlaced = parse_optional_bool(&option.args, 0);
                 parsed_options.save.png.quantize = parse_optional_bool(&option.args, 1);
                 if let Some(arg) = option.args.get(2).filter(|arg| !arg.is_empty()) {
-                    parsed_options.save.png.quantization_colors = Some(arg.parse::<u16>().map_err(|e| {
-                        error!("Invalid png quantization_colors: {}", e);
-                        e.to_string()
-                    })?);
+                    parsed_options.save.png.quantization_colors = Some(parse_integer(arg, "png quantization_colors")?);
                 }
             }
             WEBP_OPTIONS | WEBP_OPTIONS_SHORT => {
@@ -1107,23 +1108,15 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
             }
             PAGE | PAGE_SHORT => {
                 if option.args.is_empty() {
-                    error!("Page option requires one argument");
-                    return Err("page option requires one argument".to_string());
+                    return Err(OptionParseError::invalid("page option requires one argument"));
                 }
-                parsed_options.page = Some(option.args[0].parse::<u32>().map_err(|e| {
-                    error!("Invalid page: {}", e);
-                    e.to_string()
-                })?);
+                parsed_options.page = Some(parse_integer(&option.args[0], "page")?);
             }
             PAGES | PAGES_SHORT => {
                 if option.args.is_empty() {
-                    error!("Pages option requires one argument");
-                    return Err("pages option requires one argument".to_string());
+                    return Err(OptionParseError::invalid("pages option requires one argument"));
                 }
-                parsed_options.pages = Some(option.args[0].parse::<u32>().map_err(|e| {
-                    error!("Invalid pages: {}", e);
-                    e.to_string()
-                })?);
+                parsed_options.pages = Some(parse_integer(&option.args[0], "pages")?);
             }
             DISABLE_ANIMATION | DISABLE_ANIMATION_SHORT => {
                 parsed_options.disable_animation = option
@@ -1134,25 +1127,21 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
             }
             SKIP_PROCESSING | SKIP_PROCESSING_SHORT => {
                 if option.args.is_empty() {
-                    error!("Skip_processing option requires at least one argument");
-                    return Err("skip_processing option requires at least one argument".to_string());
+                    return Err(OptionParseError::invalid(
+                        "skip_processing option requires at least one argument",
+                    ));
                 }
                 parsed_options.skip_processing = option.args.iter().map(|arg| arg.to_lowercase()).collect();
             }
             EXPIRES | EXPIRES_SHORT => {
                 if option.args.is_empty() {
-                    error!("Expires option requires one argument");
-                    return Err("expires option requires one argument".to_string());
+                    return Err(OptionParseError::invalid("expires option requires one argument"));
                 }
-                parsed_options.expires = Some(option.args[0].parse::<u64>().map_err(|e| {
-                    error!("Invalid expires timestamp: {}", e);
-                    e.to_string()
-                })?);
+                parsed_options.expires = Some(parse_integer(&option.args[0], "expires timestamp")?);
             }
             FILENAME | FILENAME_SHORT => {
                 if option.args.is_empty() {
-                    error!("Filename option requires one argument");
-                    return Err("filename option requires one argument".to_string());
+                    return Err(OptionParseError::invalid("filename option requires one argument"));
                 }
                 let encoded = option
                     .args
@@ -1160,14 +1149,8 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
                     .map(|arg| super::utils::parse_boolean(arg))
                     .unwrap_or(false);
                 parsed_options.filename = Some(if encoded {
-                    let decoded = general_purpose::URL_SAFE_NO_PAD.decode(&option.args[0]).map_err(|e| {
-                        error!("Invalid base64 for filename: {}", e);
-                        e.to_string()
-                    })?;
-                    String::from_utf8(decoded).map_err(|e| {
-                        error!("Invalid UTF-8 for filename: {}", e);
-                        e.to_string()
-                    })?
+                    let decoded = decode_base64(&option.args[0], "filename")?;
+                    decode_utf8(decoded, "filename")?
                 } else {
                     option.args[0].clone()
                 });
@@ -1198,14 +1181,10 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
     Ok(parsed_options)
 }
 
-fn parse_brightness(value: &str) -> Result<i16, String> {
-    let parsed = value.parse::<i16>().map_err(|e| {
-        error!("Invalid brightness: {}", e);
-        e.to_string()
-    })?;
+fn parse_brightness(value: &str) -> Result<i16, OptionParseError> {
+    let parsed = parse_integer::<i16>(value, "brightness")?;
     if !(-255..=255).contains(&parsed) {
-        error!("Brightness must be between -255 and 255, received: {}", parsed);
-        return Err("brightness must be between -255 and 255".to_string());
+        return Err(OptionParseError::invalid("brightness must be between -255 and 255"));
     }
     Ok(parsed)
 }
