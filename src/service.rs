@@ -2,11 +2,11 @@ use crate::app::AppState;
 use crate::caching::cache::{CachedImage, CachedMetadata, ImgforgeCache, MetadataCache};
 use crate::fetch::{fetch_image, FetchError};
 use crate::limits::{MaxSourceFileSize, MaxSourceResolution};
-use crate::processing::options::{parse_all_options, ParsedOptions};
-use crate::processing::presets::expand_presets;
+use crate::processing::options::{parse_all_options, OptionParseError, ParsedOptions};
+use crate::processing::presets::{expand_presets, PresetError};
 use crate::processing::process_image;
 use crate::processing::watermark::{self, CachedWatermark};
-use crate::url::{parse_path, validate_signature, ImgforgeUrl};
+use crate::url::{parse_path, validate_signature, ImgforgeUrl, SourceUrlDecodeError};
 use crate::utils::{content_type_to_format, format_to_content_type, read_exif_orientation};
 use axum::http::StatusCode;
 use bytes::Bytes;
@@ -70,6 +70,12 @@ pub enum ServiceError {
         #[source]
         source: FetchError,
     },
+    #[error(transparent)]
+    Preset(#[from] PresetError),
+    #[error(transparent)]
+    OptionParse(#[from] OptionParseError),
+    #[error(transparent)]
+    SourceUrlDecode(#[from] SourceUrlDecodeError),
     #[error("{message}")]
     Response { status: StatusCode, message: String },
 }
@@ -84,7 +90,11 @@ impl ServiceError {
 
     pub fn status(&self) -> StatusCode {
         match self {
-            Self::Fetch(_) | Self::WatermarkFetch { .. } => StatusCode::BAD_REQUEST,
+            Self::Fetch(_)
+            | Self::WatermarkFetch { .. }
+            | Self::Preset(_)
+            | Self::OptionParse(_)
+            | Self::SourceUrlDecode(_) => StatusCode::BAD_REQUEST,
             Self::Response { status, .. } => *status,
         }
     }
@@ -97,6 +107,9 @@ impl ServiceError {
                 "Source image exceeds the maximum allowed size of {limit} bytes"
             )),
             Self::WatermarkFetch { .. } => Cow::Borrowed("Failed to fetch watermark image"),
+            Self::Preset(error) => Cow::Owned(error.to_string()),
+            Self::OptionParse(error) => Cow::Owned(error.to_string()),
+            Self::SourceUrlDecode(_) => Cow::Borrowed("Error decoding URL"),
             Self::Response { message, .. } => Cow::Borrowed(message),
         }
     }
@@ -166,16 +179,9 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
         url_parts.processing_options.clone(),
         &config.presets,
         config.only_presets,
-    )
-    .map_err(|e| {
-        error!("Error expanding presets: {}", e);
-        ServiceError::new(StatusCode::BAD_REQUEST, e)
-    })?;
+    )?;
 
-    let parsed_options = parse_all_options(expanded_options).map_err(|e| {
-        error!("Error parsing processing options: {}", e);
-        ServiceError::new(StatusCode::BAD_REQUEST, e)
-    })?;
+    let parsed_options = parse_all_options(expanded_options)?;
 
     enforce_expiration(&parsed_options)?;
 
@@ -192,10 +198,7 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
 
     let content_disposition = content_disposition_for(&parsed_options);
 
-    let decoded_url = url_parts.source_url.decode().map_err(|e| {
-        error!("Error decoding URL: {}", e);
-        ServiceError::new(StatusCode::BAD_REQUEST, format!("Error decoding URL: {}", e))
-    })?;
+    let decoded_url = url_parts.source_url.decode()?;
 
     debug!("Processing image forge request for URL: {}", decoded_url);
 
@@ -305,10 +308,7 @@ pub async fn image_info(state: Arc<AppState>, request: ProcessRequest<'_>) -> Re
         });
     }
 
-    let decoded_url = url_parts.source_url.decode().map_err(|e| {
-        error!("Error decoding URL: {}", e);
-        ServiceError::new(StatusCode::BAD_REQUEST, format!("Error decoding URL: {}", e))
-    })?;
+    let decoded_url = url_parts.source_url.decode()?;
 
     let _permit = state
         .semaphore
@@ -661,6 +661,32 @@ mod tests {
 
         assert_eq!(error.status(), StatusCode::BAD_REQUEST);
         assert_eq!(error.message(), "Error fetching image");
+        assert!(error.source().is_some());
+    }
+
+    #[test]
+    fn option_parse_error_has_centralized_http_mapping() {
+        let error = ServiceError::from(OptionParseError::InvalidValue(
+            "quality option requires one argument".to_string(),
+        ));
+
+        assert_eq!(error.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(error.message(), "quality option requires one argument");
+    }
+
+    #[test]
+    fn source_url_error_uses_safe_client_message() {
+        use base64::Engine as _;
+
+        let source = crate::url::SourceUrlInfo::Base64 {
+            encoded_url: base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([0xff]),
+        }
+        .decode()
+        .expect_err("invalid UTF-8 should fail");
+        let error = ServiceError::from(source);
+
+        assert_eq!(error.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(error.message(), "Error decoding URL");
         assert!(error.source().is_some());
     }
 

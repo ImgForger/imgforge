@@ -16,5 +16,8 @@ pub mod utils;
 pub use app::{AppState, Imgforge, InitError};
 pub use fetch::FetchError;
 pub use limits::{MaxSourceFileSize, MaxSourceResolution, SecurityLimitError};
+pub use processing::options::OptionParseError;
+pub use processing::presets::PresetError;
 pub use server::ServerError;
 pub use service::{CacheStatus, ImageInfo, ProcessRequest, ProcessedImage, ServiceError};
+pub use url::SourceUrlDecodeError;

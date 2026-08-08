@@ -3,6 +3,19 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use hmac::{Hmac, Mac};
 use percent_encoding::percent_decode_str;
 use sha2::Sha256;
+use thiserror::Error;
+
+/// Errors produced while decoding a source URL.
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum SourceUrlDecodeError {
+    #[error("source URL contains invalid percent-encoded UTF-8")]
+    PercentEncodedUtf8(#[source] std::str::Utf8Error),
+    #[error("source URL is not valid URL-safe Base64")]
+    Base64(#[source] base64::DecodeError),
+    #[error("decoded source URL is not valid UTF-8")]
+    Utf8(#[source] std::string::FromUtf8Error),
+}
 
 /// Information about the source URL, including its type and extension.
 #[derive(Debug)]
@@ -15,17 +28,19 @@ pub enum SourceUrlInfo {
 
 impl SourceUrlInfo {
     /// Decodes the source URL based on its type.
-    /// Returns the decoded URL as a String or an error message.
-    pub fn decode(&self) -> Result<String, String> {
+    /// Returns the decoded URL as a `String`.
+    pub fn decode(&self) -> Result<String, SourceUrlDecodeError> {
         match self {
             SourceUrlInfo::Plain { url, .. } => percent_decode_str(url)
                 .decode_utf8()
                 .map(|s| s.to_string())
-                .map_err(|e| e.to_string()),
-            SourceUrlInfo::Base64 { encoded_url, .. } => URL_SAFE_NO_PAD
-                .decode(encoded_url)
-                .map_err(|e| e.to_string())
-                .and_then(|bytes| String::from_utf8(bytes).map_err(|e| e.to_string())),
+                .map_err(SourceUrlDecodeError::PercentEncodedUtf8),
+            SourceUrlInfo::Base64 { encoded_url, .. } => {
+                let bytes = URL_SAFE_NO_PAD
+                    .decode(encoded_url)
+                    .map_err(SourceUrlDecodeError::Base64)?;
+                String::from_utf8(bytes).map_err(SourceUrlDecodeError::Utf8)
+            }
         }
     }
 }
@@ -162,7 +177,16 @@ mod tests {
         let source = SourceUrlInfo::Base64 {
             encoded_url: "invalid!!!base64".to_string(),
         };
-        assert!(source.decode().is_err());
+        assert!(matches!(source.decode(), Err(SourceUrlDecodeError::Base64(_))));
+    }
+
+    #[test]
+    fn test_source_url_info_decode_base64_invalid_utf8() {
+        let source = SourceUrlInfo::Base64 {
+            encoded_url: URL_SAFE_NO_PAD.encode([0xff]),
+        };
+
+        assert!(matches!(source.decode(), Err(SourceUrlDecodeError::Utf8(_))));
     }
 
     #[test]

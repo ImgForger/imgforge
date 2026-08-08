@@ -1,5 +1,5 @@
 use crate::limits::{MaxSourceFileSize, MaxSourceResolution};
-use crate::processing::options::{parse_all_options, Gravity, ProcessingOption};
+use crate::processing::options::{parse_all_options, Gravity, OptionParseError, ProcessingOption};
 use crate::processing::presets::parse_options_string;
 use crate::processing::utils;
 use base64::Engine as _;
@@ -53,7 +53,7 @@ fn test_parse_blur_option_rejects_non_positive_value() {
         args: vec!["0".to_string()],
     }];
     let err = parse_all_options(options).unwrap_err();
-    assert!(err.contains("blur must be a finite positive number"));
+    assert!(err.to_string().contains("blur must be a finite positive number"));
 }
 
 #[test]
@@ -109,7 +109,7 @@ fn test_parse_rotation_option_rejects_unsupported_angle() {
         args: vec!["45".to_string()],
     }];
     let err = parse_all_options(options).unwrap_err();
-    assert!(err.contains("rotation must be one of"));
+    assert!(err.to_string().contains("rotation must be one of"));
 }
 
 #[test]
@@ -159,7 +159,7 @@ fn test_parse_gravity_option_rejects_invalid_value() {
         args: vec!["center".to_string()],
     }];
     let err = parse_all_options(options).unwrap_err();
-    assert!(err.contains("gravity must be one of"));
+    assert!(err.to_string().contains("gravity must be one of"));
 }
 
 #[test]
@@ -268,7 +268,13 @@ fn test_parse_max_src_resolution_rejects_invalid_limits() {
             args: vec![value.to_string()],
         }];
 
-        assert!(parse_all_options(options).is_err(), "accepted {value}");
+        assert!(
+            matches!(
+                parse_all_options(options),
+                Err(OptionParseError::SecurityLimit { ref option, .. }) if option == "max_src_resolution"
+            ),
+            "accepted {value}"
+        );
     }
 }
 
@@ -280,7 +286,13 @@ fn test_parse_max_src_file_size_rejects_invalid_limits() {
             args: vec![value.to_string()],
         }];
 
-        assert!(parse_all_options(options).is_err(), "accepted {value}");
+        assert!(
+            matches!(
+                parse_all_options(options),
+                Err(OptionParseError::SecurityLimit { ref option, .. }) if option == "max_src_file_size"
+            ),
+            "accepted {value}"
+        );
     }
 }
 
@@ -374,7 +386,7 @@ fn test_parse_zoom_option_rejects_non_positive_value() {
         args: vec!["0".to_string()],
     }];
     let err = parse_all_options(options).unwrap_err();
-    assert!(err.contains("zoom must be a finite positive number"));
+    assert!(err.to_string().contains("zoom must be a finite positive number"));
 }
 
 #[test]
@@ -394,7 +406,7 @@ fn test_parse_sharpen_option_rejects_nan() {
         args: vec!["NaN".to_string()],
     }];
     let err = parse_all_options(options).unwrap_err();
-    assert!(err.contains("sharpen must be a finite positive number"));
+    assert!(err.to_string().contains("sharpen must be a finite positive number"));
 }
 
 #[test]
@@ -597,14 +609,22 @@ fn test_parse_resizing_type_rejects_unsupported_value() {
         args: vec!["bogus".to_string()],
     }];
 
-    assert!(parse_all_options(options).is_err());
+    assert!(matches!(
+        parse_all_options(options),
+        Err(OptionParseError::InvalidValue(ref message))
+            if message.contains("resizing_type must be one of")
+    ));
 }
 
 #[test]
 fn test_parse_resizing_type_from_malformed_preset_returns_error() {
     let options = parse_options_string("resizing_type").expect("preset syntax parses");
 
-    assert!(parse_all_options(options).is_err());
+    assert!(matches!(
+        parse_all_options(options),
+        Err(OptionParseError::InvalidValue(ref message))
+            if message.contains("resizing_type option requires one argument")
+    ));
 }
 
 #[test]
@@ -646,7 +666,11 @@ fn test_parse_resize_invalid_width() {
         name: "resize".to_string(),
         args: vec!["fill".to_string(), "abc".to_string(), "200".to_string()],
     }];
-    assert!(parse_all_options(options).is_err());
+    assert!(matches!(
+        parse_all_options(options),
+        Err(OptionParseError::Integer { ref option, ref value, .. })
+            if option == "resize width" && value == "abc"
+    ));
 }
 
 #[test]
@@ -1006,5 +1030,5 @@ fn test_parse_resizing_algorithm_invalid() {
     }];
     let result = parse_all_options(options);
     assert!(result.is_err());
-    assert!(result.unwrap_err().contains("Invalid resizing algorithm"));
+    assert!(result.unwrap_err().to_string().contains("Invalid resizing algorithm"));
 }

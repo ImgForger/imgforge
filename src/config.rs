@@ -1,7 +1,7 @@
 use crate::constants::*;
 use crate::limits::{MaxSourceFileSize, MaxSourceResolution, SecurityLimitError};
 use crate::processing::options::ProcessingOption;
-use crate::processing::presets::parse_options_string;
+use crate::processing::presets::{parse_options_string, PresetError};
 use std::collections::HashMap;
 use std::env;
 use std::str::FromStr;
@@ -27,7 +27,20 @@ pub enum ConfigError {
         source: SecurityLimitError,
     },
     #[error("invalid presets: {0}")]
-    InvalidPresets(String),
+    InvalidPresets(#[source] PresetConfigError),
+}
+
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum PresetConfigError {
+    #[error("invalid preset definition: {definition}")]
+    InvalidDefinition { definition: String },
+    #[error("invalid preset definition {name:?}: {source}")]
+    InvalidOptions {
+        name: String,
+        #[source]
+        source: PresetError,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -60,7 +73,7 @@ fn normalize_bind_address(raw: &str) -> String {
     }
 }
 
-fn parse_presets(presets_str: &str) -> Result<HashMap<String, Vec<ProcessingOption>>, String> {
+fn parse_presets(presets_str: &str) -> Result<HashMap<String, Vec<ProcessingOption>>, PresetConfigError> {
     let mut presets = HashMap::new();
     if presets_str.is_empty() {
         return Ok(presets);
@@ -73,17 +86,23 @@ fn parse_presets(presets_str: &str) -> Result<HashMap<String, Vec<ProcessingOpti
         }
 
         let Some((name, options)) = preset_def.split_once('=') else {
-            return Err(format!("invalid preset definition: {}", preset_def));
+            return Err(PresetConfigError::InvalidDefinition {
+                definition: preset_def.to_string(),
+            });
         };
 
         let name = name.trim();
         let options = options.trim();
         if name.is_empty() || options.is_empty() {
-            return Err(format!("invalid preset definition: {}", preset_def));
+            return Err(PresetConfigError::InvalidDefinition {
+                definition: preset_def.to_string(),
+            });
         }
 
-        let parsed_options =
-            parse_options_string(options).map_err(|e| format!("invalid preset definition '{}': {}", name, e))?;
+        let parsed_options = parse_options_string(options).map_err(|source| PresetConfigError::InvalidOptions {
+            name: name.to_string(),
+            source,
+        })?;
 
         presets.insert(name.to_string(), parsed_options);
     }
