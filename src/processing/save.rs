@@ -112,9 +112,22 @@ fn encode_once(img: &VipsImage, format: &str, quality: u8, options: &SaveOptions
             ops::pngsave_buffer_with_opts(img, &opts)
         }),
         "webp" => encode_image("WebP", || {
-            // libvips 1.7.x's generated WebP save bindings can abort the process, so
-            // WebP encoder options are parsed for imgproxy compatibility but not applied.
-            img.image_write_to_buffer(".webp")
+            // libvips 1.7.x's generated WebP save bindings can abort the
+            // process, so encoder options are passed through the save
+            // suffix instead, which routes them via vips' option-string
+            // parser rather than the generated bindings.
+            let mut suffix = format!(".webp[Q={}", (quality as i32).clamp(1, 100));
+            if options.webp.lossless.unwrap_or(false) {
+                suffix.push_str(",lossless");
+            }
+            if options.webp.smart_subsample.unwrap_or(false) {
+                suffix.push_str(",smart-subsample");
+            }
+            if matches!(keep, ops::ForeignKeep::None) {
+                suffix.push_str(",keep=none");
+            }
+            suffix.push(']');
+            img.image_write_to_buffer(&suffix)
         }),
         "tiff" => encode_image("TIFF", || {
             let clamped_quality = (quality as i32).clamp(1, 100);

@@ -29,3 +29,7 @@ mod watermark_tests;
 #[cfg(test)]
 #[path = "tests/pipeline_tests.rs"]
 mod pipeline_tests;
+
+#[cfg(test)]
+#[path = "tests/save_tests.rs"]
+mod save_tests;
