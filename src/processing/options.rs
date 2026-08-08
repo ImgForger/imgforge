@@ -216,9 +216,14 @@ const RETURN_ATTACHMENT: &str = "return_attachment";
 const RETURN_ATTACHMENT_SHORT: &str = "att";
 
 const VALID_ROTATIONS: [u16; 4] = [0, 90, 180, 270];
+const VALID_RESIZING_TYPES: [&str; 4] = ["fill", "fit", "force", "auto"];
 
 fn is_valid_rotation(rotation: u16) -> bool {
     VALID_ROTATIONS.contains(&rotation)
+}
+
+fn is_valid_resizing_type(resizing_type: &str) -> bool {
+    VALID_RESIZING_TYPES.contains(&resizing_type)
 }
 
 fn parse_positive_f32(value: &str, option_name: &str) -> Result<f32, String> {
@@ -592,12 +597,19 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
                 }
             }
             RESIZING_TYPE | RESIZING_TYPE_SHORT => {
-                if parsed_options.resize.is_none() {
-                    parsed_options.resize = Some(Resize::default());
+                let resizing_type = option.args.first().filter(|value| !value.is_empty()).ok_or_else(|| {
+                    error!("Resizing_type option requires one argument");
+                    "resizing_type option requires one argument".to_string()
+                })?;
+                if !is_valid_resizing_type(resizing_type) {
+                    error!("Unsupported resizing type: {}", resizing_type);
+                    return Err("resizing_type must be one of: fill, fit, force, auto".to_string());
                 }
-                if let Some(ref mut resize) = parsed_options.resize {
-                    resize.resizing_type = option.args[0].clone();
-                }
+                parsed_options
+                    .resize
+                    .get_or_insert_with(Resize::default)
+                    .resizing_type
+                    .clone_from(resizing_type);
             }
             SIZE | SIZE_SHORT => {
                 let mut store_resize = parsed_options.resize.is_some();

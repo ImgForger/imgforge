@@ -1,5 +1,6 @@
 use crate::limits::{MaxSourceFileSize, MaxSourceResolution};
 use crate::processing::options::{parse_all_options, Gravity, ProcessingOption};
+use crate::processing::presets::parse_options_string;
 use crate::processing::utils;
 use base64::Engine as _;
 
@@ -562,6 +563,48 @@ fn test_parse_resize_type_only() {
     assert_eq!(resize.resizing_type, "fill");
     assert_eq!(resize.width, 0);
     assert_eq!(resize.height, 0);
+}
+
+#[test]
+fn test_parse_resizing_type_accepts_supported_values() {
+    for value in ["fill", "fit", "force", "auto"] {
+        let options = vec![ProcessingOption {
+            name: "resizing_type".to_string(),
+            args: vec![value.to_string()],
+        }];
+        let parsed = parse_all_options(options).expect("supported resizing type");
+
+        assert_eq!(parsed.resize.unwrap().resizing_type, value);
+    }
+}
+
+#[test]
+fn test_parse_resizing_type_rejects_missing_or_empty_argument() {
+    for args in [vec![], vec![String::new()]] {
+        let options = vec![ProcessingOption {
+            name: "resizing_type".to_string(),
+            args,
+        }];
+
+        assert!(parse_all_options(options).is_err());
+    }
+}
+
+#[test]
+fn test_parse_resizing_type_rejects_unsupported_value() {
+    let options = vec![ProcessingOption {
+        name: "resizing_type".to_string(),
+        args: vec!["bogus".to_string()],
+    }];
+
+    assert!(parse_all_options(options).is_err());
+}
+
+#[test]
+fn test_parse_resizing_type_from_malformed_preset_returns_error() {
+    let options = parse_options_string("resizing_type").expect("preset syntax parses");
+
+    assert!(parse_all_options(options).is_err());
 }
 
 #[test]
