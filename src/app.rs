@@ -38,8 +38,8 @@ pub struct Imgforge {
 pub enum InitError {
     #[error("configuration error: {0}")]
     Configuration(#[from] ConfigError),
-    #[error("failed to initialize libvips: {0}")]
-    Libvips(String),
+    #[error("failed to initialize libvips")]
+    Libvips(#[source] libvips::error::Error),
     #[error("failed to build HTTP client: {0}")]
     HttpClient(#[from] reqwest::Error),
     #[error("failed to initialize cache: {0}")]
@@ -125,7 +125,7 @@ impl Imgforge {
 }
 
 fn init_vips() -> Result<VipsApp, InitError> {
-    VipsApp::new("imgforge", false).map_err(|err| InitError::Libvips(err.to_string()))
+    VipsApp::new("imgforge", false).map_err(InitError::Libvips)
 }
 
 fn build_http_client(timeout_secs: u64) -> Result<reqwest::Client, reqwest::Error> {

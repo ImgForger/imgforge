@@ -304,7 +304,7 @@ where
     let device = FsDeviceBuilder::new(Path::new(path))
         .with_capacity(capacity)
         .build()
-        .map_err(|e| CacheError::Initialization(e.to_string()))?;
+        .map_err(|source| CacheError::DeviceInitialization { source })?;
     let block_size = block_size_for_capacity(capacity);
     info!(
         cache = cache_name,
@@ -323,7 +323,7 @@ where
         .with_recover_mode(RecoverMode::Quiet)
         .build()
         .await
-        .map_err(|e| CacheError::Initialization(e.to_string()))
+        .map_err(|source| CacheError::StorageInitialization { source })
 }
 
 fn record_cache_metric(hit: bool, cache_type: &str) {
