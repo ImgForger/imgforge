@@ -1,6 +1,6 @@
 use crate::app::AppState;
 use crate::caching::cache::{CachedImage, CachedMetadata, ImgforgeCache, MetadataCache};
-use crate::fetch::fetch_image;
+use crate::fetch::{fetch_image, FetchError};
 use crate::limits::{MaxSourceFileSize, MaxSourceResolution};
 use crate::processing::options::{parse_all_options, ParsedOptions};
 use crate::processing::presets::expand_presets;
@@ -11,10 +11,10 @@ use crate::utils::{content_type_to_format, format_to_content_type, read_exif_ori
 use axum::http::StatusCode;
 use bytes::Bytes;
 use libvips::VipsImage;
-use std::error::Error;
-use std::fmt::Display;
+use std::borrow::Cow;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
+use thiserror::Error;
 use tokio::fs;
 use tracing::{debug, error, info};
 
@@ -60,36 +60,47 @@ pub struct ProcessRequest<'a> {
     pub bearer_token: Option<&'a str>,
 }
 
-#[derive(Debug)]
-pub struct ServiceError {
-    status: StatusCode,
-    message: String,
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum ServiceError {
+    #[error(transparent)]
+    Fetch(#[from] FetchError),
+    #[error("failed to fetch watermark image")]
+    WatermarkFetch {
+        #[source]
+        source: FetchError,
+    },
+    #[error("{message}")]
+    Response { status: StatusCode, message: String },
 }
 
 impl ServiceError {
     pub fn new(status: StatusCode, message: impl Into<String>) -> Self {
-        Self {
+        Self::Response {
             status,
             message: message.into(),
         }
     }
 
     pub fn status(&self) -> StatusCode {
-        self.status
+        match self {
+            Self::Fetch(_) | Self::WatermarkFetch { .. } => StatusCode::BAD_REQUEST,
+            Self::Response { status, .. } => *status,
+        }
     }
 
-    pub fn message(&self) -> &str {
-        &self.message
+    pub fn message(&self) -> Cow<'_, str> {
+        match self {
+            Self::Fetch(FetchError::Request(_)) => Cow::Borrowed("Error fetching image"),
+            Self::Fetch(FetchError::ResponseBody(_)) => Cow::Borrowed("Error reading image bytes"),
+            Self::Fetch(FetchError::SourceTooLarge { limit, .. }) => Cow::Owned(format!(
+                "Source image exceeds the maximum allowed size of {limit} bytes"
+            )),
+            Self::WatermarkFetch { .. } => Cow::Borrowed("Failed to fetch watermark image"),
+            Self::Response { message, .. } => Cow::Borrowed(message),
+        }
     }
 }
-
-impl Display for ServiceError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.message)
-    }
-}
-
-impl Error for ServiceError {}
 
 fn detect_image_format(content_type: Option<&str>, image_bytes: &[u8]) -> String {
     if let Some(format) = content_type.and_then(content_type_to_format) {
@@ -189,12 +200,7 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
     debug!("Processing image forge request for URL: {}", decoded_url);
 
     let max_src_file_size = resolve_max_src_file_size(config, &parsed_options).map(MaxSourceFileSize::get);
-    let (image_bytes, source_content_type) = fetch_image(&state.http_client, &decoded_url, max_src_file_size)
-        .await
-        .map_err(|e| {
-            error!("Error fetching image: {}", e);
-            ServiceError::new(StatusCode::BAD_REQUEST, format!("Error fetching image: {}", e))
-        })?;
+    let (image_bytes, source_content_type) = fetch_image(&state.http_client, &decoded_url, max_src_file_size).await?;
 
     debug!(
         "Source image MIME type: {:?}, size: {} bytes",
@@ -311,10 +317,7 @@ pub async fn image_info(state: Arc<AppState>, request: ProcessRequest<'_>) -> Re
         .await
         .map_err(|_| ServiceError::new(StatusCode::INTERNAL_SERVER_ERROR, "Semaphore closed"))?;
 
-    let (image_bytes, content_type) = fetch_image(&state.http_client, &decoded_url, None).await.map_err(|e| {
-        error!("Error fetching image: {}", e);
-        ServiceError::new(StatusCode::BAD_REQUEST, format!("Error fetching image: {}", e))
-    })?;
+    let (image_bytes, content_type) = fetch_image(&state.http_client, &decoded_url, None).await?;
 
     let (width, height, image_format, channels, has_alpha, orientation, cacheable) =
         match VipsImage::new_from_buffer(&image_bytes, "") {
@@ -528,13 +531,7 @@ async fn resolve_watermark(
         debug!("Fetching watermark from URL: {}", url);
         match fetch_image(&state.http_client, url, None).await {
             Ok((bytes, _)) => Ok(Some(CachedWatermark::from_bytes(bytes))),
-            Err(e) => {
-                error!("Failed to fetch watermark image: {}", e);
-                Err(ServiceError::new(
-                    StatusCode::BAD_REQUEST,
-                    "Failed to fetch watermark image",
-                ))
-            }
+            Err(source) => Err(ServiceError::WatermarkFetch { source }),
         }
     } else if parsed_options.watermark.is_some() {
         if let Some(path) = &state.config.watermark_path {
@@ -630,6 +627,42 @@ fn content_disposition_for(parsed_options: &ParsedOptions) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error as _;
+
+    #[test]
+    fn fetch_size_error_has_centralized_http_mapping() {
+        let error = ServiceError::from(FetchError::SourceTooLarge {
+            limit: 1024,
+            actual: Some(2048),
+        });
+
+        assert_eq!(error.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(
+            error.message(),
+            "Source image exceeds the maximum allowed size of 1024 bytes"
+        );
+        assert!(matches!(
+            error,
+            ServiceError::Fetch(FetchError::SourceTooLarge {
+                limit: 1024,
+                actual: Some(2048)
+            })
+        ));
+    }
+
+    #[tokio::test]
+    async fn fetch_request_error_does_not_expose_network_details() {
+        let source = reqwest::Client::new()
+            .get("not_a_valid_url")
+            .send()
+            .await
+            .expect_err("invalid URL should fail");
+        let error = ServiceError::from(FetchError::Request(source));
+
+        assert_eq!(error.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(error.message(), "Error fetching image");
+        assert!(error.source().is_some());
+    }
 
     #[test]
     fn pixel_count_does_not_overflow_i32_sized_dimensions() {

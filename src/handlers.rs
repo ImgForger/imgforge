@@ -45,8 +45,8 @@ pub async fn info_handler(
             (StatusCode::OK, Json(response)).into_response()
         }
         Err(err) => {
-            error!("Info handler error path={} error={}", path, err);
-            (err.status(), err.message().to_string()).into_response()
+            error!(path, error = ?err, "Info handler error");
+            (err.status(), err.message().into_owned()).into_response()
         }
     }
 }
@@ -91,8 +91,8 @@ pub async fn image_forge_handler(
             (StatusCode::OK, headers, result.bytes).into_response()
         }
         Err(err) => {
-            error!("Image handler error path={} error={}", path, err);
-            (err.status(), err.message().to_string()).into_response()
+            error!(path, error = ?err, "Image handler error");
+            (err.status(), err.message().into_owned()).into_response()
         }
     }
 }
