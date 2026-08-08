@@ -14,6 +14,7 @@ pub mod url;
 pub mod utils;
 
 pub use app::{AppState, Imgforge, InitError};
+pub use config::{DefaultOutputFormat, DefaultOutputFormatParseError};
 pub use fetch::FetchError;
 pub use limits::{MaxSourceFileSize, MaxSourceResolution, SecurityLimitError};
 pub use processing::options::OptionParseError;

@@ -196,7 +196,7 @@ where
         .map_err(|source| SaveError::Vips { format: label, source })
 }
 
-fn is_format_supported(format: &str) -> bool {
+pub(crate) fn is_format_supported(format: &str) -> bool {
     let lower = format.to_lowercase();
     let supported = supported_formats();
     if supported.contains(&lower) {

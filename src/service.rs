@@ -1,5 +1,6 @@
 use crate::app::AppState;
 use crate::caching::cache::{CachedImage, CachedMetadata, ImgforgeCache, MetadataCache};
+use crate::config::DefaultOutputFormat;
 use crate::fetch::{fetch_image, FetchError};
 use crate::limits::{MaxSourceFileSize, MaxSourceResolution};
 use crate::processing::options::{parse_all_options, OptionParseError, ParsedOptions};
@@ -134,6 +135,32 @@ impl ServiceError {
     }
 }
 
+/// Default output format when the URL requests none (#45): the source
+/// image's format (imgproxy-compatible — a transparent PNG stays a PNG
+/// instead of being flattened to JPEG), or a fixed format when
+/// IMGFORGE_DEFAULT_FORMAT names one. Returns None (-> JPEG fallback)
+/// when the source can't be sniffed or this build can't encode it.
+fn default_output_format(configured: DefaultOutputFormat, image_bytes: &[u8]) -> Option<&'static str> {
+    if let Some(format) = configured.fixed_format() {
+        return Some(format);
+    }
+
+    sniff_image_format(image_bytes).filter(|format| crate::processing::save::is_format_supported(format))
+}
+
+fn processed_cache_key<'a>(
+    path: &'a str,
+    configured: DefaultOutputFormat,
+    has_explicit_format: bool,
+    is_raw: bool,
+) -> Cow<'a, str> {
+    if has_explicit_format || is_raw {
+        Cow::Borrowed(path)
+    } else {
+        Cow::Owned(format!("default-format={}:{}", configured.as_str(), path))
+    }
+}
+
 fn detect_image_format(content_type: Option<&str>, image_bytes: &[u8]) -> String {
     if let Some(format) = content_type.and_then(content_type_to_format) {
         return format.to_string();
@@ -200,11 +227,18 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
         config.only_presets,
     )?;
 
-    let parsed_options = parse_all_options(expanded_options)?;
+    let mut parsed_options = parse_all_options(expanded_options)?;
 
     enforce_expiration(&parsed_options)?;
 
-    if let Some(cached_image) = state.cache.get(path).await {
+    let cache_key = processed_cache_key(
+        path,
+        config.default_format,
+        parsed_options.format.is_some(),
+        parsed_options.raw,
+    );
+
+    if let Some(cached_image) = state.cache.get(cache_key.as_ref()).await {
         debug!("Image found in cache for path={}", path);
 
         return Ok(ProcessedImage {
@@ -254,6 +288,9 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
         .await
         .map_err(|_| ServiceError::new(StatusCode::INTERNAL_SERVER_ERROR, "Semaphore closed"))?;
 
+    if parsed_options.format.is_none() {
+        parsed_options.format = default_output_format(state.config.default_format, &image_bytes).map(str::to_owned);
+    }
     let output_format = parsed_options.format.clone().unwrap_or_else(|| "jpeg".to_string());
 
     let processed_image_bytes = {
@@ -274,7 +311,7 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
     let content_type = format_to_content_type(&output_format);
     if content_disposition.is_none() && !matches!(state.cache, ImgforgeCache::None) {
         if let Err(err) = state.cache.insert(
-            path.to_string(),
+            cache_key.into_owned(),
             CachedImage {
                 bytes: processed_image_bytes.clone(),
                 content_type,
@@ -737,5 +774,27 @@ mod tests {
     fn pixel_count_rejects_negative_dimensions() {
         assert!(checked_source_pixel_count(-1, 100).is_err());
         assert!(checked_source_pixel_count(100, -1).is_err());
+    }
+
+    #[test]
+    fn fixed_default_format_is_resolved_without_sniffing() {
+        assert_eq!(
+            default_output_format(DefaultOutputFormat::Jpeg, b"not an image"),
+            Some("jpeg")
+        );
+        assert_eq!(
+            default_output_format(DefaultOutputFormat::Heif, b"not an image"),
+            Some("heif")
+        );
+    }
+
+    #[test]
+    fn implicit_format_cache_keys_include_the_configured_default() {
+        let source_key = processed_cache_key("/unsafe/example", DefaultOutputFormat::Source, false, false);
+        let jpeg_key = processed_cache_key("/unsafe/example", DefaultOutputFormat::Jpeg, false, false);
+        let explicit_key = processed_cache_key("/unsafe/format:png/example", DefaultOutputFormat::Jpeg, true, false);
+
+        assert_ne!(source_key, jpeg_key);
+        assert_eq!(explicit_key, "/unsafe/format:png/example");
     }
 }

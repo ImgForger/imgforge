@@ -28,6 +28,70 @@ pub enum ConfigError {
     },
     #[error("invalid presets: {0}")]
     InvalidPresets(#[source] PresetConfigError),
+    #[error("invalid value for {name} ({value:?}): {source}")]
+    InvalidDefaultFormat {
+        name: &'static str,
+        value: String,
+        #[source]
+        source: DefaultOutputFormatParseError,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum DefaultOutputFormat {
+    #[default]
+    Source,
+    Jpeg,
+    Png,
+    Webp,
+    Gif,
+    Tiff,
+    Avif,
+    Heif,
+}
+
+impl DefaultOutputFormat {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Source => "source",
+            Self::Jpeg => "jpeg",
+            Self::Png => "png",
+            Self::Webp => "webp",
+            Self::Gif => "gif",
+            Self::Tiff => "tiff",
+            Self::Avif => "avif",
+            Self::Heif => "heif",
+        }
+    }
+
+    pub const fn fixed_format(self) -> Option<&'static str> {
+        match self {
+            Self::Source => None,
+            format => Some(format.as_str()),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
+#[error("expected source, jpeg, png, webp, gif, tiff, avif, or heif")]
+pub struct DefaultOutputFormatParseError;
+
+impl FromStr for DefaultOutputFormat {
+    type Err = DefaultOutputFormatParseError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "source" => Ok(Self::Source),
+            "jpeg" | "jpg" => Ok(Self::Jpeg),
+            "png" => Ok(Self::Png),
+            "webp" => Ok(Self::Webp),
+            "gif" => Ok(Self::Gif),
+            "tiff" => Ok(Self::Tiff),
+            "avif" => Ok(Self::Avif),
+            "heif" | "heic" => Ok(Self::Heif),
+            _ => Err(DefaultOutputFormatParseError),
+        }
+    }
 }
 
 #[derive(Debug, Error)]
@@ -61,6 +125,7 @@ pub struct Config {
     pub presets: HashMap<String, Vec<ProcessingOption>>,
     pub only_presets: bool,
     pub watermark_path: Option<String>,
+    pub default_format: DefaultOutputFormat,
     pub rate_limit_per_minute: Option<u32>,
 }
 
@@ -144,6 +209,7 @@ impl Config {
             presets: HashMap::new(),
             only_presets: false,
             watermark_path: None,
+            default_format: DefaultOutputFormat::default(),
             rate_limit_per_minute: None,
         }
     }
@@ -196,6 +262,22 @@ impl Config {
         config.only_presets = env::var(ENV_ONLY_PRESETS).unwrap_or_default().to_lowercase() == "true";
 
         config.watermark_path = env::var(ENV_WATERMARK_PATH).ok();
+        match env::var(ENV_DEFAULT_FORMAT) {
+            Ok(value) => {
+                config.default_format = value.parse().map_err(|source| ConfigError::InvalidDefaultFormat {
+                    name: ENV_DEFAULT_FORMAT,
+                    value,
+                    source,
+                })?;
+            }
+            Err(env::VarError::NotPresent) => {}
+            Err(source @ env::VarError::NotUnicode(_)) => {
+                return Err(ConfigError::InvalidUnicode {
+                    name: ENV_DEFAULT_FORMAT,
+                    source,
+                });
+            }
+        }
         config.rate_limit_per_minute = env::var(ENV_RATE_LIMIT_PER_MINUTE)
             .ok()
             .and_then(|s| s.parse::<u32>().ok());
@@ -310,6 +392,40 @@ mod tests {
     fn test_parse_presets_missing_options() {
         let presets_str = "thumbnail=";
         assert!(parse_presets(presets_str).is_err());
+    }
+
+    #[test]
+    fn test_config_default_format_from_env() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let original = env::var(ENV_DEFAULT_FORMAT).ok();
+
+        env::remove_var(ENV_DEFAULT_FORMAT);
+        let config = Config::from_env().expect("config loads");
+        assert_eq!(config.default_format, DefaultOutputFormat::Source);
+
+        env::set_var(ENV_DEFAULT_FORMAT, "JPEG");
+        let config = Config::from_env().expect("config loads");
+        assert_eq!(config.default_format, DefaultOutputFormat::Jpeg);
+
+        env::set_var(ENV_DEFAULT_FORMAT, "heic");
+        let config = Config::from_env().expect("config loads");
+        assert_eq!(config.default_format, DefaultOutputFormat::Heif);
+
+        env::set_var(ENV_DEFAULT_FORMAT, "bmp");
+        assert!(matches!(
+            Config::from_env(),
+            Err(ConfigError::InvalidDefaultFormat { value, .. }) if value == "bmp"
+        ));
+
+        restore_env_var(ENV_DEFAULT_FORMAT, original);
+    }
+
+    #[test]
+    fn default_output_format_normalizes_aliases() {
+        assert_eq!("jpg".parse(), Ok(DefaultOutputFormat::Jpeg));
+        assert_eq!(" HEIC ".parse(), Ok(DefaultOutputFormat::Heif));
+        assert_eq!(DefaultOutputFormat::Heif.as_str(), "heif");
+        assert!("bmp".parse::<DefaultOutputFormat>().is_err());
     }
 
     #[test]
