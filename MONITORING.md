@@ -66,6 +66,12 @@ ImgForge exposes the following Prometheus metrics at `/metrics`:
 |---------------------------------------|-----------|------------------|------------------------------|
 | `http_requests_duration_seconds`      | Histogram | `method`, `path` | HTTP request duration        |
 | `image_processing_duration_seconds`   | Histogram | `format`         | Image processing duration    |
+| `image_operation_semaphore_wait_duration_seconds` | Histogram | `operation` | Worker-permit wait duration |
+| `image_operation_blocking_queue_duration_seconds` | Histogram | `operation` | Blocking-pool queue duration |
+| `image_operation_execution_duration_seconds` | Histogram | `operation` | Blocking execution duration |
+| `image_operation_concurrency_limit`   | Gauge     | -                | Configured operation limit   |
+| `image_operations_active`             | Gauge     | `operation`      | Currently executing operations |
+| `image_operations_waiting`            | Gauge     | `operation`      | Operations waiting to execute |
 | `source_image_fetch_duration_seconds` | Histogram | -                | Source image fetch duration  |
 | `processed_images_total`              | Counter   | `format`         | Total processed images       |
 | `source_images_fetched_total`         | Counter   | `status`         | Total source images fetched  |

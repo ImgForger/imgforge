@@ -35,6 +35,17 @@ pub enum ConfigError {
         #[source]
         source: DefaultOutputFormatParseError,
     },
+    #[error("invalid value for {name} ({value:?}): {source}")]
+    InvalidWorkerCount {
+        name: &'static str,
+        value: String,
+        #[source]
+        source: std::num::ParseIntError,
+    },
+    #[error("image-processing worker count must be greater than zero")]
+    ZeroWorkers,
+    #[error("image-processing worker count {value} exceeds the supported maximum of {max}")]
+    WorkerCountTooLarge { value: usize, max: usize },
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -189,11 +200,39 @@ where
     }
 }
 
+fn default_worker_count() -> usize {
+    num_cpus::get().max(1).saturating_mul(2)
+}
+
+fn parse_worker_count_from_env() -> Result<usize, ConfigError> {
+    match env::var(ENV_WORKERS) {
+        Ok(value) => {
+            let configured = value
+                .parse::<usize>()
+                .map_err(|source| ConfigError::InvalidWorkerCount {
+                    name: ENV_WORKERS,
+                    value,
+                    source,
+                })?;
+            Ok(if configured == 0 {
+                default_worker_count()
+            } else {
+                configured
+            })
+        }
+        Err(env::VarError::NotPresent) => Ok(default_worker_count()),
+        Err(source @ env::VarError::NotUnicode(_)) => Err(ConfigError::InvalidUnicode {
+            name: ENV_WORKERS,
+            source,
+        }),
+    }
+}
+
 impl Config {
     /// Create a configuration with default values using raw key and salt bytes.
     pub fn new(key: Vec<u8>, salt: Vec<u8>) -> Self {
         Self {
-            workers: num_cpus::get() * 2,
+            workers: default_worker_count(),
             bind_address: "0.0.0.0:3000".to_string(),
             prometheus_bind_address: None,
             timeout: 30,
@@ -226,11 +265,7 @@ impl Config {
         let salt_str = env::var(ENV_SALT).unwrap_or_default();
         let mut config = Config::with_hex_keys(&key_str, &salt_str)?;
 
-        let workers = env::var(ENV_WORKERS)
-            .unwrap_or_else(|_| "0".to_string())
-            .parse()
-            .unwrap_or(0);
-        config.workers = if workers == 0 { num_cpus::get() * 2 } else { workers };
+        config.workers = parse_worker_count_from_env()?;
 
         let bind_address_raw = env::var(ENV_BIND).unwrap_or_else(|_| "0.0.0.0:3000".to_string());
         config.bind_address = normalize_bind_address(&bind_address_raw);
@@ -333,6 +368,49 @@ mod tests {
 
         restore_env_var(ENV_BIND, original_bind);
         restore_env_var(ENV_PROMETHEUS_BIND, original_prometheus);
+    }
+
+    #[test]
+    fn invalid_worker_count_fails_configuration() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let original = env::var(ENV_WORKERS).ok();
+
+        env::set_var(ENV_WORKERS, "invalid");
+        let result = Config::from_env();
+
+        assert!(matches!(
+            result,
+            Err(ConfigError::InvalidWorkerCount {
+                name: ENV_WORKERS,
+                value,
+                ..
+            }) if value == "invalid"
+        ));
+        restore_env_var(ENV_WORKERS, original);
+    }
+
+    #[test]
+    fn zero_worker_count_selects_the_automatic_default() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let original = env::var(ENV_WORKERS).ok();
+
+        env::set_var(ENV_WORKERS, "0");
+        let config = Config::from_env().expect("config loads");
+
+        assert_eq!(config.workers, default_worker_count());
+        restore_env_var(ENV_WORKERS, original);
+    }
+
+    #[test]
+    fn explicit_worker_count_is_preserved() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let original = env::var(ENV_WORKERS).ok();
+
+        env::set_var(ENV_WORKERS, "3");
+        let config = Config::from_env().expect("config loads");
+
+        assert_eq!(config.workers, 3);
+        restore_env_var(ENV_WORKERS, original);
     }
 
     #[test]

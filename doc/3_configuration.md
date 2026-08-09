@@ -6,7 +6,7 @@ imgforge reads configuration exclusively from environment variables. This docume
 
 | Variable                         | Default      | Description & tips                                                                                                                                                                |
 |----------------------------------|--------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `IMGFORGE_WORKERS`               | `0`          | Maximum number of simultaneous image-processing jobs. `0` lets imgforge set `num_cpus * 2`. Increase if libvips operations are lightweight; decrease on memory-constrained hosts. |
+| `IMGFORGE_WORKERS`               | `0`          | Maximum simultaneous image operations. `0` selects `num_cpus * 2`; malformed values stop startup. Set this explicitly in production from measured CPU and memory limits. See [Performance Tips](9_performance.md#tune-concurrency-thoughtfully). |
 | `IMGFORGE_TIMEOUT`               | `30` seconds | Hard timeout enforced by the request-timeout middleware. Requests exceeding the budget return `504 Gateway Timeout`. Tune alongside upstream proxy timeouts.                      |
 | `IMGFORGE_DOWNLOAD_TIMEOUT`      | `10` seconds | Client-side timeout for fetching the source image. Slow origins trigger an error when exceeded.                                                                                   |
 | `IMGFORGE_RATE_LIMIT_PER_MINUTE` | unset        | Enables a token bucket limiter shared by all requests. Use it to shield downstream origins. Set to `0` or leave unset to disable.                                                 |
@@ -44,7 +44,7 @@ imgforge reads configuration exclusively from environment variables. This docume
 | `IMGFORGE_WATERMARK_PATH`     | unset   | Filesystem path to a watermark image automatically applied when the `watermark` option is present and no `watermark_url` is supplied. |
 | `IMGFORGE_DEFAULT_FORMAT`     | `source` | Output format when the URL requests none. `source` keeps the source image's format (imgproxy-compatible); a concrete format (`jpeg`, `webp`, ...) fixes the default — `jpeg` restores the pre-0.11 behavior. |
 
-imgforge refuses to start when either source limit is malformed, zero, negative, non-finite, or outside its supported range. An unset variable is the only way to disable its corresponding limit.
+imgforge refuses to start when either source limit or `IMGFORGE_WORKERS` is malformed. Source limits must also be positive, finite, and inside their supported ranges. An unset source-limit variable is the only way to disable that limit.
 
 Changing `IMGFORGE_DEFAULT_FORMAT` uses a separate cache namespace for format-less URLs, preventing persistent cache entries encoded under the previous default from being served with stale bytes or content types.
 
@@ -85,7 +85,7 @@ Presets are named sets of processing options that can be reused across multiple 
 
 ## Validating configuration
 
-Run the binary with `IMGFORGE_LOG_LEVEL=debug` to log parsed values on startup. Missing required settings raise a panic with a descriptive message:
+Run the binary with `IMGFORGE_LOG_LEVEL=debug` to log parsed values on startup. Missing or malformed required settings return a descriptive startup error:
 
 ```bash
 IMGFORGE_KEY=... IMGFORGE_SALT=... cargo run

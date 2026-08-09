@@ -49,7 +49,11 @@ pub enum InitError {
 impl Imgforge {
     /// Create a new imgforge instance from an explicit configuration.
     pub async fn new(config: Config, cache_config: Option<CacheConfig>) -> Result<Self, InitError> {
+        validate_worker_count(config.workers)?;
+
         monitoring::register_metrics();
+        monitoring::set_image_operation_concurrency_limit(config.workers);
+        warn_if_worker_count_is_high(config.workers);
 
         let semaphore = Arc::new(Semaphore::new(config.workers));
         let cache = Cache::new(cache_config.clone()).await?;
@@ -124,6 +128,32 @@ impl Imgforge {
     }
 }
 
+fn warn_if_worker_count_is_high(workers: usize) {
+    let cpu_count = num_cpus::get().max(1);
+    let automatic_workers = cpu_count.saturating_mul(2);
+    if workers > automatic_workers {
+        warn!(
+            workers,
+            cpu_count,
+            automatic_workers,
+            "Configured image-processing concurrency is high relative to CPU count; verify memory headroom under representative load"
+        );
+    }
+}
+
+fn validate_worker_count(workers: usize) -> Result<(), ConfigError> {
+    if workers == 0 {
+        return Err(ConfigError::ZeroWorkers);
+    }
+    if workers > Semaphore::MAX_PERMITS {
+        return Err(ConfigError::WorkerCountTooLarge {
+            value: workers,
+            max: Semaphore::MAX_PERMITS,
+        });
+    }
+    Ok(())
+}
+
 fn init_vips() -> Result<VipsApp, InitError> {
     VipsApp::new("imgforge", false).map_err(InitError::Libvips)
 }
@@ -152,5 +182,25 @@ fn build_rate_limiter(limit_per_minute: Option<u32>) -> Option<RequestRateLimite
             info!("Rate limiting disabled: not configured");
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn worker_count_must_be_positive() {
+        assert!(matches!(validate_worker_count(0), Err(ConfigError::ZeroWorkers)));
+        assert!(validate_worker_count(1).is_ok());
+    }
+
+    #[test]
+    fn worker_count_must_fit_tokio_semaphore() {
+        assert!(validate_worker_count(Semaphore::MAX_PERMITS).is_ok());
+        assert!(matches!(
+            validate_worker_count(Semaphore::MAX_PERMITS.saturating_add(1)),
+            Err(ConfigError::WorkerCountTooLarge { .. })
+        ));
     }
 }

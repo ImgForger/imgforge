@@ -31,6 +31,18 @@ pub fn register_metrics() {
             Unit::Seconds,
             "Time spent executing an image operation on a blocking thread"
         );
+        describe_gauge!(
+            "image_operation_concurrency_limit",
+            "Configured maximum number of concurrent image operations"
+        );
+        describe_gauge!(
+            "image_operations_active",
+            "Image operations currently executing on blocking threads"
+        );
+        describe_gauge!(
+            "image_operations_waiting",
+            "Image operations waiting for a permit or blocking thread"
+        );
         describe_counter!("processed_images_total", "Total number of processed images");
         describe_counter!("source_images_fetched_total", "Total number of source images fetched");
         describe_counter!("cache_hits_total", "Total number of cache hits");
@@ -110,6 +122,59 @@ impl Drop for ImageOperationTimer {
                     .record(elapsed);
             }
         }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ImageOperationActivity {
+    Waiting,
+    Active,
+}
+
+/// Keeps an image-operation activity gauge balanced across errors and unwinding.
+#[must_use = "the guard must be retained while the operation is in this state"]
+pub(crate) struct ImageOperationActivityGuard {
+    operation: ImageOperation,
+    activity: ImageOperationActivity,
+}
+
+impl ImageOperationActivityGuard {
+    pub(crate) fn waiting(operation: ImageOperation) -> Self {
+        metrics::gauge!("image_operations_waiting", "operation" => operation.as_str()).increment(1.0);
+        Self {
+            operation,
+            activity: ImageOperationActivity::Waiting,
+        }
+    }
+
+    pub(crate) fn active(operation: ImageOperation) -> Self {
+        metrics::gauge!("image_operations_active", "operation" => operation.as_str()).increment(1.0);
+        Self {
+            operation,
+            activity: ImageOperationActivity::Active,
+        }
+    }
+}
+
+impl Drop for ImageOperationActivityGuard {
+    fn drop(&mut self) {
+        let operation = self.operation.as_str();
+        match self.activity {
+            ImageOperationActivity::Waiting => {
+                metrics::gauge!("image_operations_waiting", "operation" => operation).decrement(1.0);
+            }
+            ImageOperationActivity::Active => {
+                metrics::gauge!("image_operations_active", "operation" => operation).decrement(1.0);
+            }
+        }
+    }
+}
+
+pub(crate) fn set_image_operation_concurrency_limit(limit: usize) {
+    metrics::gauge!("image_operation_concurrency_limit").set(limit as f64);
+    for operation in [ImageOperation::Process, ImageOperation::Info, ImageOperation::Watermark] {
+        metrics::gauge!("image_operations_active", "operation" => operation.as_str()).set(0.0);
+        metrics::gauge!("image_operations_waiting", "operation" => operation.as_str()).set(0.0);
     }
 }
 

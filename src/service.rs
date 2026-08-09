@@ -3,7 +3,7 @@ use crate::caching::cache::{CachedImage, CachedMetadata, ImgforgeCache, Metadata
 use crate::config::DefaultOutputFormat;
 use crate::fetch::{fetch_image, FetchError};
 use crate::limits::{MaxSourceFileSize, MaxSourceResolution};
-use crate::monitoring::{ImageOperation, ImageOperationPhase, ImageOperationTimer};
+use crate::monitoring::{ImageOperation, ImageOperationActivityGuard, ImageOperationPhase, ImageOperationTimer};
 use crate::processing::options::{parse_all_options, OptionParseError, ParsedOptions};
 use crate::processing::presets::{expand_presets, PresetError};
 use crate::processing::save::SaveError;
@@ -290,6 +290,7 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
         None
     };
 
+    let waiting = ImageOperationActivityGuard::waiting(ImageOperation::Process);
     let semaphore_wait = ImageOperationTimer::start(ImageOperation::Process, ImageOperationPhase::SemaphoreWait);
     let permit = state
         .semaphore
@@ -304,6 +305,8 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
     let blocking_queue = ImageOperationTimer::start(ImageOperation::Process, ImageOperationPhase::BlockingQueue);
     let (processed_image_bytes, output_format) = tokio::task::spawn_blocking(move || {
         drop(blocking_queue);
+        drop(waiting);
+        let _active = ImageOperationActivityGuard::active(ImageOperation::Process);
         let _execution = ImageOperationTimer::start(ImageOperation::Process, ImageOperationPhase::Execution);
         let _span_guard = span.enter();
         // Keep the concurrency slot until the blocking operation actually ends,
@@ -390,6 +393,7 @@ pub async fn image_info(state: Arc<AppState>, request: ProcessRequest<'_>) -> Re
 
     let (image_bytes, content_type) = fetch_image(&state.http_client, &decoded_url, None).await?;
 
+    let waiting = ImageOperationActivityGuard::waiting(ImageOperation::Info);
     let semaphore_wait = ImageOperationTimer::start(ImageOperation::Info, ImageOperationPhase::SemaphoreWait);
     let permit = state
         .semaphore
@@ -404,6 +408,8 @@ pub async fn image_info(state: Arc<AppState>, request: ProcessRequest<'_>) -> Re
     let (width, height, image_format, channels, has_alpha, orientation, cacheable, size_bytes) =
         tokio::task::spawn_blocking(move || {
             drop(blocking_queue);
+            drop(waiting);
+            let _active = ImageOperationActivityGuard::active(ImageOperation::Info);
             let _execution = ImageOperationTimer::start(ImageOperation::Info, ImageOperationPhase::Execution);
             let _span_guard = span.enter();
             let _permit = permit;
@@ -641,6 +647,7 @@ async fn resolve_watermark(
                             ServiceError::new(StatusCode::BAD_REQUEST, "Failed to read watermark image from path")
                         })?;
 
+                        let waiting = ImageOperationActivityGuard::waiting(ImageOperation::Watermark);
                         let semaphore_wait =
                             ImageOperationTimer::start(ImageOperation::Watermark, ImageOperationPhase::SemaphoreWait);
                         let permit =
@@ -653,6 +660,8 @@ async fn resolve_watermark(
                             ImageOperationTimer::start(ImageOperation::Watermark, ImageOperationPhase::BlockingQueue);
                         tokio::task::spawn_blocking(move || {
                             drop(blocking_queue);
+                            drop(waiting);
+                            let _active = ImageOperationActivityGuard::active(ImageOperation::Watermark);
                             let _execution =
                                 ImageOperationTimer::start(ImageOperation::Watermark, ImageOperationPhase::Execution);
                             let _span_guard = span.enter();

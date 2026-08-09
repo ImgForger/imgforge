@@ -47,6 +47,9 @@ imgforge exposes Prometheus-compatible metrics so you can observe throughput, la
 | `image_operation_semaphore_wait_duration_seconds` | Histogram | `operation` | Time waiting for an imgforge worker permit; exposes configured worker saturation.      |
 | `image_operation_blocking_queue_duration_seconds` | Histogram | `operation` | Time between submitting work and its start on Tokio's blocking pool.                   |
 | `image_operation_execution_duration_seconds` | Histogram | `operation` | Complete blocking execution time, including decode, validation, transformation, and encoding. |
+| `image_operation_concurrency_limit`     | Gauge     | _none_           | Configured maximum number of image operations that may execute concurrently.                 |
+| `image_operations_active`               | Gauge     | `operation`      | Image operations currently executing on blocking threads.                                    |
+| `image_operations_waiting`              | Gauge     | `operation`      | Image operations waiting for either a semaphore permit or a blocking-pool thread.             |
 | `processed_images_total`                  | Counter   | `format`         | Throughput per encoded format; increments on successful responses.                      |
 | `source_image_fetch_duration_seconds`     | Histogram | _none_           | Download latency from upstream sources.                                                 |
 | `source_images_fetched_total`             | Counter   | `status`         | Counts of successful (`status="success"`) and failed (`status="error"`) source fetches. |
@@ -77,7 +80,7 @@ When running a dedicated metrics listener, adjust `targets` to the alternate por
 3. **Queue latency** – Compare `image_operation_semaphore_wait_duration_seconds{quantile="0.95"}` with `image_operation_blocking_queue_duration_seconds{quantile="0.95"}`, grouped by `operation`.
 4. **Cache efficiency** – Visualize hit ratio: `sum(rate(cache_hits_total[5m])) / (sum(rate(cache_hits_total[5m])) + sum(rate(cache_misses_total[5m])))`.
 5. **Source reliability** – Track `sum(rate(source_images_fetched_total{status="error"}[5m]))` to spot upstream outages.
-6. **Instance saturation** – Overlay queue and execution percentiles with CPU and memory to distinguish capacity pressure from intrinsically expensive images.
+6. **Instance saturation** – Overlay `sum(image_operations_active)`, `sum(image_operations_waiting)`, and `image_operation_concurrency_limit` with queue percentiles, CPU, RSS, and libvips memory.
 
 ## Alerting patterns
 
@@ -86,6 +89,7 @@ When running a dedicated metrics listener, adjust `targets` to the alternate por
 - **Slow processing** – Page when the 95th percentile of `image_processing_duration_seconds` remains above an agreed SLA for 15 minutes.
 - **Worker saturation** – Alert when p95 `image_operation_semaphore_wait_duration_seconds` is sustained above the queueing budget.
 - **Blocking-pool saturation** – Alert when `image_operation_blocking_queue_duration_seconds` rises while semaphore wait remains low.
+- **Concurrency saturation** – Alert when `sum(image_operations_active) / image_operation_concurrency_limit` remains near 1 and waiting work is sustained.
 - **Source failures** – Notify when `rate(source_images_fetched_total{status="error"}[5m])` climbs, hinting at upstream instability.
 
 ## Connecting with tracing and logs
