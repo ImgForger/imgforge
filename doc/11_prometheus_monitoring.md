@@ -24,8 +24,13 @@ imgforge exposes Prometheus-compatible metrics so you can observe throughput, la
     │         ├──▶ Fetch source ──▶ source_image_fetch_duration_      │
     │         │                     seconds (observe)                 │
     │         │                                                       │
-    │         ├──▶ Transform ──▶ image_processing_duration_seconds    │
-    │         │                  (observe)                            │
+    │         ├──▶ Wait for permit ──▶ image_operation_semaphore_     │
+    │         │                         wait_duration_seconds         │
+    │         ├──▶ Blocking queue ──▶ image_operation_blocking_       │
+    │         │                       queue_duration_seconds          │
+    │         ├──▶ Execute ──▶ image_operation_execution_duration_    │
+    │         │               seconds + image_processing_duration_    │
+    │         │               seconds                                 │
     │         │                                                       │
     │         └──▶ Response ──▶ http_requests_duration_seconds        │
     │                           status_codes_total{status="200"}++    │
@@ -39,6 +44,9 @@ imgforge exposes Prometheus-compatible metrics so you can observe throughput, la
 |-------------------------------------------|-----------|------------------|-----------------------------------------------------------------------------------------|
 | `http_requests_duration_seconds`          | Histogram | `method`, `path` | Latency across the full request lifecycle, including cache hits and misses.             |
 | `image_processing_duration_seconds`       | Histogram | `format`         | Time spent transforming images, segmented by requested output format.                   |
+| `image_operation_semaphore_wait_duration_seconds` | Histogram | `operation` | Time waiting for an imgforge worker permit; exposes configured worker saturation.      |
+| `image_operation_blocking_queue_duration_seconds` | Histogram | `operation` | Time between submitting work and its start on Tokio's blocking pool.                   |
+| `image_operation_execution_duration_seconds` | Histogram | `operation` | Complete blocking execution time, including decode, validation, transformation, and encoding. |
 | `processed_images_total`                  | Counter   | `format`         | Throughput per encoded format; increments on successful responses.                      |
 | `source_image_fetch_duration_seconds`     | Histogram | _none_           | Download latency from upstream sources.                                                 |
 | `source_images_fetched_total`             | Counter   | `status`         | Counts of successful (`status="success"`) and failed (`status="error"`) source fetches. |
@@ -66,15 +74,18 @@ When running a dedicated metrics listener, adjust `targets` to the alternate por
 
 1. **Request overview** – Plot `sum(rate(status_codes_total[5m])) by (status)` to visualise success versus error responses.
 2. **Processing latency** – Use `histogram_quantile(0.95, sum(rate(image_processing_duration_seconds_bucket[5m])) by (le, format))` to watch for regressions after deploys.
-3. **Cache efficiency** – Visualize hit ratio: `sum(rate(cache_hits_total[5m])) / (sum(rate(cache_hits_total[5m])) + sum(rate(cache_misses_total[5m])))`.
-4. **Source reliability** – Track `sum(rate(source_images_fetched_total{status="error"}[5m]))` to spot upstream outages.
-5. **Instance saturation** – Overlay CPU, memory, and worker semaphore utilisation (exported via node/system exporters) with imgforge latency histograms to understand headroom.
+3. **Queue latency** – Compare `image_operation_semaphore_wait_duration_seconds{quantile="0.95"}` with `image_operation_blocking_queue_duration_seconds{quantile="0.95"}`, grouped by `operation`.
+4. **Cache efficiency** – Visualize hit ratio: `sum(rate(cache_hits_total[5m])) / (sum(rate(cache_hits_total[5m])) + sum(rate(cache_misses_total[5m])))`.
+5. **Source reliability** – Track `sum(rate(source_images_fetched_total{status="error"}[5m]))` to spot upstream outages.
+6. **Instance saturation** – Overlay queue and execution percentiles with CPU and memory to distinguish capacity pressure from intrinsically expensive images.
 
 ## Alerting patterns
 
 - **Error spike** – Trigger when `sum(rate(status_codes_total{status=~"5.."}[5m]))` exceeds a baseline for 10 minutes.
 - **Cache miss surge** – Alert when the miss ratio stays above 70% for sustained intervals, indicating cache warmup or configuration drift.
 - **Slow processing** – Page when the 95th percentile of `image_processing_duration_seconds` remains above an agreed SLA for 15 minutes.
+- **Worker saturation** – Alert when p95 `image_operation_semaphore_wait_duration_seconds` is sustained above the queueing budget.
+- **Blocking-pool saturation** – Alert when `image_operation_blocking_queue_duration_seconds` rises while semaphore wait remains low.
 - **Source failures** – Notify when `rate(source_images_fetched_total{status="error"}[5m])` climbs, hinting at upstream instability.
 
 ## Connecting with tracing and logs

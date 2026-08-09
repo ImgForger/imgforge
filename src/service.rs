@@ -3,6 +3,7 @@ use crate::caching::cache::{CachedImage, CachedMetadata, ImgforgeCache, Metadata
 use crate::config::DefaultOutputFormat;
 use crate::fetch::{fetch_image, FetchError};
 use crate::limits::{MaxSourceFileSize, MaxSourceResolution};
+use crate::monitoring::{ImageOperation, ImageOperationPhase, ImageOperationTimer};
 use crate::processing::options::{parse_all_options, OptionParseError, ParsedOptions};
 use crate::processing::presets::{expand_presets, PresetError};
 use crate::processing::save::SaveError;
@@ -289,16 +290,21 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
         None
     };
 
+    let semaphore_wait = ImageOperationTimer::start(ImageOperation::Process, ImageOperationPhase::SemaphoreWait);
     let permit = state
         .semaphore
         .clone()
         .acquire_owned()
         .await
         .map_err(|_| ServiceError::new(StatusCode::INTERNAL_SERVER_ERROR, "Semaphore closed"))?;
+    drop(semaphore_wait);
 
     let blocking_state = state.clone();
     let span = tracing::Span::current();
+    let blocking_queue = ImageOperationTimer::start(ImageOperation::Process, ImageOperationPhase::BlockingQueue);
     let (processed_image_bytes, output_format) = tokio::task::spawn_blocking(move || {
+        drop(blocking_queue);
+        let _execution = ImageOperationTimer::start(ImageOperation::Process, ImageOperationPhase::Execution);
         let _span_guard = span.enter();
         // Keep the concurrency slot until the blocking operation actually ends,
         // even if the async request future is cancelled while awaiting it.
@@ -384,16 +390,21 @@ pub async fn image_info(state: Arc<AppState>, request: ProcessRequest<'_>) -> Re
 
     let (image_bytes, content_type) = fetch_image(&state.http_client, &decoded_url, None).await?;
 
+    let semaphore_wait = ImageOperationTimer::start(ImageOperation::Info, ImageOperationPhase::SemaphoreWait);
     let permit = state
         .semaphore
         .clone()
         .acquire_owned()
         .await
         .map_err(|_| ServiceError::new(StatusCode::INTERNAL_SERVER_ERROR, "Semaphore closed"))?;
+    drop(semaphore_wait);
     let info_content_type = content_type.clone();
     let span = tracing::Span::current();
+    let blocking_queue = ImageOperationTimer::start(ImageOperation::Info, ImageOperationPhase::BlockingQueue);
     let (width, height, image_format, channels, has_alpha, orientation, cacheable, size_bytes) =
         tokio::task::spawn_blocking(move || {
+            drop(blocking_queue);
+            let _execution = ImageOperationTimer::start(ImageOperation::Info, ImageOperationPhase::Execution);
             let _span_guard = span.enter();
             let _permit = permit;
             let size_bytes = image_bytes.len();
@@ -630,12 +641,20 @@ async fn resolve_watermark(
                             ServiceError::new(StatusCode::BAD_REQUEST, "Failed to read watermark image from path")
                         })?;
 
+                        let semaphore_wait =
+                            ImageOperationTimer::start(ImageOperation::Watermark, ImageOperationPhase::SemaphoreWait);
                         let permit =
                             state.semaphore.clone().acquire_owned().await.map_err(|_| {
                                 ServiceError::new(StatusCode::INTERNAL_SERVER_ERROR, "Semaphore closed")
                             })?;
+                        drop(semaphore_wait);
                         let span = tracing::Span::current();
+                        let blocking_queue =
+                            ImageOperationTimer::start(ImageOperation::Watermark, ImageOperationPhase::BlockingQueue);
                         tokio::task::spawn_blocking(move || {
+                            drop(blocking_queue);
+                            let _execution =
+                                ImageOperationTimer::start(ImageOperation::Watermark, ImageOperationPhase::Execution);
                             let _span_guard = span.enter();
                             let _permit = permit;
                             watermark::prepare_cached_watermark(bytes)

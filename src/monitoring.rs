@@ -1,5 +1,6 @@
 use metrics::{describe_counter, describe_gauge, describe_histogram, Unit};
 use std::sync::Once;
+use std::time::Instant;
 
 static REGISTER: Once = Once::new();
 
@@ -14,6 +15,21 @@ pub fn register_metrics() {
             "source_image_fetch_duration_seconds",
             Unit::Seconds,
             "Source image fetch duration in seconds"
+        );
+        describe_histogram!(
+            "image_operation_semaphore_wait_duration_seconds",
+            Unit::Seconds,
+            "Time spent waiting for an imgforge image-operation permit"
+        );
+        describe_histogram!(
+            "image_operation_blocking_queue_duration_seconds",
+            Unit::Seconds,
+            "Time spent waiting for a Tokio blocking thread after submission"
+        );
+        describe_histogram!(
+            "image_operation_execution_duration_seconds",
+            Unit::Seconds,
+            "Time spent executing an image operation on a blocking thread"
         );
         describe_counter!("processed_images_total", "Total number of processed images");
         describe_counter!("source_images_fetched_total", "Total number of source images fetched");
@@ -32,6 +48,69 @@ pub fn register_metrics() {
         );
         describe_gauge!("vips_tracked_allocs", "Number of active libvips tracked allocations");
     });
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ImageOperation {
+    Process,
+    Info,
+    Watermark,
+}
+
+impl ImageOperation {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Process => "process",
+            Self::Info => "info",
+            Self::Watermark => "watermark",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ImageOperationPhase {
+    SemaphoreWait,
+    BlockingQueue,
+    Execution,
+}
+
+/// Records elapsed time when dropped, including on early returns and unwinding.
+#[must_use = "the timer must be retained until the measured phase ends"]
+pub(crate) struct ImageOperationTimer {
+    operation: ImageOperation,
+    phase: ImageOperationPhase,
+    started_at: Instant,
+}
+
+impl ImageOperationTimer {
+    pub(crate) fn start(operation: ImageOperation, phase: ImageOperationPhase) -> Self {
+        Self {
+            operation,
+            phase,
+            started_at: Instant::now(),
+        }
+    }
+}
+
+impl Drop for ImageOperationTimer {
+    fn drop(&mut self) {
+        let elapsed = self.started_at.elapsed().as_secs_f64();
+        let operation = self.operation.as_str();
+        match self.phase {
+            ImageOperationPhase::SemaphoreWait => {
+                metrics::histogram!("image_operation_semaphore_wait_duration_seconds", "operation" => operation)
+                    .record(elapsed);
+            }
+            ImageOperationPhase::BlockingQueue => {
+                metrics::histogram!("image_operation_blocking_queue_duration_seconds", "operation" => operation)
+                    .record(elapsed);
+            }
+            ImageOperationPhase::Execution => {
+                metrics::histogram!("image_operation_execution_duration_seconds", "operation" => operation)
+                    .record(elapsed);
+            }
+        }
+    }
 }
 
 pub fn observe_image_processing_duration(format: &str, duration_seconds: f64) {
