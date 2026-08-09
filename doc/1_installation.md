@@ -53,7 +53,7 @@ imgforge targets Linux and macOS. It also runs inside containers built from Debi
 ### Prerequisites
 
 | Requirement      | Minimum | Notes                                                                                                       |
-|------------------|---------|-------------------------------------------------------------------------------------------------------------|
+| ---------------- | ------- | ----------------------------------------------------------------------------------------------------------- |
 | Rust toolchain   | 1.90    | Install via [rustup](https://rustup.rs/). Ensure `cargo`, `rustc`, and `rustfmt` are on your `PATH`.        |
 | libvips          | 8.12+   | Provides the core image processing primitives. Both development headers and runtime libraries are required. |
 | pkg-config       | —       | Required for cargo to discover libvips. Usually bundled on Linux; install explicitly on macOS.              |

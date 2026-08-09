@@ -40,21 +40,21 @@ imgforge exposes Prometheus-compatible metrics so you can observe throughput, la
 
 ## Core metrics
 
-| Metric name                               | Type      | Labels           | Insight                                                                                 |
-|-------------------------------------------|-----------|------------------|-----------------------------------------------------------------------------------------|
-| `http_requests_duration_seconds`          | Histogram | `method`, `path` | Latency across the full request lifecycle, including cache hits and misses.             |
-| `image_processing_duration_seconds`       | Histogram | `format`         | Time spent transforming images, segmented by requested output format.                   |
-| `image_operation_semaphore_wait_duration_seconds` | Histogram | `operation` | Time waiting for an imgforge worker permit; exposes configured worker saturation.      |
-| `image_operation_blocking_queue_duration_seconds` | Histogram | `operation` | Time between submitting work and its start on Tokio's blocking pool.                   |
-| `image_operation_execution_duration_seconds` | Histogram | `operation` | Complete blocking execution time, including decode, validation, transformation, and encoding. |
-| `image_operation_concurrency_limit`     | Gauge     | _none_           | Configured maximum number of image operations that may execute concurrently.                 |
-| `image_operations_active`               | Gauge     | `operation`      | Image operations currently executing on blocking threads.                                    |
-| `image_operations_waiting`              | Gauge     | `operation`      | Image operations waiting for either a semaphore permit or a blocking-pool thread.             |
-| `processed_images_total`                  | Counter   | `format`         | Throughput per encoded format; increments on successful responses.                      |
-| `source_image_fetch_duration_seconds`     | Histogram | _none_           | Download latency from upstream sources.                                                 |
-| `source_images_fetched_total`             | Counter   | `status`         | Counts of successful (`status="success"`) and failed (`status="error"`) source fetches. |
-| `cache_hits_total` / `cache_misses_total` | Counter   | `cache_type`     | Cache effectiveness across memory, disk, or hybrid backends.                            |
-| `status_codes_total`                      | Counter   | `status`         | Aggregated HTTP responses (ideal for alerting on spikes in `4xx`/`5xx`).                |
+| Metric name                                       | Type      | Labels           | Insight                                                                                       |
+| ------------------------------------------------- | --------- | ---------------- | --------------------------------------------------------------------------------------------- |
+| `http_requests_duration_seconds`                  | Histogram | `method`, `path` | Latency across the full request lifecycle, including cache hits and misses.                   |
+| `image_processing_duration_seconds`               | Histogram | `format`         | Time spent transforming images, segmented by requested output format.                         |
+| `image_operation_semaphore_wait_duration_seconds` | Histogram | `operation`      | Time waiting for an imgforge worker permit; exposes configured worker saturation.             |
+| `image_operation_blocking_queue_duration_seconds` | Histogram | `operation`      | Time between submitting work and its start on Tokio's blocking pool.                          |
+| `image_operation_execution_duration_seconds`      | Histogram | `operation`      | Complete blocking execution time, including decode, validation, transformation, and encoding. |
+| `image_operation_concurrency_limit`               | Gauge     | _none_           | Configured maximum number of image operations that may execute concurrently.                  |
+| `image_operations_active`                         | Gauge     | `operation`      | Image operations currently executing on blocking threads.                                     |
+| `image_operations_waiting`                        | Gauge     | `operation`      | Image operations waiting for either a semaphore permit or a blocking-pool thread.             |
+| `processed_images_total`                          | Counter   | `format`         | Throughput per encoded format; increments on successful responses.                            |
+| `source_image_fetch_duration_seconds`             | Histogram | _none_           | Download latency from upstream sources.                                                       |
+| `source_images_fetched_total`                     | Counter   | `status`         | Counts of successful (`status="success"`) and failed (`status="error"`) source fetches.       |
+| `cache_hits_total` / `cache_misses_total`         | Counter   | `cache_type`     | Cache effectiveness across memory, disk, or hybrid backends.                                  |
+| `status_codes_total`                              | Counter   | `status`         | Aggregated HTTP responses (ideal for alerting on spikes in `4xx`/`5xx`).                      |
 
 > **Tip:** Combine counters into rates using `rate()` or `irate()` when graphing over time, and apply `histogram_quantile()` to histogram buckets for percentile views.
 

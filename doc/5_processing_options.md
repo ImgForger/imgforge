@@ -4,59 +4,59 @@ imgforge encodes image transformations directly in the URL path. Each directive 
 
 ## Quick reference
 
-| Option               | Aliases   | Arguments                              | Purpose & defaults                                                                                 |
-|----------------------|-----------|----------------------------------------|----------------------------------------------------------------------------------------------------|
-| `preset`             | `pr`      | `name`                                 | References a named preset defined via `IMGFORGE_PRESETS`. See [Configuration](3_configuration.md). |
-| `resize`             | `rs`      | `type:width:height[:enlarge][:extend]` | Primary resize control. Defaults to no resize. `enlarge`/`extend` default to `false`.              |
-| `size`               | `s`       | `width:height[:enlarge][:extend]`      | Convenience wrapper for `resize` with implicit `fit`.                                              |
-| `resizing_type`      | `rt`      | `type`                                 | Overrides the mode used by other resizing directives.                                              |
-| `resizing_algorithm` | `ra`      | `algorithm`                            | Interpolation kernel for resize operations. Defaults to `lanczos3`.                                |
-| `width`              | `w`       | `value`                                | Sets a target width (infers height). Implies `fit`.                                                |
-| `height`             | `h`       | `value`                                | Sets a target height (infers width). Implies `fit`.                                                |
-| `gravity`            | `g`       | `anchor`                               | Controls crop/fill anchoring (`ce`, `noea`, etc.). Defaults to `ce`.                               |
-| `flip`               | `fl`      | `horizontal[:vertical]`                | Flips the image horizontally and/or vertically. Defaults to no flip.                                |
-| `enlarge`            | `el`      | `bool`                                 | Allows upscaling globally. Defaults to `false`.                                                    |
-| `extend`             | `ex`      | `bool`                                 | Pads to target dimensions after resize. Defaults to `false`.                                       |
-| `padding`            | `pd`      | `top[:right][:bottom][:left]`          | Adds padding after resizing. Defaults to zero padding.                                             |
-| `min-width`          | `mw`      | `value`                                | Ensures result width meets minimum. Upscales if required.                                          |
-| `min-height`         | `mh`      | `value`                                | Ensures result height meets minimum. Upscales if required.                                         |
-| `zoom`               | `z`       | `factor`                               | Multiplies dimensions after resizing. Defaults to `1.0`.                                           |
-| `crop`               | `c`       | `x:y:width:height`                     | Crops before resizing. No crop by default.                                                         |
-| `rotate`             | `rot`     | `0\|90\|180\|270`                      | Applies fixed rotation. Defaults to `0`.                                                           |
-| `auto_rotate`        | `ar`      | `bool`                                 | Honours EXIF orientation (`true` by default).                                                      |
-| `adjust`             | `a`       | `brightness[:contrast[:saturation]]`   | Meta-option for brightness, contrast, and saturation. Saturation is applied; brightness/contrast are parsed. |
-| `brightness`         | `br`      | `-255..255`                            | Parsed for imgproxy compatibility.                                                                 |
-| `contrast`           | `co`      | `factor`                               | Parsed for imgproxy compatibility.                                                                 |
-| `saturation`         | `sa`      | `factor`                               | Adjusts saturation when the image has RGB/RGBA bands. Defaults to `1.0`.                            |
-| `blur`               | `bl`      | `sigma`                                | Gaussian blur (0 disables).                                                                        |
-| `sharpen`            | `sh`      | `sigma`                                | Sharpens edges.                                                                                    |
-| `pixelate`           | `pix`     | `amount`                               | Pixelation strength.                                                                               |
-| `background`         | `bg`      | `RRGGBB[AA]`                           | Canvas colour for extend/padding/flatten. Defaults to transparent unless JPEG output.              |
-| `background_alpha`   | `bga`     | `0.0-1.0`                              | Sets the alpha channel for `background`.                                                           |
-| `quality`            | `q`       | `1-100`                                | Compression quality. Defaults to `85` for lossy formats.                                           |
-| `format_quality`     | `fq`      | `format:quality...`                    | Per-format quality overrides used when `quality` is omitted.                                       |
-| `format`             | `f`, `ext` | `jpeg\|png\|webp\|avif\|...`          | Output format override. Defaults to `jpeg` when unspecified.                                       |
-| `max_bytes`          | `mb`      | `bytes`                                | Re-encodes lossy formats at lower quality until the byte target is reached or quality reaches `1`. |
-| `strip_metadata`     | `sm`      | `bool`                                 | Drops encoder metadata when supported by the output format.                                        |
-| `strip_color_profile` | `scp`    | `bool`                                 | Drops color profile metadata with the same encoder path as metadata stripping.                      |
-| `jpeg_options`       | `jpgo`    | `progressive:no_subsample:trellis:dering:scans:quant_table` | Advanced JPEG encoder switches.                                           |
-| `png_options`        | `pngo`    | `interlaced:quantize:colors`           | Advanced PNG encoder switches.                                                                     |
-| `webp_options`       | `webpo`   | `lossless:smart_subsample:preset`      | Parsed for imgproxy-compatible URLs; currently not applied by the WebP encoder.                    |
-| `avif_options`       | `avifo`   | `no_subsample`                         | Advanced AVIF/HEIF encoder switches.                                                              |
-| `page`               | `pg`      | `page`                                 | Parses requested multi-page/animation page for imgproxy-compatible URLs.                           |
-| `pages`              | `pgs`     | `count`                                | Parses requested multi-page/animation page count.                                                  |
-| `disable_animation`  | `da`      | `bool`                                 | Parses animation disable intent for compatibility.                                                 |
-| `dpr`                | —         | `1.0-5.0`                              | Device pixel ratio multiplier. Defaults to `1.0`.                                                  |
-| `raw`                | —         | —                                      | Skips the concurrency semaphore. Defaults to disabled.                                             |
-| `cachebuster`        | `cb`      | `token`                                | Alters the cache key.                                                                              |
-| `expires`            | `exp`     | `unix_timestamp`                       | Returns `404` after the timestamp.                                                                 |
-| `filename`           | `fn`      | `filename[:encoded]`                   | Sets `Content-Disposition` filename.                                                               |
-| `return_attachment`  | `att`     | `bool`                                 | Uses `attachment` instead of `inline` when `filename` is set.                                       |
-| `skip_processing`    | `skp`     | `extension...`                         | Parses source format skip hints for signed URL compatibility.                                      |
-| `max_src_resolution` | `msr`     | `megapixels`                           | Request-level override. Requires server opt-in.                                                    |
-| `max_src_file_size`  | `msfs`    | `bytes`                                | Request-level override. Requires server opt-in.                                                    |
-| `watermark`          | `wm`      | `opacity:position`                     | Enables watermarking. Requires watermark asset.                                                    |
-| `watermark_url`      | `wmu`     | `base64url(url)`                       | Fetches watermark per request. Overrides server default path.                                      |
+| Option                | Aliases    | Arguments                                                   | Purpose & defaults                                                                                           |
+| --------------------- | ---------- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `preset`              | `pr`       | `name`                                                      | References a named preset defined via `IMGFORGE_PRESETS`. See [Configuration](3_configuration.md).           |
+| `resize`              | `rs`       | `type:width:height[:enlarge][:extend]`                      | Primary resize control. Defaults to no resize. `enlarge`/`extend` default to `false`.                        |
+| `size`                | `s`        | `width:height[:enlarge][:extend]`                           | Convenience wrapper for `resize` with implicit `fit`.                                                        |
+| `resizing_type`       | `rt`       | `type`                                                      | Overrides the mode used by other resizing directives.                                                        |
+| `resizing_algorithm`  | `ra`       | `algorithm`                                                 | Interpolation kernel for resize operations. Defaults to `lanczos3`.                                          |
+| `width`               | `w`        | `value`                                                     | Sets a target width (infers height). Implies `fit`.                                                          |
+| `height`              | `h`        | `value`                                                     | Sets a target height (infers width). Implies `fit`.                                                          |
+| `gravity`             | `g`        | `anchor`                                                    | Controls crop/fill anchoring (`ce`, `noea`, etc.). Defaults to `ce`.                                         |
+| `flip`                | `fl`       | `horizontal[:vertical]`                                     | Flips the image horizontally and/or vertically. Defaults to no flip.                                         |
+| `enlarge`             | `el`       | `bool`                                                      | Allows upscaling globally. Defaults to `false`.                                                              |
+| `extend`              | `ex`       | `bool`                                                      | Pads to target dimensions after resize. Defaults to `false`.                                                 |
+| `padding`             | `pd`       | `top[:right][:bottom][:left]`                               | Adds padding after resizing. Defaults to zero padding.                                                       |
+| `min-width`           | `mw`       | `value`                                                     | Ensures result width meets minimum. Upscales if required.                                                    |
+| `min-height`          | `mh`       | `value`                                                     | Ensures result height meets minimum. Upscales if required.                                                   |
+| `zoom`                | `z`        | `factor`                                                    | Multiplies dimensions after resizing. Defaults to `1.0`.                                                     |
+| `crop`                | `c`        | `x:y:width:height`                                          | Crops before resizing. No crop by default.                                                                   |
+| `rotate`              | `rot`      | `0\|90\|180\|270`                                           | Applies fixed rotation. Defaults to `0`.                                                                     |
+| `auto_rotate`         | `ar`       | `bool`                                                      | Honours EXIF orientation (`true` by default).                                                                |
+| `adjust`              | `a`        | `brightness[:contrast[:saturation]]`                        | Meta-option for brightness, contrast, and saturation. Saturation is applied; brightness/contrast are parsed. |
+| `brightness`          | `br`       | `-255..255`                                                 | Parsed for imgproxy compatibility.                                                                           |
+| `contrast`            | `co`       | `factor`                                                    | Parsed for imgproxy compatibility.                                                                           |
+| `saturation`          | `sa`       | `factor`                                                    | Adjusts saturation when the image has RGB/RGBA bands. Defaults to `1.0`.                                     |
+| `blur`                | `bl`       | `sigma`                                                     | Gaussian blur (0 disables).                                                                                  |
+| `sharpen`             | `sh`       | `sigma`                                                     | Sharpens edges.                                                                                              |
+| `pixelate`            | `pix`      | `amount`                                                    | Pixelation strength.                                                                                         |
+| `background`          | `bg`       | `RRGGBB[AA]`                                                | Canvas colour for extend/padding/flatten. Defaults to transparent unless JPEG output.                        |
+| `background_alpha`    | `bga`      | `0.0-1.0`                                                   | Sets the alpha channel for `background`.                                                                     |
+| `quality`             | `q`        | `1-100`                                                     | Compression quality. Defaults to `85` for lossy formats.                                                     |
+| `format_quality`      | `fq`       | `format:quality...`                                         | Per-format quality overrides used when `quality` is omitted.                                                 |
+| `format`              | `f`, `ext` | `jpeg\|png\|webp\|avif\|...`                                | Output format override. Defaults to `jpeg` when unspecified.                                                 |
+| `max_bytes`           | `mb`       | `bytes`                                                     | Re-encodes lossy formats at lower quality until the byte target is reached or quality reaches `1`.           |
+| `strip_metadata`      | `sm`       | `bool`                                                      | Drops encoder metadata when supported by the output format.                                                  |
+| `strip_color_profile` | `scp`      | `bool`                                                      | Drops color profile metadata with the same encoder path as metadata stripping.                               |
+| `jpeg_options`        | `jpgo`     | `progressive:no_subsample:trellis:dering:scans:quant_table` | Advanced JPEG encoder switches.                                                                              |
+| `png_options`         | `pngo`     | `interlaced:quantize:colors`                                | Advanced PNG encoder switches.                                                                               |
+| `webp_options`        | `webpo`    | `lossless:smart_subsample:preset`                           | Parsed for imgproxy-compatible URLs; currently not applied by the WebP encoder.                              |
+| `avif_options`        | `avifo`    | `no_subsample`                                              | Advanced AVIF/HEIF encoder switches.                                                                         |
+| `page`                | `pg`       | `page`                                                      | Parses requested multi-page/animation page for imgproxy-compatible URLs.                                     |
+| `pages`               | `pgs`      | `count`                                                     | Parses requested multi-page/animation page count.                                                            |
+| `disable_animation`   | `da`       | `bool`                                                      | Parses animation disable intent for compatibility.                                                           |
+| `dpr`                 | —          | `1.0-5.0`                                                   | Device pixel ratio multiplier. Defaults to `1.0`.                                                            |
+| `raw`                 | —          | —                                                           | Skips the concurrency semaphore. Defaults to disabled.                                                       |
+| `cachebuster`         | `cb`       | `token`                                                     | Alters the cache key.                                                                                        |
+| `expires`             | `exp`      | `unix_timestamp`                                            | Returns `404` after the timestamp.                                                                           |
+| `filename`            | `fn`       | `filename[:encoded]`                                        | Sets `Content-Disposition` filename.                                                                         |
+| `return_attachment`   | `att`      | `bool`                                                      | Uses `attachment` instead of `inline` when `filename` is set.                                                |
+| `skip_processing`     | `skp`      | `extension...`                                              | Parses source format skip hints for signed URL compatibility.                                                |
+| `max_src_resolution`  | `msr`      | `megapixels`                                                | Request-level override. Requires server opt-in.                                                              |
+| `max_src_file_size`   | `msfs`     | `bytes`                                                     | Request-level override. Requires server opt-in.                                                              |
+| `watermark`           | `wm`       | `opacity:position`                                          | Enables watermarking. Requires watermark asset.                                                              |
+| `watermark_url`       | `wmu`      | `base64url(url)`                                            | Fetches watermark per request. Overrides server default path.                                                |
 
 ## Presets
 

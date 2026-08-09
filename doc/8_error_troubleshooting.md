@@ -5,7 +5,7 @@ imgforge strives to return clear error messages and appropriate HTTP status code
 ## Response codes
 
 | Status                                      | When it occurs                                                                                                         | Notes                                                                          |
-|---------------------------------------------|------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------|
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
 | `200 OK`                                    | Successful processing or cache hit.                                                                                    | Response body contains image bytes; `Content-Type` reflects the output format. |
 | `400 Bad Request`                           | Invalid path structure, malformed processing option, disallowed MIME type, oversize file, failed watermark fetch, etc. | Body contains a short explanatory string (e.g., `"Invalid URL format"`).       |
 | `401 Unauthorized`                          | Missing or invalid `Authorization: Bearer` token when `IMGFORGE_SECRET` is set.                                        | Include the correct secret header.                                             |
