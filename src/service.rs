@@ -85,6 +85,12 @@ pub enum ServiceError {
         #[source]
         source: libvips::error::Error,
     },
+    #[error("{operation} blocking task failed")]
+    BlockingTask {
+        operation: &'static str,
+        #[source]
+        source: tokio::task::JoinError,
+    },
     #[error("{message}")]
     Response { status: StatusCode, message: String },
 }
@@ -108,6 +114,7 @@ impl ServiceError {
             Self::Processing(ProcessingError::Save(SaveError::Vips { .. } | SaveError::EncoderPanicked { .. })) => {
                 StatusCode::INTERNAL_SERVER_ERROR
             }
+            Self::BlockingTask { .. } => StatusCode::INTERNAL_SERVER_ERROR,
             Self::Processing(_) => StatusCode::BAD_REQUEST,
             Self::Response { status, .. } => *status,
         }
@@ -130,6 +137,7 @@ impl ServiceError {
             Self::Processing(ProcessingError::Save(_)) => Cow::Borrowed("Failed to encode image"),
             Self::Processing(_) => Cow::Borrowed("Error processing image"),
             Self::SourceImageDecode { .. } => Cow::Borrowed("Failed to decode source image"),
+            Self::BlockingTask { .. } => Cow::Borrowed("Image operation failed"),
             Self::Response { message, .. } => Cow::Borrowed(message),
         }
     }
@@ -281,32 +289,46 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
         None
     };
 
-    let _permit = state
+    let permit = state
         .semaphore
         .clone()
         .acquire_owned()
         .await
         .map_err(|_| ServiceError::new(StatusCode::INTERNAL_SERVER_ERROR, "Semaphore closed"))?;
 
-    if parsed_options.format.is_none() {
-        parsed_options.format = default_output_format(state.config.default_format, &image_bytes).map(str::to_owned);
-    }
-    let output_format = parsed_options.format.clone().unwrap_or_else(|| "jpeg".to_string());
+    let blocking_state = state.clone();
+    let span = tracing::Span::current();
+    let (processed_image_bytes, output_format) = tokio::task::spawn_blocking(move || {
+        let _span_guard = span.enter();
+        // Keep the concurrency slot until the blocking operation actually ends,
+        // even if the async request future is cancelled while awaiting it.
+        let _permit = permit;
 
-    let processed_image_bytes = {
+        if parsed_options.format.is_none() {
+            parsed_options.format =
+                default_output_format(blocking_state.config.default_format, &image_bytes).map(str::to_owned);
+        }
+        let output_format = parsed_options.format.clone().unwrap_or_else(|| "jpeg".to_string());
+
         let source_image = VipsImage::new_from_buffer(&image_bytes, "")
             .map_err(|source| ServiceError::SourceImageDecode { source })?;
 
         enforce_security_constraints(
-            state.as_ref(),
+            blocking_state.as_ref(),
             &parsed_options,
             &image_bytes,
             source_content_type.as_deref(),
             Some(&source_image),
         )?;
 
-        process_image(source_image, parsed_options, &image_bytes, watermark.as_ref())?
-    };
+        let processed_image_bytes = process_image(source_image, parsed_options, &image_bytes, watermark.as_ref())?;
+        Ok::<_, ServiceError>((processed_image_bytes, output_format))
+    })
+    .await
+    .map_err(|source| ServiceError::BlockingTask {
+        operation: "image processing",
+        source,
+    })??;
 
     let content_type = format_to_content_type(&output_format);
     if content_disposition.is_none() && !matches!(state.cache, ImgforgeCache::None) {
@@ -360,42 +382,55 @@ pub async fn image_info(state: Arc<AppState>, request: ProcessRequest<'_>) -> Re
 
     let decoded_url = url_parts.source_url.decode()?;
 
-    let _permit = state
+    let (image_bytes, content_type) = fetch_image(&state.http_client, &decoded_url, None).await?;
+
+    let permit = state
         .semaphore
         .clone()
         .acquire_owned()
         .await
         .map_err(|_| ServiceError::new(StatusCode::INTERNAL_SERVER_ERROR, "Semaphore closed"))?;
+    let info_content_type = content_type.clone();
+    let span = tracing::Span::current();
+    let (width, height, image_format, channels, has_alpha, orientation, cacheable, size_bytes) =
+        tokio::task::spawn_blocking(move || {
+            let _span_guard = span.enter();
+            let _permit = permit;
+            let size_bytes = image_bytes.len();
 
-    let (image_bytes, content_type) = fetch_image(&state.http_client, &decoded_url, None).await?;
-
-    let (width, height, image_format, channels, has_alpha, orientation, cacheable) =
-        match VipsImage::new_from_buffer(&image_bytes, "") {
-            Ok(img) => {
-                let format_str = detect_image_format(content_type.as_deref(), &image_bytes);
-                let channels = img.get_bands() as u32;
-                (
-                    img.get_width() as u32,
-                    img.get_height() as u32,
-                    format_str,
-                    channels,
-                    image_has_alpha(channels),
-                    read_exif_orientation(&image_bytes),
-                    true,
-                )
+            match VipsImage::new_from_buffer(&image_bytes, "") {
+                Ok(img) => {
+                    let format_str = detect_image_format(info_content_type.as_deref(), &image_bytes);
+                    let channels = img.get_bands() as u32;
+                    (
+                        img.get_width() as u32,
+                        img.get_height() as u32,
+                        format_str,
+                        channels,
+                        image_has_alpha(channels),
+                        read_exif_orientation(&image_bytes),
+                        true,
+                        size_bytes,
+                    )
+                }
+                Err(err) => {
+                    error!("Failed to decode image for info: {}", err);
+                    (0, 0, "unknown".to_string(), 0, false, None, false, size_bytes)
+                }
             }
-            Err(err) => {
-                error!("Failed to decode image for info: {}", err);
-                (0, 0, "unknown".to_string(), 0, false, None, false)
-            }
-        };
+        })
+        .await
+        .map_err(|source| ServiceError::BlockingTask {
+            operation: "image metadata",
+            source,
+        })?;
 
     let metadata = CachedMetadata {
         width,
         height,
         format: image_format.clone(),
         content_type: content_type.clone().unwrap_or_default(),
-        size_bytes: image_bytes.len(),
+        size_bytes,
         channels,
         has_alpha,
         orientation: orientation.unwrap_or(0),
@@ -409,7 +444,7 @@ pub async fn image_info(state: Arc<AppState>, request: ProcessRequest<'_>) -> Re
 
     info!(
         "Imgforge info served path={} width={} height={} format={} size_bytes={} channels={} has_alpha={} orientation={:?}",
-        path, width, height, image_format, image_bytes.len(), channels, has_alpha, orientation
+        path, width, height, image_format, size_bytes, channels, has_alpha, orientation
     );
 
     Ok(ImageInfo {
@@ -417,7 +452,7 @@ pub async fn image_info(state: Arc<AppState>, request: ProcessRequest<'_>) -> Re
         height,
         format: image_format,
         content_type,
-        size_bytes: image_bytes.len(),
+        size_bytes,
         channels,
         has_alpha,
         orientation,
@@ -585,20 +620,35 @@ async fn resolve_watermark(
         }
     } else if parsed_options.watermark.is_some() {
         if let Some(path) = &state.config.watermark_path {
-            let watermark = state
-                .watermark_cache
-                .get_or_try_init(|| async {
-                    debug!("Loading watermark from path: {} (cached on first load)", path);
-                    let bytes = fs::read(path).await.map(Bytes::from).map_err(|e| {
-                        error!("Failed to read watermark image from path: {}", e);
-                        ServiceError::new(StatusCode::BAD_REQUEST, "Failed to read watermark image from path")
-                    })?;
+            let watermark =
+                state
+                    .watermark_cache
+                    .get_or_try_init(|| async {
+                        debug!("Loading watermark from path: {} (cached on first load)", path);
+                        let bytes = fs::read(path).await.map(Bytes::from).map_err(|e| {
+                            error!("Failed to read watermark image from path: {}", e);
+                            ServiceError::new(StatusCode::BAD_REQUEST, "Failed to read watermark image from path")
+                        })?;
 
-                    watermark::prepare_cached_watermark(bytes)
+                        let permit =
+                            state.semaphore.clone().acquire_owned().await.map_err(|_| {
+                                ServiceError::new(StatusCode::INTERNAL_SERVER_ERROR, "Semaphore closed")
+                            })?;
+                        let span = tracing::Span::current();
+                        tokio::task::spawn_blocking(move || {
+                            let _span_guard = span.enter();
+                            let _permit = permit;
+                            watermark::prepare_cached_watermark(bytes)
+                        })
+                        .await
+                        .map_err(|source| ServiceError::BlockingTask {
+                            operation: "watermark preparation",
+                            source,
+                        })?
                         .map_err(ProcessingError::from)
                         .map_err(ServiceError::from)
-                })
-                .await?;
+                    })
+                    .await?;
             Ok(Some(watermark.clone()))
         } else {
             Ok(None)
@@ -710,6 +760,21 @@ mod tests {
 
         assert_eq!(error.status(), StatusCode::BAD_REQUEST);
         assert_eq!(error.message(), "Error fetching image");
+        assert!(error.source().is_some());
+    }
+
+    #[tokio::test]
+    async fn blocking_task_failure_maps_to_internal_server_error() {
+        let source = tokio::task::spawn_blocking(|| panic!("test blocking-task panic"))
+            .await
+            .expect_err("panicking task should return a join error");
+        let error = ServiceError::BlockingTask {
+            operation: "test image operation",
+            source,
+        };
+
+        assert_eq!(error.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(error.message(), "Image operation failed");
         assert!(error.source().is_some());
     }
 
