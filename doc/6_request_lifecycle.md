@@ -13,7 +13,7 @@ What happens between an incoming request and the returned image, and where each 
      │        │ miss                                        │
      ├─ 4. fetch source ─── too large / wrong MIME ──▶ 400  │
      ├─ 5. parse options ── invalid value ──▶ 400           │
-     ├─ 6. transform ────── over IMGFORGE_TIMEOUT ──▶ 504   │
+     ├─ 6. transform ────── over IMGFORGE_TIMEOUT ──▶ 408   │
      ├─ 7. populate cache                                   │
      │                                                      │
      └─ 8. respond ◀────────────────────────────────────────┘
@@ -35,11 +35,9 @@ With caching enabled, imgforge hashes the full request path and checks the confi
 
 ## 4. Source acquisition
 
-Unless the `raw` option is set, the request first takes a worker permit (at most `IMGFORGE_WORKERS` image operations run at once). The source is then fetched within `IMGFORGE_DOWNLOAD_TIMEOUT` seconds and checked against:
+Unless the `raw` option is set, the request first takes a worker permit (at most `IMGFORGE_WORKERS` image operations run at once). The source is then fetched within `IMGFORGE_DOWNLOAD_TIMEOUT` seconds.
 
-- `IMGFORGE_MAX_SRC_FILE_SIZE`, or a per-request override
-- `IMGFORGE_ALLOWED_MIME_TYPES`
-- `IMGFORGE_MAX_SRC_RESOLUTION`, using the dimensions in the image header
+`IMGFORGE_MAX_SRC_FILE_SIZE` (or a per-request override) is enforced while the body streams, so an oversized source is abandoned mid-download. `IMGFORGE_ALLOWED_MIME_TYPES` and `IMGFORGE_MAX_SRC_RESOLUTION` are checked at the start of stage 6 instead — the resolution check needs the dimensions, so libvips has already opened the buffer by then. Treat them as limits on what gets *processed*, not as a barrier in front of the decoder.
 
 A watermark named by `watermark_url` or `IMGFORGE_WATERMARK_PATH` is fetched alongside the source. Failures here return `400 Bad Request` with a short reason; see [Error Troubleshooting](8_error_troubleshooting.md).
 
@@ -67,9 +65,8 @@ Fetch durations feed `source_image_fetch_duration_seconds` and `source_images_fe
 | ------------------------- | --------------------------------------------------------------------------- |
 | `403`                     | Invalid signature, an unsigned URL while unsigned mode is off, or a missing/invalid bearer token. |
 | `400`                     | Invalid path, invalid option value, source rejected by a limit, or a failed watermark fetch. Body carries a plain-text reason. |
-| `504`                     | The request exceeded `IMGFORGE_TIMEOUT`.                                     |
-| `408`                     | An upstream proxy timed out before imgforge did.                             |
+| `408`                     | The request exceeded `IMGFORGE_TIMEOUT`. imgforge never returns `504` itself — that comes from a proxy in front of it. |
 | `429`                     | Rate limiter depleted.                                                       |
 | `500`                     | Unhandled error; logged at `error` level with context.                       |
 
-A source download that exceeds `IMGFORGE_DOWNLOAD_TIMEOUT` returns `400`, not `504` — the timeout belongs to the fetch, not the request.
+A source download that exceeds `IMGFORGE_DOWNLOAD_TIMEOUT` returns `400`, not a timeout status — that limit belongs to the fetch, not to the request.

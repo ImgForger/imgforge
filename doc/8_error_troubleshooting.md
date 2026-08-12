@@ -11,8 +11,8 @@ What each status code means, and how to work back to the cause.
 | `403 Forbidden`             | Signature mismatch, an unsigned URL while `IMGFORGE_ALLOW_UNSIGNED` is off, or a missing/invalid bearer token when `IMGFORGE_SECRET` is set. | imgforge does not use `401` — a token problem is a `403`.                      |
 | `404 Not Found`             | Unknown endpoint, or a URL whose `expires` timestamp has passed.                                                       | Check the path and any `expires` directive.                                    |
 | `429 Too Many Requests`     | Global rate limiter depleted.                                                                                         | Raise `IMGFORGE_RATE_LIMIT_PER_MINUTE` or throttle upstream.                   |
-| `504 Gateway Timeout`       | The request exceeded `IMGFORGE_TIMEOUT`.                                                                              | A slow *source* returns `400` instead; this one is the whole-request budget.   |
-| `408 Request Timeout`       | An upstream proxy gave up before imgforge did.                                                                        | Align proxy timeouts with `IMGFORGE_TIMEOUT`.                                  |
+| `408 Request Timeout`       | The request exceeded `IMGFORGE_TIMEOUT`, imgforge's own whole-request budget.                                         | A slow *source* returns `400` instead. imgforge never emits `504` itself.      |
+| `504 Gateway Timeout`       | An upstream proxy gave up waiting for imgforge.                                                                       | Comes from the proxy, not imgforge. Align its timeout with `IMGFORGE_TIMEOUT`. |
 | `500 Internal Server Error` | Unexpected libvips or I/O failure.                                                                                    | Check logs for the error context.                                              |
 
 ## Troubleshooting workflow
@@ -32,7 +32,7 @@ What each status code means, and how to work back to the cause.
 - Confirm the path used for signing begins with `/` and matches the request exactly.
 - Ensure Base64 encoding is URL-safe and unpadded.
 
-### Fetch failures (`400`, `504`)
+### Fetch failures (`400`)
 
 - The upstream host might be unreachable or rejecting requests. Use `curl` to test from the same network.
 - Increase `IMGFORGE_DOWNLOAD_TIMEOUT` for slow sources.

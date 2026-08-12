@@ -13,13 +13,13 @@ Use it to serve images at the size and format each client actually needs, withou
                                   └── /metrics, /status
 ```
 
-Per request, imgforge verifies the URL signature, checks its cache, downloads the source with size and MIME validation, runs the libvips pipeline, and caches what it produced. [Request Lifecycle](6_request_lifecycle.md) walks through each stage and the failures it can return.
+Per request, imgforge verifies the URL signature, checks its cache, downloads and validates the source, runs the libvips pipeline, and caches what it produced. [Request Lifecycle](6_request_lifecycle.md) walks through each stage and the failures it can return.
 
 ## Security model
 
 - HMAC-signed URLs by default. Unsigned mode exists for local development and should stay off elsewhere.
 - Optional bearer token on the image and info endpoints.
-- Fetch guards on MIME type, source file size, and source resolution, applied before any decoding.
+- Guards on source file size (enforced while downloading), MIME type, and source resolution (both checked once libvips has opened the buffer).
 - Optional global rate limiting.
 
 ## What imgforge is not

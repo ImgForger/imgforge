@@ -15,7 +15,7 @@ plan ─▶ dpr ─▶ load ─▶ geometry ─▶ canvas ─▶ effects ─▶ 
 ## The stages
 
 1. **Plan normalization** – Parsed directives become a plan with explicit defaults. A missing width or height becomes `0`, which preserves aspect ratio. Quality defaults to `85`, EXIF auto-rotation starts enabled, and the background defaults to transparent or black depending on the output format.
-2. **DPR scaling** – When `dpr` is present, every linear dimension (width, height, padding, minimums) is multiplied before anything else runs. This happens *before* the resolution safeguards, so a large `dpr` can trip them.
+2. **DPR scaling** – When `dpr` is above `1.0`, the resize width, height, and padding are multiplied by it. `min-width` and `min-height` are *not* scaled, so a minimum expressed in CSS pixels stays in CSS pixels while the resize target moves to device pixels.
 3. **Image loading** – libvips reads the source buffer, converts the colour profile when needed, and applies EXIF orientation unless `auto_rotate:false`.
 4. **Geometry** – Crop runs first, then resizing (`resize`, `size`, `width`, `height`) using the active `resizing_type`. Gravity positions the crop window and the fill canvas. Upscaling is refused unless `enlarge:true`.
 5. **Canvas** – Padding, `extend`, and `background` apply after resizing, so they operate on the final viewport. Output formats without an alpha channel are flattened against the background colour.
@@ -33,7 +33,7 @@ plan ─▶ dpr ─▶ load ─▶ geometry ─▶ canvas ─▶ effects ─▶ 
 ## Failure modes
 
 - Invalid numbers — negative widths, NaN, out-of-range blur sigma — are rejected with `400 Bad Request` before libvips runs.
-- The resolution and file-size guards see the dimensions *after* `dpr`, padding, and minimums are applied, so a request can trip them even when the source is well within limits.
+- The resolution and file-size guards apply to the *source* image and run before this pipeline starts. Nothing here — `dpr`, padding, minimums — can trip them, and there is no ceiling on the size of the output you ask for.
 - Watermark fetches share the timeout and size limits of the main source. A failure fails the request.
 
 ## Observability

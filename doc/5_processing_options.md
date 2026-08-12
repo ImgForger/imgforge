@@ -192,7 +192,8 @@ Accepts RGB or RGBA hex (`FFFFFF` or `FFFFFFFF`). The colour fills areas introdu
 ### `dpr`
 
 - Defaults to `1.0` and caps at `5.0`.
-- Scales width, height, padding, and minimum dimensions before processing. This scaling happens before safeguards, so very high DPR values can trigger resolution limits.
+- Scales the resize width, height, and padding. `min-width` and `min-height` are not scaled.
+- Only values above `1.0` have any effect; the source-image safeguards are evaluated before this runs, so `dpr` cannot trip them.
 - Combine with `quality` adjustments to tailor assets for HiDPI displays.
 
 ## Effects

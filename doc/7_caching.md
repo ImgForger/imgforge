@@ -66,7 +66,7 @@ Put the disk path on SSD-backed storage; a cache slower than the render it repla
 
 ## Troubleshooting
 
-- **Everything misses.** Confirm `IMGFORGE_CACHE_TYPE` is spelled correctly and set; an unrecognised value leaves caching off. Check the logs for `Failed to initialize cache`.
+- **Everything misses.** Check that `IMGFORGE_CACHE_TYPE` is set at all — unset means no cache. A *misspelled* value is not the cause here: imgforge refuses to start on an unrecognised cache type rather than falling back to no caching.
 - **Permission denied on startup.** The disk path is not writable by the service user.
 - **Entries evicted sooner than expected.** Raise the capacity values, and check that `cachebuster` tokens are not changing on every request.
 
