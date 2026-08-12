@@ -1,6 +1,6 @@
 # 11. Prometheus Monitoring
 
-imgforge exposes Prometheus-compatible metrics so you can observe throughput, latency, cache efficacy, and error rates in real time. This guide shows you how to scrape the service, interpret the provided counters and histograms, and build actionable alerts.
+imgforge exposes Prometheus metrics at `/metrics`: how to scrape them, what each one means, and which alerts are worth having.
 
 ## Exposing the endpoint
 
@@ -8,34 +8,21 @@ imgforge exposes Prometheus-compatible metrics so you can observe throughput, la
 - **Dedicated listener** – Provide `IMGFORGE_PROMETHEUS_BIND` (for example `0.0.0.0:9600`) to expose metrics on a separate port. The endpoint remains `/metrics`.
 - **Authentication** – The metrics endpoint never requires URL signatures but inherits bearer-token protection when `IMGFORGE_SECRET` is set. Grant your scraper a token or whitelist the Prometheus network path at the proxy layer.
 
-## Metrics flow diagram
+## Where each metric fires
 
 ```
-┌──────────────────────────────────────────────────────────────────────────┐
-│                    Prometheus Metrics Pipeline                           │
-└──────────────────────────────────────────────────────────────────────────┘
-    ┌─────────────────────────────────────────────────────────────────┐
-    │                                                                 │
-    │  Request arrives ──▶ Timer starts                               │
-    │         │                                                       │
-    │         ├──▶ Check cache ──▶ cache_hits_total++ OR              │
-    │         │                    cache_misses_total++               │
-    │         │                                                       │
-    │         ├──▶ Fetch source ──▶ source_image_fetch_duration_      │
-    │         │                     seconds (observe)                 │
-    │         │                                                       │
-    │         ├──▶ Wait for permit ──▶ image_operation_semaphore_     │
-    │         │                         wait_duration_seconds         │
-    │         ├──▶ Blocking queue ──▶ image_operation_blocking_       │
-    │         │                       queue_duration_seconds          │
-    │         ├──▶ Execute ──▶ image_operation_execution_duration_    │
-    │         │               seconds + image_processing_duration_    │
-    │         │               seconds                                 │
-    │         │                                                       │
-    │         └──▶ Response ──▶ http_requests_duration_seconds        │
-    │                           status_codes_total{status="200"}++    │
-    │                           processed_images_total{format="..."}++│
-    └─────────────────────────────────────────────────────────────────┘
+request
+  ├─ cache lookup ─────▶ cache_hits_total | cache_misses_total
+  │     └─ on a miss:
+  │        ├─ fetch source ──▶ source_image_fetch_duration_seconds
+  │        │                   source_images_fetched_total
+  │        ├─ wait for permit ▶ image_operation_semaphore_wait_duration_seconds
+  │        ├─ wait for thread ▶ image_operation_blocking_queue_duration_seconds
+  │        └─ transform ─────▶ image_operation_execution_duration_seconds
+  │                            image_processing_duration_seconds
+  └─ response ───────────────▶ http_requests_duration_seconds
+                               status_codes_total
+                               processed_images_total
 ```
 
 ## Core metrics
@@ -92,12 +79,8 @@ When running a dedicated metrics listener, adjust `targets` to the alternate por
 - **Concurrency saturation** – Alert when `sum(image_operations_active) / image_operation_concurrency_limit` remains near 1 and waiting work is sustained.
 - **Source failures** – Notify when `rate(source_images_fetched_total{status="error"}[5m])` climbs, hinting at upstream instability.
 
-## Connecting with tracing and logs
+## Correlating with logs
 
-Correlate request IDs emitted in logs (via the `X-Request-ID` header) with spikes in histogram buckets. Pair this document with [Request Lifecycle](6_request_lifecycle.md) to map metrics anomalies back to lifecycle stages, and with infrastructure metrics (CPU, memory, I/O) for holistic visibility.
+Every response carries an `X-Request-ID` that also appears in the log span for that request. When a histogram shows a spike, that ID is the way back to the individual requests behind it. [Request Lifecycle](6_request_lifecycle.md) maps each metric to the stage that emits it, and [Error Troubleshooting](8_error_troubleshooting.md) covers what to do once you have found the failing requests.
 
-## Next steps
-
-- Surface these dashboards in Grafana or your preferred visualization tool.
-- Feed alerts into your incident workflow (PagerDuty, Opsgenie, Slack). Use quiet hours and grouping strategies to avoid alert fatigue.
-- Share runbooks linking playbooks in [Error Troubleshooting](8_error_troubleshooting.md) so responders can remediate issues quickly.
+A pre-built Grafana dashboard ships in [`grafana-dashboards/`](https://github.com/ImgForger/imgforge/tree/main/grafana-dashboards).

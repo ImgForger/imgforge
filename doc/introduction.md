@@ -1,99 +1,31 @@
 # Introduction
 
-imgforge is a fast, secure image proxy and transformation server built in Rust on top of libvips and Axum. It sits between your applications, a CDN, and the original image storage to resize, crop, convert formats, apply effects, and cache results on the fly.
+imgforge is an image proxy and transformation server written in Rust on libvips and Axum. It sits between your applications, a CDN, and wherever the original images live: it resizes, crops, converts formats, applies effects, and caches the result. The URL format is largely compatible with [imgproxy](https://github.com/imgproxy/imgproxy), so migrations are mostly mechanical.
 
-- Performance-first: libvips and an async architecture deliver low latency and high throughput.
-- Safe by default: signed URLs, optional bearer auth, and strict guards protect your origins.
-- Operationally ready: metrics, structured logs, health endpoints, and predictable resource use.
-- Familiar semantics: URL format is largely compatible with imgproxy, easing migrations.
+Use it to serve images at the size and format each client actually needs, without pre-generating variants or doing the work on your application servers.
 
-## What problems imgforge solves
-
-- Resize, crop, and convert images on demand without pre-generating variants.
-- Reduce bandwidth and speed up pages by delivering modern formats (WebP/AVIF/HEIC) and right-sized images.
-- Offload image IO and processing from your app servers to a dedicated service.
-- Front a slow or rate-limited origin with a cacheable, CDN-friendly image layer.
-
-## High-level architecture
+## How it fits together
 
 ```
-┌────────────────────────────────────────────────────────────────────────┐
-│                       imgforge Architecture                            │
-└────────────────────────────────────────────────────────────────────────┘
-
-  ┌─────────┐                                              ┌──────────────┐
-  │   CDN   │◀────── Response (cached, global) ────────────│  End Users   │
-  └────┬────┘                                              └──────┬───────┘
-       │                                                          │
-       │ Cache miss or bypass                                     │
-       │                                                          │
-       ▼                                                          │
-  ┌───────────────────────────────────────────────────────────────┘
-  │
-  ▼
-┌────────────────────────────────────────────────────────────────────┐
-│                           imgforge                                 │
-│  ┌──────────────────────────────────────────────────────────────┐  │
-│  │  1. Verify HMAC signature (unless unsafe mode)               │  │
-│  └───────────────────────────┬──────────────────────────────────┘  │
-│                              │                                     │
-│  ┌───────────────────────────▼──────────────────────────────────┐  │
-│  │  2. Check cache (Memory/Disk/Hybrid) ───────┐                │  │
-│  │                                       Hit?  │                │  │
-│  └───────────────────────────┬─────────────────┘                │  │
-│                              │ Miss                             │  │
-│  ┌───────────────────────────▼──────────────────────────────────┐  │
-│  │  3. Download source image (size/MIME validation)             │  │
-│  └───────────────────────────┬──────────────────────────────────┘  │
-│                              │                                     │
-│  ┌───────────────────────────▼──────────────────────────────────┐  │
-│  │  4. libvips Processing Pipeline:                             │  │
-│  │     • Resize, crop, rotate                                   │  │
-│  │     • Effects (blur, sharpen, pixelate)                      │  │
-│  │     • Watermarking                                           │  │
-│  │     • Format conversion (JPEG/WebP/AVIF/PNG)                 │  │
-│  └───────────────────────────┬──────────────────────────────────┘  │
-│                              │                                     │
-│  ┌───────────────────────────▼──────────────────────────────────┐  │
-│  │  5. Store in cache & serve response                          │  │
-│  └──────────────────────────────────────────────────────────────┘  │
-│                                                                    │
-│  ┌──────────────────────────────────────────────────────────────┐  │
-│  │  Metrics: /metrics (Prometheus)                              │  │
-│  └──────────────────────────────────────────────────────────────┘  │
-└────────────────────────────────────────────────────────────────────┘
-       │                                  ▲
-       │ Fetch original                   │
-       ▼                                  │
-  ┌─────────────────────┐                 │
-  │  Origin Storage     │─────────────────┘
-  │  (S3, HTTP, etc.)   │
-  └─────────────────────┘
+  end users ──▶ CDN ──miss──▶ imgforge ──fetch──▶ origin storage
+                                  │                (S3, HTTP, ...)
+                                  ├── cache: memory / disk / hybrid
+                                  └── /metrics, /status
 ```
 
-1. A client requests a transformation URL (usually generated by your app).
-2. imgforge verifies the HMAC signature (unless explicitly allowed to use `unsafe`).
-3. The server downloads the source image with size and MIME checks.
-4. libvips applies the requested operations (resize, crop, blur/sharpen, watermarking, format conversion, etc.).
-5. Results are served and optionally cached (memory, disk, or hybrid) for reuse.
+Per request, imgforge verifies the URL signature, checks its cache, downloads the source with size and MIME validation, runs the libvips pipeline, and caches what it produced. [Request Lifecycle](6_request_lifecycle.md) walks through each stage and the failures it can return.
 
-## Security model at a glance
+## Security model
 
-- HMAC-signed URLs are required by default; disable only for local development.
-- Optional bearer authentication endpoints.
-- Inbound fetch safeguards: allowed MIME types, maximum source size, and pixel resolution caps.
-- Rate limiting and per-request guards stop abuse before it reaches your origin.
-
-## Caching and performance
-
-- Pluggable caches (memory, disk, or hybrid via Foyer) reduce repeated work.
-- DPR-aware rendering and format negotiation minimize bytes on the wire.
-- Tunable concurrency controls keep tail latencies predictable under load.
+- HMAC-signed URLs by default. Unsigned mode exists for local development and should stay off elsewhere.
+- Optional bearer token on the image and info endpoints.
+- Fetch guards on MIME type, source file size, and source resolution, applied before any decoding.
+- Optional global rate limiting.
 
 ## What imgforge is not
 
-- A general file server or CDN by itself. Pair it with a CDN or reverse proxy for TLS, caching, and global distribution.
-- A digital asset management system. Use your existing storage and pipelines; imgforge focuses on transformation and delivery.
+- **A CDN.** Put one in front of it for TLS, edge caching, and global distribution.
+- **A DAM or file server.** Your storage stays where it is; imgforge only transforms and delivers.
 
 ## Special thanks
 
@@ -102,7 +34,7 @@ imgforge is inspired by [imgproxy](https://github.com/imgproxy/imgproxy). So spe
 Many thanks to the following open source projects that make imgforge possible:
 
 - [libvips](https://github.com/libvips/libvips) for its powerful image processing library.
-- [Foyer](https://github.com/josh-burton/foyer) for its fast, memory-efficient hybrid cache.
+- [Foyer](https://github.com/foyer-rs/foyer) for its fast, memory-efficient hybrid cache.
 - [Axum](https://github.com/tokio-rs/axum) for its fast, async web framework.
 - [Tokio](https://github.com/tokio-rs/tokio) for its async runtime.
 - [Serde](https://github.com/serde-rs/serde) for its powerful data serialization framework.

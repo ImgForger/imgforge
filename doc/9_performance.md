@@ -1,6 +1,6 @@
 # 9. Performance Tips
 
-imgforge leverages libvips and Tokio to deliver high throughput with modest resources. This guide outlines configuration tweaks, architectural patterns, and monitoring strategies to keep latency low under load.
+Where imgforge's throughput actually comes from, and which knobs are worth turning. Roughly in order of impact.
 
 ## Tune concurrency thoughtfully
 
@@ -43,25 +43,23 @@ Scrape `/metrics` frequently and build dashboards around the core histograms and
 - Allocate headroom for libvips; operations like large resizes or watermarks can temporarily inflate memory usage.
 - Pin docker containers to dedicated CPU sets (`cpuset`) when co-locating with other workloads to minimize interference.
 
-## Use asynchronous sources
+## Keep sources close
 
-- When requesting assets from object storage or remote services, prefer nodes within the same region to reduce latency.
-- Enable HTTP/2 between imgforge and upstream sources if supported—`reqwest` does this automatically—and keep connections warm.
+- Fetch from object storage in the same region. On a cache miss, the source download is often the largest part of the response time.
+- `reqwest` negotiates HTTP/2 and reuses connections automatically; no configuration needed.
 
 ## Instrument tracing
 
 - Increase log verbosity (`IMGFORGE_LOG_LEVEL=imgforge=debug`) during load tests to capture timings.
 - Integrate `tracing` subscribers that export spans to distributed tracing backends (e.g., OpenTelemetry) for end-to-end insight.
 
-## Profile periodically
+## Measure before tuning
 
-- Benchmark with tools like [`wrk`](https://github.com/wg/wrk) or [`vegeta`](https://github.com/tsenart/vegeta`) using realistic URLs and sizes.
-- Use the included [K6 load testing suite](../loadtest/README.md) to test processing endpoints with various parameter combinations and find performance limits.
-- Use `cargo flamegraph` or `perf` to identify hotspots in transformations if CPU-bound.
+- Use the included [K6 load testing suite](../loadtest/README.md), which already covers the processing endpoints with varied parameters. `wrk` and `vegeta` work too, as long as the URLs and image sizes resemble production.
+- Reach for `cargo flamegraph` or `perf` only once you have confirmed the work is CPU-bound rather than waiting on sources.
 
-## Plan for scale
+## Scaling out
 
-- Horizontal scaling is straightforward—deploy multiple imgforge instances behind a load balancer. Ensure each replica has its own cache path (or use a shared NAS for disk caches).
-- Combine imgforge with message queues or background jobs when pre-rendering large batches of images.
+Run several instances behind a load balancer. Each replica needs its own disk cache path — imgforge has no distributed cache, so replicas do not share entries and a CDN in front is what gives you a shared layer.
 
-Pair these tips with the lifecycle overview in [Request Lifecycle](6_request_lifecycle.md) to pinpoint bottlenecks quickly.
+When something is slow, [Request Lifecycle](6_request_lifecycle.md) maps each metric back to the stage that emits it.

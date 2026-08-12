@@ -1,6 +1,6 @@
 # 3. Configuration
 
-imgforge reads configuration exclusively from environment variables. This document expands on every tunable option, providing context, defaults, and usage notes. Combine it with infrastructure-specific techniques (dotenv files, container orchestrator secrets, etc.) to inject settings at runtime.
+imgforge is configured entirely through environment variables. Every one of them is listed below.
 
 ## Runtime & threading
 
@@ -15,7 +15,7 @@ imgforge reads configuration exclusively from environment variables. This docume
 
 | Variable                   | Default        | Description & tips                                                                                                                                                                      |
 | -------------------------- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `IMGFORGE_BIND`            | `0.0.0.0:3000` | Primary HTTP listener. Bind to `127.0.0.1` when running behind a reverse proxy locally.                                                                                                 |
+| `IMGFORGE_BIND`            | `0.0.0.0:3000` | Primary HTTP listener, as `host:port`. A bare port number expands to `0.0.0.0:<port>`. Bind to `127.0.0.1` when a local reverse proxy is the only client.                               |
 | `IMGFORGE_PROMETHEUS_BIND` | unset          | Optional dedicated metrics listener (e.g., `0.0.0.0:9600`). When unset, metrics remain on the main listener under `/metrics`. See [Prometheus Monitoring](11_prometheus_monitoring.md). |
 
 ## Logging & observability
@@ -69,26 +69,21 @@ Presets are named sets of processing options that can be reused across multiple 
 | `IMGFORGE_ONLY_PRESETS` | `false` | When `true`, enables presets-only mode. Only `preset:name` (or `pr:name`) references are allowed in URLs; other processing options are rejected. Use this to enforce strict governance over transformations.                                                                           |
 
 
-## Advanced tuning
+## Variables imgforge inherits
 
-| Variable                         | Default | Description & tips                                                                                                                       |
-| -------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `IMGFORGE_BIND` + `SO_REUSEPORT` | —       | When deploying multiple instances on the same host, rely on a reverse proxy or run separate ports. imgforge does not set `SO_REUSEPORT`. |
-| `RUST_LOG`                       | —       | Equivalent to `IMGFORGE_LOG_LEVEL`. Either variable works; use one consistently.                                                         |
-| `HTTP_PROXY` / `HTTPS_PROXY`     | —       | `reqwest` respects standard proxy environment variables. Configure if imgforge runs behind an outbound proxy.                            |
+| Variable                     | Effect                                                                                     |
+| ---------------------------- | ------------------------------------------------------------------------------------------ |
+| `RUST_LOG`                   | Equivalent to `IMGFORGE_LOG_LEVEL`. Pick one and use it consistently.                       |
+| `HTTP_PROXY` / `HTTPS_PROXY` | Honoured by `reqwest` for outbound source fetches.                                          |
 
-## Configuration management patterns
+imgforge does not set `SO_REUSEPORT`. To run several instances on one host, give each its own port and put a reverse proxy in front.
 
-- **Dotenv files**: Store variables in `.env` and load them with `dotenvx` or `direnv`. Keep files out of version control.
-- **Container orchestrators**: Map secrets to environment variables. For Kubernetes, use `envFrom` with ConfigMaps (non-secret) and Secrets (sensitive values).
-- **Systemd**: Place variables in `/etc/imgforge.env` and reference them via `EnvironmentFile=` in the unit. See [Deployment](10.2_deployment_manual.md).
+## Supplying the variables
 
-## Validating configuration
+- **Dotenv**: keep a `.env` out of version control and load it with `direnv`, `dotenvx`, or `docker run --env-file`.
+- **Kubernetes**: `envFrom` with a ConfigMap for the plain settings and a Secret for `IMGFORGE_KEY`, `IMGFORGE_SALT`, and `IMGFORGE_SECRET`.
+- **Systemd**: `EnvironmentFile=/etc/imgforge.env`, mode `600`. See [Manual Deployment](10.2_deployment_manual.md).
 
-Run the binary with `IMGFORGE_LOG_LEVEL=debug` to log parsed values on startup. Missing or malformed required settings return a descriptive startup error:
+## Checking what was parsed
 
-```bash
-IMGFORGE_KEY=... IMGFORGE_SALT=... cargo run
-```
-
-Use `curl /status` to ensure the server started successfully, then test signed URLs following [URL Structure](4_url_structure.md).
+Start with `IMGFORGE_LOG_LEVEL=debug` to log the parsed configuration. Malformed values for `IMGFORGE_WORKERS` or either source limit stop startup with a message naming the variable, so a failed start is usually self-explanatory. Confirm the server is up with `curl localhost:3000/status`, then try a signed URL — see [URL Structure](4_url_structure.md).
