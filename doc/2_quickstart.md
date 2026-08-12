@@ -1,14 +1,14 @@
 # 2. Quick Start
 
-This walkthrough launches imgforge locally, configures the required secrets, and exercises the public endpoints. It assumes you have completed the steps in [Installation](1_installation.md).
+Start imgforge locally and transform your first image. Assumes you have worked through [Installation](1_installation.md).
 
 ## Minimal configuration
 
-imgforge signs every request with an HMAC computed from `IMGFORGE_KEY` and `IMGFORGE_SALT`. Generate development-only values with OpenSSL.
+Every request is signed with an HMAC computed from `IMGFORGE_KEY` and `IMGFORGE_SALT`. Generate a value for each — these are development throwaways, not production secrets:
 
-  ```bash
-  openssl rand -hex 32
-  ```
+```bash
+openssl rand -hex 32
+```
 
 ```bash
 export IMGFORGE_KEY=<generated_key>
@@ -44,7 +44,7 @@ Use `--env-file` to load additional configuration or mount volumes for caching. 
 
 ### Run from source (optional)
 
-Prefer a native workflow? If you have `libvips` installed in your system, launch imgforge through Cargo:
+With libvips installed, run it through Cargo instead:
 
 ```bash
 git clone https://github.com/imgforger/imgforge.git

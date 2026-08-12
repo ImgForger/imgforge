@@ -1,6 +1,8 @@
 # 5. Processing Options
 
-imgforge encodes image transformations directly in the URL path. Each directive uses the format `name:arg1:arg2`, with multiple directives chained via `/`. Unknown options are ignored—typos silently disable transformations—so validate URLs in automated tests or internal tooling. The tables and sections below describe every option, the defaults applied by imgforge, and how directives interact.
+Transformations live in the URL path. Each directive is `name:arg1:arg2`, and directives chain with `/`.
+
+Unrecognised directive *names* are ignored rather than rejected, so a typo silently drops that transformation instead of failing the request. Invalid *arguments* to a known directive do return `400`. Cover your URL-building code with tests.
 
 ## Quick reference
 
@@ -35,7 +37,7 @@ imgforge encodes image transformations directly in the URL path. Each directive 
 | `background_alpha`    | `bga`      | `0.0-1.0`                                                   | Sets the alpha channel for `background`.                                                                     |
 | `quality`             | `q`        | `1-100`                                                     | Compression quality. Defaults to `85` for lossy formats.                                                     |
 | `format_quality`      | `fq`       | `format:quality...`                                         | Per-format quality overrides used when `quality` is omitted.                                                 |
-| `format`              | `f`, `ext` | `jpeg\|png\|webp\|avif\|...`                                | Output format override. Defaults to `jpeg` when unspecified.                                                 |
+| `format`              | `f`, `ext` | `jpeg\|png\|webp\|avif\|...`                                | Output format. Defaults to the source image's format; see `IMGFORGE_DEFAULT_FORMAT`.                         |
 | `max_bytes`           | `mb`       | `bytes`                                                     | Re-encodes lossy formats at lower quality until the byte target is reached or quality reaches `1`.           |
 | `strip_metadata`      | `sm`       | `bool`                                                      | Drops encoder metadata when supported by the output format.                                                  |
 | `strip_color_profile` | `scp`      | `bool`                                                      | Drops color profile metadata with the same encoder path as metadata stripping.                               |
@@ -114,19 +116,15 @@ Setting a single dimension implicitly enables `fit` resizing. These options infl
 
 ### `resizing_algorithm`
 
-Controls the interpolation kernel used during resize operations. The algorithm affects image quality, sharpness, and processing speed:
+The interpolation kernel used whenever the image is scaled — by `resize`, `size`, `width`, `height`, `min-width`, `min-height`, `zoom`, `pixelate`, and watermark scaling.
 
-- **`nearest`** – Nearest-neighbor interpolation. Fastest but produces blocky results. Suitable for pixel art or when speed is critical and quality is secondary.
-- **`linear`** – Bilinear interpolation. Faster than cubic/lanczos with reasonable quality. Good for real-time applications.
-- **`cubic`** – Bicubic interpolation. Balances quality and speed. Produces smoother results than linear.
-- **`lanczos2`** – Lanczos with a=2. Good quality with less processing than lanczos3. Suitable for most use cases.
-- **`lanczos3`** – **Default**. Lanczos with a=3. Highest quality interpolation with the sharpest results. Best for final output where quality matters.
+- **`nearest`** – copies the nearest pixel. Hard edges, no blending. For pixel art and sprites.
+- **`linear`** – bilinear. Softens detail; fine for throwaway previews.
+- **`cubic`** – bicubic. Smooth, without the ringing the lanczos kernels can produce.
+- **`lanczos2`** – sharp, with less ringing than `lanczos3`.
+- **`lanczos3`** – **default**. Sharpest; can show faint halos on high-contrast edges.
 
-The algorithm applies to all resize operations including `resize`, `size`, `width`, `height`, `min-width`, `min-height`, `zoom`, and `pixelate`. It also affects watermark scaling. More deep dive into the algorithms can be found in [Resizing Algorithms](5.1_resizing_algorithms.md).
-
-**Example:** `resizing_algorithm:cubic/resize:fit:800:600` uses bicubic interpolation for faster processing.
-
-**Performance tip:** Use `nearest` or `linear` for thumbnails or temporary previews. Reserve `lanczos3` for production assets.
+Pick on appearance rather than speed: the kernel is rarely where the processing time goes. [Resizing Algorithms](5.1_resizing_algorithms.md) explains why, and which kernel suits which content.
 
 ### `gravity`
 
@@ -194,7 +192,8 @@ Accepts RGB or RGBA hex (`FFFFFF` or `FFFFFFFF`). The colour fills areas introdu
 ### `dpr`
 
 - Defaults to `1.0` and caps at `5.0`.
-- Scales width, height, padding, and minimum dimensions before processing. This scaling happens before safeguards, so very high DPR values can trigger resolution limits.
+- Scales the resize width, height, and padding. `min-width` and `min-height` are not scaled.
+- Only values above `1.0` have any effect; the source-image safeguards are evaluated before this runs, so `dpr` cannot trip them.
 - Combine with `quality` adjustments to tailor assets for HiDPI displays.
 
 ## Effects
@@ -238,8 +237,6 @@ Listed earlier under geometry, but keep in mind it also affects the intensity of
 
 `max_src_resolution` and `max_src_file_size` relax server-wide safeguards for a single request. They only take effect when `IMGFORGE_ALLOW_SECURITY_OPTIONS=true` is set (see [Configuration](3_configuration.md) for security settings). Use cautiously, preferably on trusted internal URLs.
 
-## Validation tips
+## When output does not match the URL
 
-- Use the signing guidance in [URL Structure](4_url_structure.md) to confirm the encoded path matches the intended options.
-- Reference the lifecycle and processing order in [Request Lifecycle](6_request_lifecycle.md) and [Image Processing Pipeline](12_image_processing_pipeline.md) when debugging unexpected output.
-- Automate regression tests that call the processing endpoint with representative options to catch typos or changed defaults.
+Because unknown directive names are silently ignored, an option that appears to do nothing is usually a spelling mistake. Check the name against the quick reference above, then check the order: [Image Processing Pipeline](12_image_processing_pipeline.md) documents which stage each directive runs in, and several surprises (padding after resize, gravity ignored by explicit crops, minimums overriding zoom) come from ordering rather than the directive itself.

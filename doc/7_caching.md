@@ -1,83 +1,19 @@
 # 7. Caching
 
-Caching dramatically reduces repeated processing costs and shrinks latency for popular images. imgforge integrates with the [Foyer](https://foyer-rs.github.io/foyer/) cache engine to offer three backends: in-memory, disk, and hybrid. This document explains how to configure each mode and how the cache interacts with the request lifecycle.
+A cache hit skips fetching and processing entirely, returning stored bytes straight from stage 3 of the [request lifecycle](6_request_lifecycle.md). imgforge uses the [Foyer](https://foyer-rs.github.io/foyer/) cache engine and offers three backends.
 
-## Cache architecture diagram
-
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                         Cache Architecture                              │
-└─────────────────────────────────────────────────────────────────────────┘
-
-    Request arrives
-         │
-         ▼
-    ┌────────────────────────┐
-    │   Generate cache key   │  → Full path hash (signature + options + source)
-    │   from request path    │
-    └───────────┬────────────┘
-                │
-                ▼
-    ┌───────────────────────────────────────────────────────────────┐
-    │              Check IMGFORGE_CACHE_TYPE                        │
-    └───────────────────────────────────────────────────────────────┘
-                │
-                │
-        ┌───────┴───────┬──────────────┬────────────────┐
-        │               │              │                │
-        ▼               ▼              ▼                ▼
-    ┌────────┐    ┌─────────┐   ┌──────────┐     ┌──────────┐
-    │  None  │    │ Memory  │   │   Disk   │     │  Hybrid  │
-    └────┬───┘    └────┬────┘   └─────┬────┘     └─────┬────┘
-         │             │              │                │
-         │             ▼              ▼                ▼
-         │      ┌────────────┐  ┌──────────────┐  ┌──────────────────┐
-         │      │Foyer       │  │Foyer Block   │  │Memory (hot) +    │
-         │      │In-Memory   │  │Engine        │  │Disk (spillover)  │
-         │      │LRU Cache   │  │Persistent    │  │                  │
-         │      └─────┬──────┘  └──────┬───────┘  └─────────┬────────┘
-         │            │                │                    │
-         │         HIT│    MISS        │HIT      MISS       │HIT    MISS
-         │            │                │                    │
-         │            └────────────────┴────────────────────┘
-         │                            │
-         │                           MISS
-         └────────────────────────────┘
-                                      │
-                                      ▼
-                          ┌──────────────────────┐
-                          │  Process Image       │
-                          │  (full pipeline)     │
-                          └──────────┬───────────┘
-                                     │
-                                     ▼
-                          ┌──────────────────────┐
-                          │  Populate Cache      │
-                          │  (if enabled)        │
-                          └──────────┬───────────┘
-                                     │
-                                     ▼
-                          ┌──────────────────────┐
-                          │  Return Response     │
-                          └──────────────────────┘
-
-
-    Cache Backend Comparison:
-    ┌─────────────┬──────────────┬───────────────┬─────────────────────┐
-    │   Type      │   Speed      │  Persistence  │     Best For        │
-    ├─────────────┼──────────────┼───────────────┼─────────────────────┤
-    │  Memory     │  Fastest     │  Volatile     │  Edge nodes, dev    │
-    │  Disk       │  Medium      │  Persistent   │  Long-lived cache   │
-    │  Hybrid     │  Fast + Med  │  Persistent   │  High-traffic prod  │
-    │  None       │  N/A         │  N/A          │  Testing only       │
-    └─────────────┴──────────────┴───────────────┴─────────────────────┘
-```
+| Backend  | Storage                     | Survives restart | Suits                          |
+| -------- | --------------------------- | ---------------- | ------------------------------ |
+| `memory` | RAM                         | No               | Edge nodes, development        |
+| `disk`   | Foyer block engine on disk  | Yes              | Expensive renders worth keeping across deploys |
+| `hybrid` | RAM hot set, disk overflow  | Yes              | High-traffic production        |
+| unset    | none                        | —                | Testing, or a CDN doing the caching |
 
 ## How caching works
 
-- **Key derivation**: The cache key is the full request path (including processing options, `cache_buster`, and output format). Different signatures or parameters yield different cache entries.
-- **Population**: After successfully processing an image, imgforge inserts the rendered bytes into the configured cache backend.
-- **Invalidation**: Caches are size-limited, so least-recently-used entries are evicted automatically. Use the `cache_buster` option to force a miss when you update upstream assets.
+- **Key derivation**: the cache key is the full request path — processing options, `cachebuster`, and output format included. Any difference in the path is a different entry.
+- **Population**: rendered bytes are inserted after a successful response. A failed write is logged and does not affect the response.
+- **Invalidation**: there is no explicit purge. Caches are capacity-limited and evict least-recently-used entries; change the `cachebuster` token to force a miss when an upstream asset changes.
 
 Metrics:
 
@@ -99,60 +35,39 @@ Set `IMGFORGE_CACHE_TYPE` to one of `memory`, `disk`, or `hybrid`. If unset, the
 | `IMGFORGE_CACHE_DISK_PATH`       | Directory for on-disk storage. Required for disk and hybrid caches. Ensure it exists and is writable before starting the server. |
 | `IMGFORGE_CACHE_DISK_CAPACITY`   | Maximum number of entries stored on disk (default `10000`).                                                                      |
 
-### Memory cache
-
-Configure for short-lived services or low-latency responses:
+### Examples
 
 ```bash
+# Memory only
 export IMGFORGE_CACHE_TYPE=memory
 export IMGFORGE_CACHE_MEMORY_CAPACITY=5000
-```
 
-- Backed entirely by RAM.
-- Fastest option but volatile—entries are lost on restart.
-- Ideal for front-line edge nodes where disk is unavailable.
-
-### Disk cache
-
-Persist cache entries across restarts using local or network storage:
-
-```bash
+# Disk only — survives restarts and redeploys
 export IMGFORGE_CACHE_TYPE=disk
 export IMGFORGE_CACHE_DISK_PATH=/var/cache/imgforge
 export IMGFORGE_CACHE_DISK_CAPACITY=20000
-```
 
-- Uses Foyer’s block engine to store bytes on disk.
-- Suitable when CPU-intensive renders must be reused across deploys.
-- Place `/var/cache/imgforge` on SSD-backed storage to minimize latency.
-
-### Hybrid cache
-
-Combine a memory hot set with disk-backed persistence:
-
-```bash
+# Hybrid — hot set in RAM, the rest on disk
 export IMGFORGE_CACHE_TYPE=hybrid
 export IMGFORGE_CACHE_MEMORY_CAPACITY=5000
 export IMGFORGE_CACHE_DISK_PATH=/var/cache/imgforge
 export IMGFORGE_CACHE_DISK_CAPACITY=50000
 ```
 
-- Frequently accessed objects stay in memory; less popular ones spill to disk.
-- Balances latency and durability for high-traffic services.
+Put the disk path on SSD-backed storage; a cache slower than the render it replaces is worse than no cache.
 
-## Operational tips
+## Operational notes
 
-1. **Provision storage** – Ensure the disk path exists and ownership matches the user running imgforge. For containers, mount a persistent volume at the desired location.
-2. **Monitor hit ratios** – Scrape Prometheus metrics and alert on low hit rates; adjust memory capacity or investigate signature churn.
-3. **Warm caches** – Precompute popular assets by hitting imgforge ahead of peak traffic. Automate via a job triggered after deploys.
-4. **Eviction strategy** – Cache capacity is entry-based. If stored objects vary significantly in size, monitor disk usage separately and prune old entries if necessary.
-5. **Security** – When storing on shared disks, restrict permissions (`0700`) to the imgforge user to prevent other processes from reading cached content.
-6. **Replication** – imgforge does not provide distributed caching. For multi-node deployments, rely on CDN layers or object storage if cross-node sharing is required.
+- **Capacity is counted in entries, not bytes.** If your outputs vary widely in size, watch actual disk usage separately — 10,000 entries could be 200 MB or 20 GB.
+- **Provision the directory before starting.** It must exist and be owned by the user running imgforge. In containers, mount a volume and match the UID/GID. Restrict permissions (`0700`) on shared hosts: cached bytes are the images themselves.
+- **Caching is per-instance.** imgforge has no distributed cache. Give each replica its own path and rely on a CDN for cross-node sharing.
+- **Warm after deploys** by replaying popular URLs, if a cold cache would show up as a latency spike.
+- **Watch the hit ratio**, and treat a sudden drop as signature or `cachebuster` churn rather than a cache problem.
 
-## Troubleshooting caching issues
+## Troubleshooting
 
-- **Misses despite configuration**: Confirm `IMGFORGE_CACHE_TYPE` is set and no typos exist. Check logs for `Failed to initialize cache` messages.
-- **Permission denied**: Ensure the disk directory is writable. In containers, mount with the correct UID/GID or use `chown` during image build.
-- **Unexpected eviction**: Increase `IMGFORGE_CACHE_*_CAPACITY` values and monitor resource usage. Also verify that `cache_buster` values are not changing unnecessarily.
+- **Everything misses.** Check that `IMGFORGE_CACHE_TYPE` is set at all — unset means no cache. A *misspelled* value is not the cause here: imgforge refuses to start on an unrecognised cache type rather than falling back to no caching.
+- **Permission denied on startup.** The disk path is not writable by the service user.
+- **Entries evicted sooner than expected.** Raise the capacity values, and check that `cachebuster` tokens are not changing on every request.
 
-For broader operational strategies, see [Performance](9_performance.md) and [Deployment](10.2_deployment_manual.md).
+See [Performance Tips](9_performance.md) for how caching fits into overall throughput.

@@ -1,6 +1,6 @@
 # 4. URL Structure & Signing
 
-imgforge mirrors the URL layout of imgproxy: every transformation is encoded inside the request path, and requests are authenticated via an HMAC signature. Source URLs can be provided either in plain text (with the `plain/` prefix) or Base64-encoded format. This document details the anatomy of those URLs, explains how to sign them, and highlights development shortcuts.
+Every transformation lives in the request path, and the path is authenticated with an HMAC signature. The layout mirrors imgproxy's. The source URL is given either in plain text behind a `plain/` prefix, or Base64-encoded.
 
 ## Path anatomy
 
@@ -9,44 +9,17 @@ http(s)://<host>/<signature>/<processing_options>/plain/<percent-encoded-source>
 http(s)://<host>/<signature>/<processing_options>/<base64url-source>.<extension>
 ```
 
-### URL structure visualization
+A worked example, with the output format declared by `@webp`:
 
 ```
-┌──────────────────────────────────────────────────────────────────────────┐
-│                              URL Anatomy                                 │
-└──────────────────────────────────────────────────────────────────────────┘
-
-Plain format example:
-┌───────────┬────────────────┬──────────────────────┬──────────────────────┐
-│ https://  │ imgforge.com/  │ Q7j8K...NpM/         │ resize:fill:800:600/ │
-│ Protocol  │ Host           │ HMAC Signature       │ Processing Options   │
-└───────────┴────────────────┴──────────────────────┴──────────────────────┘
-┌──────────────────────────────────────────────────────────────────────────┐
-│ plain/https%3A%2F%2Fexample.com%2Fcat.jpg@webp                           │
-│ Source URL (percent-encoded) + Output Format                             │
-└──────────────────────────────────────────────────────────────────────────┘
-
-
-Base64 format example:
-┌───────────┬────────────────┬──────────────────────┬──────────────────────┐
-│ https://  │ imgforge.com/  │ Q7j8K...NpM/         │ resize:fit:1024:0/   │
-│ Protocol  │ Host           │ HMAC Signature       │ Processing Options   │
-└───────────┴────────────────┴──────────────────────┴──────────────────────┘
-┌──────────────────────────────────────────────────────────────────────────┐
-│ aHR0cHM6Ly9leGFtcGxlLmNvbS9jYXQzLmpwZw.webp                              │
-│ Base64URL-encoded source      + Output Format                            │
-└──────────────────────────────────────────────────────────────────────────┘
-
-
-Processing Options Chain:
-┌─────────────────────────────────────────────────────────────────────────┐
-│  resize:fill:800:600 / quality:85 / blur:2.5 / watermark:0.8:se         │
-│  ─────┬────────────   ────┬─────   ────┬────   ──────────┬──────        │
-│       │                   │            │                 │              │
-│       ▼                   ▼            ▼                 ▼              │
-│  Directive:args      Directive:arg  Directive:arg   Directive:args      │
-└─────────────────────────────────────────────────────────────────────────┘
+https://imgforge.example.com/Q7j8KNpM/resize:fill:800:600/quality:85/plain/https%3A%2F%2Fexample.com%2Fcat.jpg@webp
+                             └─ signature
+                                      └─ processing options, slash-separated
+                                                                     └─ source: plain/ + percent-encoded URL
+                                                                                                              └─ output format
 ```
+
+(A real signature is 43 characters — a Base64 URL-safe, unpadded SHA-256 HMAC.)
 
 | Segment                | Description                                                                                                                                 |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -136,9 +109,7 @@ signature = base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
 print(f"{signature}{path}")
 ```
 
-### Validating signatures
-
-When building automated tests, compute the expected signature using the same recipe and assert that imgforge accepts the resulting URL. Many teams wrap the logic in a shared helper so application servers, static-site generators, and edge functions share the same implementation.
+Keep the signing logic in one shared helper. When application servers, static-site generators, and edge functions each grow their own copy, they drift, and the failure looks like a `403` rather than a bug.
 
 ## Unsigned URLs (`unsafe`)
 
@@ -160,6 +131,5 @@ Use this mode for development only; it bypasses HMAC validation entirely.
 
 ## Next steps
 
-- Explore available transformations in [Processing Options](5_processing_options.md).
-- Review the request lifecycle in [Request Lifecycle](6_request_lifecycle.md).
-- If your application generates many URLs, encapsulate signing logic into a shared helper library to avoid drift.
+- [Processing Options](5_processing_options.md) – what you can put in the options segment.
+- [Presets](5.2_presets.md) – name a chain of options once and reference it by name.

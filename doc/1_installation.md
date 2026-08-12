@@ -1,10 +1,10 @@
 # 1. Installation
 
-imgforge is a Rust application that wraps Axum, Tokio, and libvips into a standalone image proxy. You can run it entirely inside Docker or install the native toolchain for bespoke builds.
+Run imgforge from the published container, or build it natively if you need to modify it.
 
-## Container-first setup (recommended)
+## Container setup (recommended)
 
-Docker is the fastest way to evaluate imgforge and mirrors the production deployment model.
+The container is also how imgforge is meant to run in production, so what you test locally matches what you deploy.
 
 1. **Install Docker** – Version 24 or newer is recommended. Podman works as an alternative as long as it supports multi-stage builds.
 2. **Pull the image** – Use the published container from GitHub Container Registry:
@@ -24,7 +24,7 @@ Docker is the fastest way to evaluate imgforge and mirrors the production deploy
      -e IMGFORGE_KEY=<generated_key> \
      -e IMGFORGE_SALT=<generated_salt> \
      -e IMGFORGE_ALLOW_UNSIGNED=true \
-     ghcr.io/imgforger/imgforge:latest --help
+     ghcr.io/imgforger/imgforge:latest
    ```
 5. **Persist cache data (optional)** – Mount a volume when using disk or hybrid caching:
    ```bash
@@ -33,14 +33,14 @@ Docker is the fastest way to evaluate imgforge and mirrors the production deploy
      -v imgforge-cache:/var/cache/imgforge \
      -e IMGFORGE_KEY=<generated_key> \
      -e IMGFORGE_SALT=<generated_salt> \
-     -e IMGFORGE_CACHE_MODE=hybrid \
-     -e IMGFORGE_CACHE_MEMORY_CAPACITY=1000
+     -e IMGFORGE_CACHE_TYPE=hybrid \
+     -e IMGFORGE_CACHE_MEMORY_CAPACITY=1000 \
      -e IMGFORGE_CACHE_DISK_PATH=/var/cache/imgforge \
      -e IMGFORGE_CACHE_DISK_CAPACITY=1000 \
      ghcr.io/imgforger/imgforge:latest
    ```
 
-Continue to [Quick Start](2_quick_start.md) to run real transformations inside the container.
+Continue to [Quick Start](2_quickstart.md) to run real transformations inside the container.
 
 ## Native installation (for custom builds)
 
@@ -90,11 +90,9 @@ git clone https://github.com/imgforger/imgforge.git
 cd imgforge
 ```
 
-If you are working from a fork, replace the URL accordingly. The repository uses Git submodules only for documentation assets, so a normal clone is sufficient.
-
 ### Toolchain configuration
 
-Set the project’s preferred toolchain (optional but recommended):
+Set the project's preferred toolchain (optional but recommended):
 
 ```bash
 rustup override set stable
@@ -110,21 +108,12 @@ If the command fails, ensure the libvips development package is installed and `P
 
 ### Building from source
 
-Compile the debug binary:
-
 ```bash
-cargo build
+cargo build            # debug
+cargo build --release  # optimized, lands in target/release/imgforge
 ```
 
-The compilation downloads crates specified in `Cargo.lock`. On the first build this can take a few minutes. Subsequent builds are incremental.
-
-Compile the optimized binary:
-
-```bash
-cargo build --release
-```
-
-The executable will be placed in `target/release/imgforge`.
+The first build downloads every crate in `Cargo.lock` and takes a few minutes; later builds are incremental.
 
 ### Verifying runtime dependencies
 
@@ -138,7 +127,7 @@ If libvips is marked as “not found,” add its library directory to `LD_LIBRAR
 
 ## Use imgforge as a library
 
-`imgforge` now ships both as an HTTP server and as a reusable Rust crate. You can embed the processing engine directly into your application without starting the Axum server:
+imgforge ships as both an HTTP server and a Rust crate, so you can embed the processing engine without starting the Axum server:
 
 ```rust
 use imgforge::{config::Config, Imgforge};
@@ -161,8 +150,8 @@ async fn main() -> anyhow::Result<()> {
 }
 ```
 
-The same API exposes metadata retrieval through `image_info` and accepts authenticated, signed paths just like the HTTP interface. Server deployments continue to work unchanged.
+The same API exposes metadata through `image_info` and accepts signed paths exactly as the HTTP interface does.
 
 ### Next steps
 
-Whether you chose Docker or a native build, proceed to [Quick Start](2_quickstart.md) to configure secrets, start the server, and perform your first image transformation.
+[Quick Start](2_quickstart.md) – configure secrets and run your first transformation.
