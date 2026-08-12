@@ -71,6 +71,61 @@ fn metadata_keep(options: &SaveOptions) -> ops::ForeignKeep {
     }
 }
 
+/// Builds the WebP save suffix carrying the encoder options.
+///
+/// libvips 1.7.x's generated WebP save bindings can abort the process, so the
+/// options travel through the save suffix instead: vips' option-string parser
+/// reaches the same encoder without going through those bindings.
+pub(crate) fn webp_save_suffix(quality: u8, keep: ops::ForeignKeep, options: &SaveOptions) -> String {
+    let mut suffix = format!(".webp[Q={}", (quality as i32).clamp(1, 100));
+    if options.webp.lossless.unwrap_or(false) {
+        suffix.push_str(",lossless");
+    }
+    if options.webp.smart_subsample.unwrap_or(false) {
+        suffix.push_str(",smart-subsample");
+    }
+    if let Some(preset) = options.webp.preset.as_deref().and_then(webp_preset_nickname) {
+        suffix.push_str(",preset=");
+        suffix.push_str(preset);
+    }
+    suffix.push_str(",keep=");
+    suffix.push_str(foreign_keep_nickname(keep));
+    suffix.push(']');
+    suffix
+}
+
+/// Maps a requested WebP preset to the matching vips nickname.
+///
+/// `preset` reaches us as free text from the URL, so only names vips actually
+/// defines may be interpolated into the option string; anything else is
+/// dropped and the encoder default applies.
+fn webp_preset_nickname(preset: &str) -> Option<&'static str> {
+    match preset {
+        "default" => Some("default"),
+        "picture" => Some("picture"),
+        "photo" => Some("photo"),
+        "drawing" => Some("drawing"),
+        "icon" => Some("icon"),
+        "text" => Some("text"),
+        _ => None,
+    }
+}
+
+/// Matched exhaustively so a new `ForeignKeep` variant breaks the build here
+/// rather than silently dropping the metadata setting from the suffix.
+fn foreign_keep_nickname(keep: ops::ForeignKeep) -> &'static str {
+    match keep {
+        ops::ForeignKeep::None => "none",
+        ops::ForeignKeep::Exif => "exif",
+        ops::ForeignKeep::Xmp => "xmp",
+        ops::ForeignKeep::Iptc => "iptc",
+        ops::ForeignKeep::Icc => "icc",
+        ops::ForeignKeep::Other => "other",
+        ops::ForeignKeep::Gainmap => "gainmap",
+        ops::ForeignKeep::All => "all",
+    }
+}
+
 fn encode_once(img: &VipsImage, format: &str, quality: u8, options: &SaveOptions) -> Result<Vec<u8>, SaveError> {
     // map quality to effort (1-10), higher quality = more effort
     let effort = ((quality as i32).clamp(1, 100) / 10).clamp(1, 10);
@@ -112,9 +167,7 @@ fn encode_once(img: &VipsImage, format: &str, quality: u8, options: &SaveOptions
             ops::pngsave_buffer_with_opts(img, &opts)
         }),
         "webp" => encode_image("WebP", || {
-            // libvips 1.7.x's generated WebP save bindings can abort the process, so
-            // WebP encoder options are parsed for imgproxy compatibility but not applied.
-            img.image_write_to_buffer(".webp")
+            img.image_write_to_buffer(&webp_save_suffix(quality, keep, options))
         }),
         "tiff" => encode_image("TIFF", || {
             let clamped_quality = (quality as i32).clamp(1, 100);
