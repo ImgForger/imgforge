@@ -4,9 +4,18 @@ imgforge leverages libvips and Tokio to deliver high throughput with modest reso
 
 ## Tune concurrency thoughtfully
 
-- Start with the default worker count (`num_cpus * 2`). Observe CPU utilization and memory pressure under realistic workloads.
-- Increase `IMGFORGE_WORKERS` when requests are primarily I/O bound (e.g., lightweight transformations or cached responses).
-- Decrease the worker count when libvips operations are heavy and cause swapping. Monitor resident set size (RSS) and libvips memory pools.
+`IMGFORGE_WORKERS` bounds simultaneous image decodes and transformations, including work submitted to Tokio's blocking pool. Cached and raw responses do not consume these permits. The automatic default is `num_cpus * 2`, but production deployments should set an explicit value based on representative worst-case images.
+
+Use this practical approach:
+
+1. Start with the automatic default (`2 × CPU cores`).
+2. Load-test with the largest images and most expensive transformations you expect in production.
+3. Keep 25–40% of the container's memory unused for traffic spikes and unusually expensive inputs.
+4. Lower `IMGFORGE_WORKERS` if memory approaches that reserve. Raise it only when memory is comfortable and additional workers improve throughput.
+
+For example, with a 2 GB container, aim to keep peak usage below roughly 1.2–1.5 GB during the load test. If four workers stay inside that range but eight workers do not, configure `IMGFORGE_WORKERS=4`.
+
+Monitor `image_operations_active`, `image_operations_waiting`, `image_operation_concurrency_limit`, process RSS, and the libvips memory gauges together. Sustained waiting with active operations near the limit indicates saturation. If memory usage becomes unsafe as concurrency increases, lower the worker count. imgforge warns at startup when a configured value exceeds `2 × CPU`, but the warning is advisory because safe concurrency depends on the workload and memory limit.
 
 ## Embrace caching
 

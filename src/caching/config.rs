@@ -1,7 +1,7 @@
 use crate::caching::error::CacheError;
 use crate::constants::*;
 use serde::Deserialize;
-use std::env;
+use std::env::{self, VarError};
 
 #[derive(Debug, Clone, Deserialize)]
 pub enum CacheConfig {
@@ -40,46 +40,54 @@ impl CacheConfig {
     pub fn from_env() -> Result<Option<Self>, CacheError> {
         let cache_type = match env::var(ENV_CACHE_TYPE) {
             Ok(val) => val,
-            Err(_) => return Ok(None),
+            Err(VarError::NotPresent) => return Ok(None),
+            Err(source) => {
+                return Err(CacheError::Environment {
+                    name: ENV_CACHE_TYPE,
+                    source,
+                });
+            }
         };
 
         match cache_type.to_lowercase().as_str() {
             "memory" => {
-                let capacity = env::var(ENV_CACHE_MEMORY_CAPACITY)
-                    .unwrap_or_else(|_| "1000".to_string())
-                    .parse()
-                    .map_err(|e| CacheError::InvalidConfiguration(format!("Invalid memory capacity: {}", e)))?;
+                let capacity = capacity_from_env(ENV_CACHE_MEMORY_CAPACITY, "1000")?;
                 Ok(Some(CacheConfig::Memory { capacity }))
             }
             "disk" => {
-                let path = env::var(ENV_CACHE_DISK_PATH)
-                    .map_err(|_| CacheError::InvalidConfiguration(format!("{} must be set", ENV_CACHE_DISK_PATH)))?;
-                let capacity = env::var(ENV_CACHE_DISK_CAPACITY)
-                    .unwrap_or_else(|_| "10000".to_string())
-                    .parse()
-                    .map_err(|e| CacheError::InvalidConfiguration(format!("Invalid disk capacity: {}", e)))?;
+                let path = required_env(ENV_CACHE_DISK_PATH)?;
+                let capacity = capacity_from_env(ENV_CACHE_DISK_CAPACITY, "10000")?;
                 Ok(Some(CacheConfig::Disk { path, capacity }))
             }
             "hybrid" => {
-                let memory_capacity = env::var(ENV_CACHE_MEMORY_CAPACITY)
-                    .unwrap_or_else(|_| "1000".to_string())
-                    .parse()
-                    .map_err(|e| CacheError::InvalidConfiguration(format!("Invalid hybrid memory capacity: {}", e)))?;
-                let disk_path = env::var(ENV_CACHE_DISK_PATH)
-                    .map_err(|_| CacheError::InvalidConfiguration(format!("{} must be set", ENV_CACHE_DISK_PATH)))?;
-                let disk_capacity = env::var(ENV_CACHE_DISK_CAPACITY)
-                    .unwrap_or_else(|_| "10000".to_string())
-                    .parse()
-                    .map_err(|e| CacheError::InvalidConfiguration(format!("Invalid hybrid disk capacity: {}", e)))?;
+                let memory_capacity = capacity_from_env(ENV_CACHE_MEMORY_CAPACITY, "1000")?;
+                let disk_path = required_env(ENV_CACHE_DISK_PATH)?;
+                let disk_capacity = capacity_from_env(ENV_CACHE_DISK_CAPACITY, "10000")?;
                 Ok(Some(CacheConfig::Hybrid {
                     memory_capacity,
                     disk_path,
                     disk_capacity,
                 }))
             }
-            _ => Err(CacheError::InvalidConfiguration("Invalid CACHE_TYPE".to_string())),
+            _ => Err(CacheError::UnsupportedType { value: cache_type }),
         }
     }
+}
+
+fn required_env(name: &'static str) -> Result<String, CacheError> {
+    env::var(name).map_err(|source| CacheError::Environment { name, source })
+}
+
+fn capacity_from_env(name: &'static str, default: &str) -> Result<usize, CacheError> {
+    let value = match env::var(name) {
+        Ok(value) => value,
+        Err(VarError::NotPresent) => default.to_owned(),
+        Err(source) => return Err(CacheError::Environment { name, source }),
+    };
+
+    value
+        .parse()
+        .map_err(|source| CacheError::InvalidCapacity { name, value, source })
 }
 
 #[cfg(test)]

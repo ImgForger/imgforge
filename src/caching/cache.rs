@@ -205,7 +205,7 @@ where
         }
     }
 
-    async fn insert_value(&self, key: String, value: T) -> Result<(), CacheError> {
+    fn insert_value(&self, key: String, value: T) -> Result<(), CacheError> {
         match self {
             Self::None => Ok(()),
             Self::Memory(cache) => {
@@ -232,8 +232,8 @@ impl ImgforgeCache {
     }
 
     /// Insert a value into the cache.
-    pub async fn insert(&self, key: String, value: CachedImage) -> Result<(), CacheError> {
-        self.insert_value(key, value).await
+    pub fn insert(&self, key: String, value: CachedImage) -> Result<(), CacheError> {
+        self.insert_value(key, value)
     }
 }
 
@@ -250,8 +250,8 @@ impl MetadataCache {
     }
 
     /// Insert metadata into the cache.
-    pub async fn insert(&self, key: String, value: CachedMetadata) -> Result<(), CacheError> {
-        self.insert_value(key, value).await
+    pub fn insert(&self, key: String, value: CachedMetadata) -> Result<(), CacheError> {
+        self.insert_value(key, value)
     }
 }
 
@@ -304,7 +304,7 @@ where
     let device = FsDeviceBuilder::new(Path::new(path))
         .with_capacity(capacity)
         .build()
-        .map_err(|e| CacheError::Initialization(e.to_string()))?;
+        .map_err(|source| CacheError::DeviceInitialization { source })?;
     let block_size = block_size_for_capacity(capacity);
     info!(
         cache = cache_name,
@@ -323,7 +323,7 @@ where
         .with_recover_mode(RecoverMode::Quiet)
         .build()
         .await
-        .map_err(|e| CacheError::Initialization(e.to_string()))
+        .map_err(|source| CacheError::StorageInitialization { source })
 }
 
 fn record_cache_metric(hit: bool, cache_type: &str) {
@@ -386,7 +386,7 @@ mod tests {
             content_type: "image/jpeg",
         };
 
-        cache.insert(key.clone(), value.clone()).await.unwrap();
+        cache.insert(key.clone(), value.clone()).unwrap();
         let retrieved = cache.get(&key).await.unwrap();
         assert_eq!(retrieved.bytes, value.bytes);
         assert_eq!(retrieved.content_type, value.content_type);
@@ -403,7 +403,7 @@ mod tests {
             bytes: Bytes::from(vec![1, 2, 3]),
             content_type: "image/jpeg",
         };
-        cache.insert(key.clone(), value.clone()).await.unwrap();
+        cache.insert(key.clone(), value.clone()).unwrap();
         let retrieved = cache.get(&key).await.unwrap();
         assert_eq!(retrieved.bytes, value.bytes);
         assert_eq!(retrieved.content_type, value.content_type);

@@ -11,11 +11,12 @@ use imgforge::caching::config::CacheConfig;
 use imgforge::config::Config;
 use imgforge::handlers::image_forge_handler;
 use imgforge::middleware::request_id_middleware;
+use imgforge::MaxSourceFileSize;
 use lazy_static::lazy_static;
 use libvips::VipsApp;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{Mutex, Semaphore};
+use tokio::sync::{OnceCell, Semaphore};
 use tower::ServiceExt;
 use wiremock::{
     matchers::{method, path},
@@ -65,7 +66,7 @@ async fn create_test_state_with_cache(config: Config, cache: ImgforgeCache) -> A
         config,
         vips_app: VIPS_APP.clone(),
         http_client,
-        watermark_cache: Mutex::new(None),
+        watermark_cache: OnceCell::new(),
     })
 }
 
@@ -217,7 +218,7 @@ async fn test_security_options_not_allowed() {
 
     let mut config = create_test_config(vec![], vec![], true);
     config.allow_security_options = false;
-    config.max_src_file_size = Some(100_000);
+    config.max_src_file_size = Some(MaxSourceFileSize::new(100_000).unwrap());
     let cache = ImgforgeCache::None;
     let state = create_test_state_with_cache(config, cache).await;
 

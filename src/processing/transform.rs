@@ -1,13 +1,41 @@
 use crate::processing::options::{Adjust, Crop, Flip, Gravity, Resize};
 use crate::utils::read_exif_orientation;
 use libvips::{ops, VipsImage};
+use thiserror::Error;
 use tracing::debug;
 
 const SCALE_EPSILON: f64 = 1e-6;
 
+/// Errors produced while transforming an image.
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum TransformError {
+    #[error("{operation}: {source}")]
+    Vips {
+        operation: &'static str,
+        #[source]
+        source: libvips::error::Error,
+    },
+    #[error("{message}")]
+    InvalidArgument { operation: &'static str, message: String },
+}
+
+impl TransformError {
+    fn invalid(operation: &'static str, message: impl Into<String>) -> Self {
+        Self::InvalidArgument {
+            operation,
+            message: message.into(),
+        }
+    }
+}
+
+fn vips(operation: &'static str) -> impl FnOnce(libvips::error::Error) -> TransformError {
+    move |source| TransformError::Vips { operation, source }
+}
+
 /// Converts a resizing algorithm string to a libvips Kernel enum.
-fn get_resize_kernel(algorithm: &Option<String>) -> ops::Kernel {
-    match algorithm.as_deref().unwrap_or("lanczos3") {
+fn get_resize_kernel(algorithm: Option<&str>) -> ops::Kernel {
+    match algorithm.unwrap_or("lanczos3") {
         "nearest" => ops::Kernel::Nearest,
         "linear" => ops::Kernel::Linear,
         "cubic" => ops::Kernel::Cubic,
@@ -38,20 +66,20 @@ pub fn resize_with_algorithm(
     img: &VipsImage,
     hscale: f64,
     vscale: Option<f64>,
-    resizing_algorithm: &Option<String>,
-    error_context: &str,
-) -> Result<VipsImage, String> {
+    resizing_algorithm: Option<&str>,
+    error_context: &'static str,
+) -> Result<VipsImage, TransformError> {
     let options = ops::ResizeOptions {
         kernel: get_resize_kernel(resizing_algorithm),
         vscale: vscale.unwrap_or(hscale),
         ..Default::default()
     };
 
-    ops::resize_with_opts(img, hscale, &options).map_err(|e| format!("{error_context}: {}", e))
+    ops::resize_with_opts(img, hscale, &options).map_err(vips(error_context))
 }
 
 /// Applies EXIF rotation to an image based on orientation data.
-pub fn apply_exif_rotation(image_bytes: &[u8], mut img: VipsImage) -> Result<VipsImage, String> {
+pub fn apply_exif_rotation(image_bytes: &[u8], mut img: VipsImage) -> Result<VipsImage, TransformError> {
     if let Some(orientation) = read_exif_orientation(image_bytes) {
         debug!("Found EXIF orientation: {:?}", orientation);
         img = apply_exif_orientation(img, orientation)?;
@@ -59,39 +87,34 @@ pub fn apply_exif_rotation(image_bytes: &[u8], mut img: VipsImage) -> Result<Vip
     Ok(img)
 }
 
-pub(crate) fn apply_exif_orientation(mut img: VipsImage, orientation: u32) -> Result<VipsImage, String> {
+pub(crate) fn apply_exif_orientation(mut img: VipsImage, orientation: u32) -> Result<VipsImage, TransformError> {
     match orientation {
-        2 => {
-            img = ops::flip(&img, ops::Direction::Horizontal)
-                .map_err(|e| format!("Error flipping horizontally: {}", e))?
-        }
-        3 => img = ops::rot(&img, ops::Angle::D180).map_err(|e| format!("Error rotating 180: {}", e))?,
-        4 => {
-            img = ops::flip(&img, ops::Direction::Vertical).map_err(|e| format!("Error flipping vertically: {}", e))?
-        }
+        2 => img = ops::flip(&img, ops::Direction::Horizontal).map_err(vips("Error flipping horizontally"))?,
+        3 => img = ops::rot(&img, ops::Angle::D180).map_err(vips("Error rotating 180"))?,
+        4 => img = ops::flip(&img, ops::Direction::Vertical).map_err(vips("Error flipping vertically"))?,
         5 => {
             img = ops::flip(
-                &ops::rot(&img, ops::Angle::D90).map_err(|e| format!("Error rotating 90: {}", e))?,
+                &ops::rot(&img, ops::Angle::D90).map_err(vips("Error rotating 90"))?,
                 ops::Direction::Horizontal,
             )
-            .map_err(|e| format!("Error flipping after rotate: {}", e))?
+            .map_err(vips("Error flipping after rotate"))?
         }
-        6 => img = ops::rot(&img, ops::Angle::D90).map_err(|e| format!("Error rotating 90: {}", e))?,
+        6 => img = ops::rot(&img, ops::Angle::D90).map_err(vips("Error rotating 90"))?,
         7 => {
             img = ops::flip(
-                &ops::rot(&img, ops::Angle::D270).map_err(|e| format!("Error rotating 270: {}", e))?,
+                &ops::rot(&img, ops::Angle::D270).map_err(vips("Error rotating 270"))?,
                 ops::Direction::Horizontal,
             )
-            .map_err(|e| format!("Error flipping after rotate: {}", e))?
+            .map_err(vips("Error flipping after rotate"))?
         }
-        8 => img = ops::rot(&img, ops::Angle::D270).map_err(|e| format!("Error rotating 270: {}", e))?,
+        8 => img = ops::rot(&img, ops::Angle::D270).map_err(vips("Error rotating 270"))?,
         _ => {}
     }
     Ok(img)
 }
 
 /// Crops an image to the specified dimensions.
-pub fn crop_image(img: VipsImage, crop: Crop) -> Result<VipsImage, String> {
+pub fn crop_image(img: VipsImage, crop: Crop) -> Result<VipsImage, TransformError> {
     let src_width = img.get_width() as u32;
     let src_height = img.get_height() as u32;
     let width = if crop.width == 0 {
@@ -110,8 +133,7 @@ pub fn crop_image(img: VipsImage, crop: Crop) -> Result<VipsImage, String> {
         (crop.x, crop.y)
     };
 
-    ops::extract_area(&img, x as i32, y as i32, width as i32, height as i32)
-        .map_err(|e| format!("Error cropping image: {}", e))
+    ops::extract_area(&img, x as i32, y as i32, width as i32, height as i32).map_err(vips("Error cropping image"))
 }
 
 fn crop_origin_for_gravity(src_width: u32, src_height: u32, width: u32, height: u32, gravity: Gravity) -> (u32, u32) {
@@ -134,12 +156,19 @@ fn crop_origin_for_gravity(src_width: u32, src_height: u32, width: u32, height: 
 }
 
 /// Resolves target resize dimensions, filling in zero values according to imgproxy rules.
-pub fn resolve_resize_dimensions(resize: &Resize, src_width: u32, src_height: u32) -> Result<(u32, u32), String> {
+pub fn resolve_resize_dimensions(
+    resize: &Resize,
+    src_width: u32,
+    src_height: u32,
+) -> Result<(u32, u32), TransformError> {
     let mut width = resize.width;
     let mut height = resize.height;
 
     if width == 0 && height == 0 {
-        return Err("resize requires at least one non-zero dimension".to_string());
+        return Err(TransformError::invalid(
+            "resize",
+            "resize requires at least one non-zero dimension",
+        ));
     }
 
     let aspect = src_width as f64 / src_height as f64;
@@ -161,7 +190,7 @@ pub fn resolve_resize_dimensions(resize: &Resize, src_width: u32, src_height: u3
     }
 
     if width == 0 || height == 0 {
-        return Err("resize resolved to zero dimension".to_string());
+        return Err(TransformError::invalid("resize", "resize resolved to zero dimension"));
     }
 
     Ok((width, height))
@@ -172,8 +201,8 @@ pub fn apply_resize(
     img: VipsImage,
     resize: &Resize,
     gravity: &Option<Gravity>,
-    resizing_algorithm: &Option<String>,
-) -> Result<VipsImage, String> {
+    resizing_algorithm: Option<&str>,
+) -> Result<VipsImage, TransformError> {
     let src_width = img.get_width() as u32;
     let src_height = img.get_height() as u32;
     let (target_w, target_h) = resolve_resize_dimensions(resize, src_width, src_height)?;
@@ -206,7 +235,10 @@ pub fn apply_resize(
                 resize_to_fit(img, target_w, target_h, resizing_algorithm)
             }
         }
-        _ => Err(format!("Unknown resize type: {}", resize.resizing_type)),
+        _ => Err(TransformError::invalid(
+            "resize",
+            format!("Unknown resize type: {}", resize.resizing_type),
+        )),
     }
 }
 
@@ -216,8 +248,8 @@ fn resize_to_fill(
     width: u32,
     height: u32,
     gravity: Gravity,
-    resizing_algorithm: &Option<String>,
-) -> Result<VipsImage, String> {
+    resizing_algorithm: Option<&str>,
+) -> Result<VipsImage, TransformError> {
     let (img_w, img_h) = (img.get_width() as u32, img.get_height() as u32);
     let aspect_ratio = img_w as f32 / img_h as f32;
     let target_aspect_ratio = width as f32 / height as f32;
@@ -236,9 +268,12 @@ fn resize_to_fill(
     let resized_h = resized_img.get_height() as u32;
 
     if resized_w < width || resized_h < height {
-        return Err(format!(
-            "Resized image {}x{} is smaller than fill target {}x{}",
-            resized_w, resized_h, width, height
+        return Err(TransformError::invalid(
+            "resize",
+            format!(
+                "Resized image {}x{} is smaller than fill target {}x{}",
+                resized_w, resized_h, width, height
+            ),
         ));
     }
 
@@ -258,7 +293,7 @@ fn resize_to_fill(
     };
 
     ops::extract_area(&resized_img, crop_x as i32, crop_y as i32, width as i32, height as i32)
-        .map_err(|e| format!("Error cropping after fill resize: {}", e))
+        .map_err(vips("Error cropping after fill resize"))
 }
 
 /// Resizes an image to the exact target dimensions, allowing aspect ratio changes.
@@ -266,8 +301,8 @@ fn resize_to_force(
     img: VipsImage,
     width: u32,
     height: u32,
-    resizing_algorithm: &Option<String>,
-) -> Result<VipsImage, String> {
+    resizing_algorithm: Option<&str>,
+) -> Result<VipsImage, TransformError> {
     let (src_w, src_h) = (img.get_width() as f64, img.get_height() as f64);
     let scale_x = width as f64 / src_w;
     let scale_y = height as f64 / src_h;
@@ -283,8 +318,8 @@ fn resize_to_fit(
     img: VipsImage,
     width: u32,
     height: u32,
-    resizing_algorithm: &Option<String>,
-) -> Result<VipsImage, String> {
+    resizing_algorithm: Option<&str>,
+) -> Result<VipsImage, TransformError> {
     let (img_w, img_h) = (img.get_width() as u32, img.get_height() as u32);
     let aspect_ratio = img_w as f32 / img_h as f32;
 
@@ -311,14 +346,17 @@ pub fn extend_image(
     height: u32,
     gravity: &Option<Gravity>,
     background: &Option<[u8; 4]>,
-) -> Result<VipsImage, String> {
+) -> Result<VipsImage, TransformError> {
     let bg_color = background.unwrap_or([0, 0, 0, 0]);
     let src_w = img.get_width() as u32;
     let src_h = img.get_height() as u32;
     if width < src_w || height < src_h {
-        return Err(format!(
-            "extend target {}x{} must be at least source {}x{}",
-            width, height, src_w, src_h
+        return Err(TransformError::invalid(
+            "extend",
+            format!(
+                "extend target {}x{} must be at least source {}x{}",
+                width, height, src_w, src_h
+            ),
         ));
     }
 
@@ -341,7 +379,7 @@ pub fn extend_image(
         background: bg_color_for_bands(bg_color, img.get_bands()),
     };
     ops::embed_with_opts(&img, x as i32, y as i32, width as i32, height as i32, &options)
-        .map_err(|e| format!("Error extending image: {}", e))
+        .map_err(vips("Error extending image"))
 }
 
 /// Applies padding to an image.
@@ -352,7 +390,7 @@ pub fn apply_padding(
     bottom: u32,
     left: u32,
     background: &Option<[u8; 4]>,
-) -> Result<VipsImage, String> {
+) -> Result<VipsImage, TransformError> {
     let bg_color = background.unwrap_or([0, 0, 0, 0]);
     let options = ops::EmbedOptions {
         extend: ops::Extend::Background,
@@ -367,41 +405,47 @@ pub fn apply_padding(
         img.get_height() + top as i32 + bottom as i32,
         &options,
     )
-    .map_err(|e| format!("Error applying padding: {}", e))
+    .map_err(vips("Error applying padding"))
 }
 
 /// Applies rotation to an image.
-pub fn apply_rotation(img: VipsImage, rotation: u16) -> Result<VipsImage, String> {
+pub fn apply_rotation(img: VipsImage, rotation: u16) -> Result<VipsImage, TransformError> {
     match rotation {
         0 => Ok(img),
-        90 => ops::rot(&img, ops::Angle::D90).map_err(|e| format!("Error rotating 90: {}", e)),
-        180 => ops::rot(&img, ops::Angle::D180).map_err(|e| format!("Error rotating 180: {}", e)),
-        270 => ops::rot(&img, ops::Angle::D270).map_err(|e| format!("Error rotating 270: {}", e)),
-        _ => Err(format!("Unsupported rotation angle: {}", rotation)),
+        90 => ops::rot(&img, ops::Angle::D90).map_err(vips("Error rotating 90")),
+        180 => ops::rot(&img, ops::Angle::D180).map_err(vips("Error rotating 180")),
+        270 => ops::rot(&img, ops::Angle::D270).map_err(vips("Error rotating 270")),
+        _ => Err(TransformError::invalid(
+            "rotation",
+            format!("Unsupported rotation angle: {rotation}"),
+        )),
     }
 }
 
 /// Applies horizontal and/or vertical flips to an image.
-pub fn apply_flip(mut img: VipsImage, flip: Flip) -> Result<VipsImage, String> {
+pub fn apply_flip(mut img: VipsImage, flip: Flip) -> Result<VipsImage, TransformError> {
     if flip.horizontal {
-        img = ops::flip(&img, ops::Direction::Horizontal).map_err(|e| format!("Error flipping horizontally: {}", e))?;
+        img = ops::flip(&img, ops::Direction::Horizontal).map_err(vips("Error flipping horizontally"))?;
     }
     if flip.vertical {
-        img = ops::flip(&img, ops::Direction::Vertical).map_err(|e| format!("Error flipping vertically: {}", e))?;
+        img = ops::flip(&img, ops::Direction::Vertical).map_err(vips("Error flipping vertically"))?;
     }
     Ok(img)
 }
 
 /// Applies blur to an image.
-pub fn apply_blur(img: VipsImage, sigma: f32) -> Result<VipsImage, String> {
+pub fn apply_blur(img: VipsImage, sigma: f32) -> Result<VipsImage, TransformError> {
     if !sigma.is_finite() || sigma <= 0.0 {
-        return Err("blur sigma must be a finite positive number".to_string());
+        return Err(TransformError::invalid(
+            "blur",
+            "blur sigma must be a finite positive number",
+        ));
     }
-    ops::gaussblur(&img, sigma as f64).map_err(|e| format!("Error applying blur: {}", e))
+    ops::gaussblur(&img, sigma as f64).map_err(vips("Error applying blur"))
 }
 
 /// Applies brightness, contrast, and saturation adjustments.
-pub fn apply_adjust(img: VipsImage, adjust: Adjust) -> Result<VipsImage, String> {
+pub fn apply_adjust(img: VipsImage, adjust: Adjust) -> Result<VipsImage, TransformError> {
     let mut current = img;
 
     // The generated libvips bindings in this crate do not expose `linear`, so
@@ -416,9 +460,12 @@ pub fn apply_adjust(img: VipsImage, adjust: Adjust) -> Result<VipsImage, String>
     Ok(current)
 }
 
-fn apply_saturation(img: VipsImage, saturation: f32) -> Result<VipsImage, String> {
+fn apply_saturation(img: VipsImage, saturation: f32) -> Result<VipsImage, TransformError> {
     if !saturation.is_finite() || saturation <= 0.0 {
-        return Err("saturation must be a finite positive number".to_string());
+        return Err(TransformError::invalid(
+            "saturation",
+            "saturation must be a finite positive number",
+        ));
     }
 
     let bands = img.get_bands();
@@ -472,12 +519,12 @@ fn apply_saturation(img: VipsImage, saturation: f32) -> Result<VipsImage, String
     };
 
     let matrix = VipsImage::image_new_matrix_from_array(width, width, &matrix)
-        .map_err(|e| format!("Error creating saturation matrix: {}", e))?;
-    ops::recomb(&img, &matrix).map_err(|e| format!("Error applying saturation: {}", e))
+        .map_err(vips("Error creating saturation matrix"))?;
+    ops::recomb(&img, &matrix).map_err(vips("Error applying saturation"))
 }
 
 /// Applies background color to an image (useful for JPEG output).
-pub fn apply_background_color(img: VipsImage, _bg_color: [u8; 4]) -> Result<VipsImage, String> {
+pub fn apply_background_color(img: VipsImage, _bg_color: [u8; 4]) -> Result<VipsImage, TransformError> {
     // Only flatten if the image has an alpha channel (bands == 4 for RGBA or bands == 2 for grayscale+alpha)
     let bands = img.get_bands();
     if bands != 4 && bands != 2 {
@@ -492,7 +539,7 @@ pub fn apply_background_color(img: VipsImage, _bg_color: [u8; 4]) -> Result<Vips
         background: bg,
         ..Default::default()
     };
-    ops::flatten_with_opts(&img, &opts).map_err(|e| format!("Error applying background color: {}", e))
+    ops::flatten_with_opts(&img, &opts).map_err(vips("Error applying background color"))
 }
 
 /// Applies min-width and min-height constraints to an image.
@@ -500,8 +547,8 @@ pub fn apply_min_dimensions(
     img: VipsImage,
     min_width: Option<u32>,
     min_height: Option<u32>,
-    resizing_algorithm: &Option<String>,
-) -> Result<VipsImage, String> {
+    resizing_algorithm: Option<&str>,
+) -> Result<VipsImage, TransformError> {
     let mut current_img = img;
     let (img_w, img_h) = (current_img.get_width() as u32, current_img.get_height() as u32);
 
@@ -534,47 +581,53 @@ pub fn apply_min_dimensions(
 }
 
 /// Applies zoom to an image.
-pub fn apply_zoom(img: VipsImage, zoom: f32, resizing_algorithm: &Option<String>) -> Result<VipsImage, String> {
+pub fn apply_zoom(img: VipsImage, zoom: f32, resizing_algorithm: Option<&str>) -> Result<VipsImage, TransformError> {
     if !zoom.is_finite() || zoom <= 0.0 {
-        return Err("zoom must be a finite positive number".to_string());
+        return Err(TransformError::invalid("zoom", "zoom must be a finite positive number"));
     }
     resize_with_algorithm(&img, zoom as f64, None, resizing_algorithm, "Error applying zoom")
 }
 
 /// Sharpens an image.
-pub fn apply_sharpen(img: VipsImage, sigma: f32) -> Result<VipsImage, String> {
+pub fn apply_sharpen(img: VipsImage, sigma: f32) -> Result<VipsImage, TransformError> {
     if !sigma.is_finite() || sigma <= 0.0 {
-        return Err("sharpen sigma must be a finite positive number".to_string());
+        return Err(TransformError::invalid(
+            "sharpen",
+            "sharpen sigma must be a finite positive number",
+        ));
     }
     let clamped_sigma = sigma.clamp(0.1, 10.0);
     let opts = ops::SharpenOptions {
         sigma: clamped_sigma as f64,
         ..Default::default()
     };
-    ops::sharpen_with_opts(&img, &opts).map_err(|e| format!("Error applying sharpen: {}", e))
+    ops::sharpen_with_opts(&img, &opts).map_err(vips("Error applying sharpen"))
 }
 
 /// Pixelates an image.
-pub fn apply_pixelate(img: VipsImage, amount: u32, _resizing_algorithm: &Option<String>) -> Result<VipsImage, String> {
+pub fn apply_pixelate(
+    img: VipsImage,
+    amount: u32,
+    _resizing_algorithm: Option<&str>,
+) -> Result<VipsImage, TransformError> {
     if amount == 0 {
         return Ok(img);
     }
     let (w, h) = (img.get_width() as u32, img.get_height() as u32);
     let target_w = (w / amount).max(1);
     let target_h = (h / amount).max(1);
-    let nearest = Some("nearest".to_string());
     let pixelated = resize_with_algorithm(
         &img,
         target_w as f64 / w as f64,
         Some(target_h as f64 / h as f64),
-        &nearest,
+        Some("nearest"),
         "Error pixelating (down)",
     )?;
     resize_with_algorithm(
         &pixelated,
         w as f64 / pixelated.get_width() as f64,
         Some(h as f64 / pixelated.get_height() as f64),
-        &nearest,
+        Some("nearest"),
         "Error pixelating (up)",
     )
 }

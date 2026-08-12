@@ -1,7 +1,26 @@
 use crate::processing::options::Watermark;
-use crate::processing::transform::resize_with_algorithm;
+use crate::processing::transform::{resize_with_algorithm, TransformError};
 use bytes::Bytes;
 use libvips::{ops, VipsImage};
+use thiserror::Error;
+
+/// Errors produced while loading, preparing, or applying a watermark.
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum WatermarkError {
+    #[error(transparent)]
+    Transform(#[from] TransformError),
+    #[error("{operation}: {source}")]
+    Vips {
+        operation: &'static str,
+        #[source]
+        source: libvips::error::Error,
+    },
+}
+
+fn vips(operation: &'static str) -> impl FnOnce(libvips::error::Error) -> WatermarkError {
+    move |source| WatermarkError::Vips { operation, source }
+}
 
 #[derive(Clone)]
 pub struct PreparedWatermark {
@@ -16,9 +35,9 @@ pub struct PreparedWatermark {
 }
 
 impl PreparedWatermark {
-    fn to_image(&self) -> Result<VipsImage, String> {
+    fn to_image(&self) -> Result<VipsImage, WatermarkError> {
         let raw = VipsImage::new_from_memory(&self.bytes, self.width, self.height, self.bands, self.format)
-            .map_err(|e| format!("Failed to load watermark from prepared bytes: {}", e))?;
+            .map_err(vips("Failed to load watermark from prepared bytes"))?;
 
         // new_from_memory yields a header-less raw image (interpretation
         // MULTIBAND), which vips_composite2 refuses to blend with an sRGB
@@ -39,7 +58,7 @@ impl PreparedWatermark {
                 yoffset: 0,
             },
         )
-        .map_err(|e| format!("Failed to restore watermark image header: {}", e))
+        .map_err(vips("Failed to restore watermark image header"))
     }
 }
 
@@ -65,13 +84,13 @@ impl CachedWatermark {
     }
 }
 
-pub fn load_watermark_image(watermark_bytes: &[u8]) -> Result<VipsImage, String> {
-    let watermark_img = VipsImage::new_from_buffer(watermark_bytes, "")
-        .map_err(|e| format!("Failed to load watermark image from buffer: {}", e))?;
+pub fn load_watermark_image(watermark_bytes: &[u8]) -> Result<VipsImage, WatermarkError> {
+    let watermark_img =
+        VipsImage::new_from_buffer(watermark_bytes, "").map_err(vips("Failed to load watermark image from buffer"))?;
     ensure_alpha_channel(watermark_img)
 }
 
-pub fn prepare_cached_watermark(bytes: Bytes) -> Result<CachedWatermark, String> {
+pub fn prepare_cached_watermark(bytes: Bytes) -> Result<CachedWatermark, WatermarkError> {
     let watermark_img = load_watermark_image(bytes.as_ref())?;
     let prepared_rgba = build_prepared_watermark_image(watermark_img)?;
     Ok(CachedWatermark::from_prepared(bytes, prepared_rgba))
@@ -82,8 +101,8 @@ pub fn apply_watermark(
     img: VipsImage,
     watermark: &CachedWatermark,
     watermark_opts: &Watermark,
-    resizing_algorithm: &Option<String>,
-) -> Result<VipsImage, String> {
+    resizing_algorithm: Option<&str>,
+) -> Result<VipsImage, WatermarkError> {
     let watermark_img = resolve_watermark_image(watermark)?;
 
     // Resize watermark to be 1/4 of the main image's width, maintaining aspect ratio
@@ -103,7 +122,7 @@ pub fn apply_watermark(
     let multipliers = &mut [1.0, 1.0, 1.0, watermark_opts.opacity as f64];
     let adders = &mut [0.0, 0.0, 0.0, 0.0];
     let watermark_with_opacity = ops::linear(&watermark_with_alpha, multipliers, adders)
-        .map_err(|e| format!("Failed to apply opacity to watermark: {}", e))?;
+        .map_err(vips("Failed to apply opacity to watermark"))?;
 
     // Calculate position
     let (x, y) = calculate_watermark_position(&img, &watermark_with_opacity, &watermark_opts.position);
@@ -123,13 +142,12 @@ pub fn apply_watermark(
         img.get_height(),
         &options,
     )
-    .map_err(|e| format!("Failed to embed watermark on canvas: {}", e))?;
+    .map_err(vips("Failed to embed watermark on canvas"))?;
 
-    ops::composite_2(&img, &watermark_on_canvas, ops::BlendMode::Over)
-        .map_err(|e| format!("Failed to composite watermark: {}", e))
+    ops::composite_2(&img, &watermark_on_canvas, ops::BlendMode::Over).map_err(vips("Failed to composite watermark"))
 }
 
-fn resolve_watermark_image(watermark: &CachedWatermark) -> Result<VipsImage, String> {
+fn resolve_watermark_image(watermark: &CachedWatermark) -> Result<VipsImage, WatermarkError> {
     if let Some(prepared_rgba) = &watermark.prepared_rgba {
         return prepared_rgba.to_image();
     }
@@ -137,21 +155,21 @@ fn resolve_watermark_image(watermark: &CachedWatermark) -> Result<VipsImage, Str
     load_watermark_image(watermark.bytes.as_ref())
 }
 
-fn ensure_alpha_channel(watermark_img: VipsImage) -> Result<VipsImage, String> {
+fn ensure_alpha_channel(watermark_img: VipsImage) -> Result<VipsImage, WatermarkError> {
     if watermark_img.get_bands() == 4 || watermark_img.get_bands() == 2 {
         return Ok(watermark_img);
     }
 
-    ops::bandjoin_const(&watermark_img, &mut [255.0]).map_err(|e| format!("Failed to add alpha to watermark: {}", e))
+    ops::bandjoin_const(&watermark_img, &mut [255.0]).map_err(vips("Failed to add alpha to watermark"))
 }
 
-fn build_prepared_watermark_image(watermark_img: VipsImage) -> Result<PreparedWatermark, String> {
+fn build_prepared_watermark_image(watermark_img: VipsImage) -> Result<PreparedWatermark, WatermarkError> {
     let format = watermark_img
         .get_format()
-        .map_err(|e| format!("Failed to determine watermark format: {}", e))?;
+        .map_err(vips("Failed to determine watermark format"))?;
     let interpretation = watermark_img
         .get_interpretation()
-        .map_err(|e| format!("Failed to determine watermark interpretation: {}", e))?;
+        .map_err(vips("Failed to determine watermark interpretation"))?;
     let prepared = PreparedWatermark {
         bytes: Bytes::from(watermark_img.image_write_to_memory()),
         width: watermark_img.get_width(),

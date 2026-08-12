@@ -135,7 +135,7 @@ With a validated plan, imgforge executes the transformation chain:
 
 For a deeper dive into the sequencing, defaults, and error surfaces inside this phase, see [Image Processing Pipeline](12_image_processing_pipeline.md).
 
-Processing duration is recorded in the `image_processing_duration_seconds` histogram and increments `processed_images_total`.
+Processing duration is recorded in `image_processing_duration_seconds` and increments `processed_images_total`. The worker-permit wait, Tokio blocking-pool queue wait, and complete blocking execution are recorded separately in the `image_operation_*_duration_seconds` histograms.
 
 ## 7. Response & caching
 

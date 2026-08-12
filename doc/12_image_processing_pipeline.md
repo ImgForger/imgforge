@@ -92,6 +92,8 @@ This document zooms in on the transformation phase that runs after imgforge vali
 ## Observability
 
 - `image_processing_duration_seconds` measures time spent inside this pipeline.
+- `image_operation_semaphore_wait_duration_seconds` and `image_operation_blocking_queue_duration_seconds` distinguish imgforge worker saturation from Tokio blocking-pool saturation.
+- `image_operation_execution_duration_seconds` includes source decoding and validation around this pipeline.
 - `processed_images_total{format="..."}` tracks throughput per output format.
 - Logging includes a request ID. Combine it with the detailed stages in [Request Lifecycle](6_request_lifecycle.md) when debugging complex transformations.
 

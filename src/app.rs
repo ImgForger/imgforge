@@ -1,7 +1,7 @@
 use crate::caching::cache::{ImgforgeCache as Cache, MetadataCache};
 use crate::caching::config::CacheConfig;
 use crate::caching::error::CacheError;
-use crate::config::Config;
+use crate::config::{Config, ConfigError};
 use crate::monitoring;
 use crate::processing::watermark::CachedWatermark;
 use governor::clock::DefaultClock;
@@ -12,7 +12,7 @@ use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::time::Duration;
 use thiserror::Error;
-use tokio::sync::{Mutex, Semaphore};
+use tokio::sync::{OnceCell, Semaphore};
 use tracing::{info, warn};
 
 pub type RequestRateLimiter = RateLimiter<NotKeyed, InMemoryState, DefaultClock>;
@@ -26,7 +26,7 @@ pub struct AppState {
     pub config: Config,
     pub vips_app: Arc<VipsApp>,
     pub http_client: reqwest::Client,
-    pub watermark_cache: Mutex<Option<CachedWatermark>>,
+    pub watermark_cache: OnceCell<CachedWatermark>,
 }
 
 #[derive(Clone)]
@@ -37,9 +37,9 @@ pub struct Imgforge {
 #[derive(Debug, Error)]
 pub enum InitError {
     #[error("configuration error: {0}")]
-    Configuration(String),
-    #[error("failed to initialize libvips: {0}")]
-    Libvips(String),
+    Configuration(#[from] ConfigError),
+    #[error("failed to initialize libvips")]
+    Libvips(#[source] libvips::error::Error),
     #[error("failed to build HTTP client: {0}")]
     HttpClient(#[from] reqwest::Error),
     #[error("failed to initialize cache: {0}")]
@@ -49,7 +49,11 @@ pub enum InitError {
 impl Imgforge {
     /// Create a new imgforge instance from an explicit configuration.
     pub async fn new(config: Config, cache_config: Option<CacheConfig>) -> Result<Self, InitError> {
+        validate_worker_count(config.workers)?;
+
         monitoring::register_metrics();
+        monitoring::set_image_operation_concurrency_limit(config.workers);
+        warn_if_worker_count_is_high(config.workers);
 
         let semaphore = Arc::new(Semaphore::new(config.workers));
         let cache = Cache::new(cache_config.clone()).await?;
@@ -57,7 +61,7 @@ impl Imgforge {
         let vips_app = Arc::new(init_vips()?);
         let http_client = build_http_client(config.download_timeout)?;
         let rate_limiter = build_rate_limiter(config.rate_limit_per_minute);
-        let watermark_cache = Mutex::new(None);
+        let watermark_cache = OnceCell::new();
 
         let state = Arc::new(AppState {
             semaphore,
@@ -75,7 +79,7 @@ impl Imgforge {
 
     /// Construct imgforge using environment-derived configuration.
     pub async fn from_env() -> Result<Self, InitError> {
-        let config = Config::from_env().map_err(InitError::Configuration)?;
+        let config = Config::from_env()?;
         let cache_config = CacheConfig::from_env().map_err(InitError::Cache)?;
         Self::new(config, cache_config).await
     }
@@ -124,8 +128,34 @@ impl Imgforge {
     }
 }
 
+fn warn_if_worker_count_is_high(workers: usize) {
+    let cpu_count = num_cpus::get().max(1);
+    let automatic_workers = cpu_count.saturating_mul(2);
+    if workers > automatic_workers {
+        warn!(
+            workers,
+            cpu_count,
+            automatic_workers,
+            "Configured image-processing concurrency is high relative to CPU count; verify memory headroom under representative load"
+        );
+    }
+}
+
+fn validate_worker_count(workers: usize) -> Result<(), ConfigError> {
+    if workers == 0 {
+        return Err(ConfigError::ZeroWorkers);
+    }
+    if workers > Semaphore::MAX_PERMITS {
+        return Err(ConfigError::WorkerCountTooLarge {
+            value: workers,
+            max: Semaphore::MAX_PERMITS,
+        });
+    }
+    Ok(())
+}
+
 fn init_vips() -> Result<VipsApp, InitError> {
-    VipsApp::new("imgforge", false).map_err(|err| InitError::Libvips(err.to_string()))
+    VipsApp::new("imgforge", false).map_err(InitError::Libvips)
 }
 
 fn build_http_client(timeout_secs: u64) -> Result<reqwest::Client, reqwest::Error> {
@@ -152,5 +182,25 @@ fn build_rate_limiter(limit_per_minute: Option<u32>) -> Option<RequestRateLimite
             info!("Rate limiting disabled: not configured");
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn worker_count_must_be_positive() {
+        assert!(matches!(validate_worker_count(0), Err(ConfigError::ZeroWorkers)));
+        assert!(validate_worker_count(1).is_ok());
+    }
+
+    #[test]
+    fn worker_count_must_fit_tokio_semaphore() {
+        assert!(validate_worker_count(Semaphore::MAX_PERMITS).is_ok());
+        assert!(matches!(
+            validate_worker_count(Semaphore::MAX_PERMITS.saturating_add(1)),
+            Err(ConfigError::WorkerCountTooLarge { .. })
+        ));
     }
 }

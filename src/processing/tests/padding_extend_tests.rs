@@ -1,5 +1,5 @@
 use crate::processing::options::Gravity;
-use crate::processing::transform;
+use crate::processing::transform::{self, TransformError};
 use libvips::VipsImage;
 
 use super::tests_support::*;
@@ -77,11 +77,13 @@ fn test_extend_image_returns_error_when_target_smaller_than_source() {
     init_vips();
     let img = VipsImage::new_from_buffer(&create_test_image(100, 80), "").unwrap();
     let result = transform::extend_image(img, 90, 120, &Some(Gravity::Center), &Some([0, 0, 0, 0]));
-    assert!(result.is_err());
-    assert!(
-        result.unwrap_err().contains("must be at least source"),
-        "unexpected error message for extend guard"
-    );
+    assert!(matches!(
+        result,
+        Err(TransformError::InvalidArgument {
+            operation: "extend",
+            ref message,
+        }) if message.contains("must be at least source")
+    ));
 }
 
 #[test]

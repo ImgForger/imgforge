@@ -1,9 +1,21 @@
 use crate::monitoring::{increment_source_images_fetched, observe_source_image_fetch_duration};
 use bytes::{Bytes, BytesMut};
 use reqwest::header;
-use tracing::error;
+use thiserror::Error;
 
 const DEFAULT_INITIAL_BUFFER_CAPACITY: usize = 64 * 1024;
+
+/// Errors that can occur while fetching a source image.
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum FetchError {
+    #[error("failed to fetch source image")]
+    Request(#[source] reqwest::Error),
+    #[error("failed to read source image response body")]
+    ResponseBody(#[source] reqwest::Error),
+    #[error("source image exceeds the maximum allowed size of {limit} bytes")]
+    SourceTooLarge { limit: usize, actual: Option<u64> },
+}
 
 fn record_fetch_metrics(fetch_start: std::time::Instant, status: &str) {
     // Record full fetch time, including streaming the response body, not just time-to-headers.
@@ -26,17 +38,13 @@ pub async fn fetch_image(
     client: &reqwest::Client,
     url: &str,
     max_bytes: Option<usize>,
-) -> Result<(Bytes, Option<String>), String> {
+) -> Result<(Bytes, Option<String>), FetchError> {
     let fetch_start = std::time::Instant::now();
 
-    let mut response = match client.get(url).send().await {
-        Ok(res) => res,
-        Err(e) => {
-            record_fetch_metrics(fetch_start, "error");
-            error!("Error fetching image: {}", e);
-            return Err(format!("Error fetching image: {}", e));
-        }
-    };
+    let mut response = client.get(url).send().await.map_err(|source| {
+        record_fetch_metrics(fetch_start, "error");
+        FetchError::Request(source)
+    })?;
     let fetch_status = if response.status().is_success() {
         "success"
     } else {
@@ -53,14 +61,10 @@ pub async fn fetch_image(
     if let (Some(limit), Some(len)) = (max_bytes, advertised_length) {
         if len > limit {
             record_fetch_metrics(fetch_start, "error");
-            error!(
-                "Source image content-length exceeds configured max size limit ({} bytes) for url={}",
-                limit, url
-            );
-            return Err(format!(
-                "Source image exceeds the maximum allowed size of {} bytes",
-                limit
-            ));
+            return Err(FetchError::SourceTooLarge {
+                limit,
+                actual: Some(len as u64),
+            });
         }
     }
 
@@ -70,16 +74,13 @@ pub async fn fetch_image(
         match response.chunk().await {
             Ok(Some(chunk)) => {
                 if let Some(limit) = max_bytes {
-                    if image_bytes.len() + chunk.len() > limit {
+                    let fetched_size = image_bytes.len().checked_add(chunk.len());
+                    if fetched_size.is_none_or(|size| size > limit) {
                         record_fetch_metrics(fetch_start, "error");
-                        error!(
-                            "Fetched image exceeds configured max size limit ({} bytes) for url={}",
-                            limit, url
-                        );
-                        return Err(format!(
-                            "Source image exceeds the maximum allowed size of {} bytes",
-                            limit
-                        ));
+                        return Err(FetchError::SourceTooLarge {
+                            limit,
+                            actual: fetched_size.map(|size| size as u64),
+                        });
                     }
                 }
 
@@ -88,8 +89,7 @@ pub async fn fetch_image(
             Ok(None) => break,
             Err(e) => {
                 record_fetch_metrics(fetch_start, "error");
-                error!("Error reading image bytes: {}", e);
-                return Err(format!("Error reading image bytes: {}", e));
+                return Err(FetchError::ResponseBody(e));
             }
         }
     }
@@ -116,16 +116,14 @@ mod tests {
     async fn test_fetch_image_invalid_url() {
         let client = client_with_timeout(Duration::from_secs(5));
         let result = fetch_image(&client, "not_a_valid_url", None).await;
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Error fetching image"));
+        assert!(matches!(result, Err(FetchError::Request(_))));
     }
 
     #[tokio::test]
     async fn test_fetch_image_nonexistent_domain() {
         let client = client_with_timeout(Duration::from_secs(5));
         let result = fetch_image(&client, "http://this-domain-does-not-exist-12345.com/image.jpg", None).await;
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Error fetching image"));
+        assert!(matches!(result, Err(FetchError::Request(_))));
     }
 
     #[tokio::test]
@@ -220,8 +218,13 @@ mod tests {
         let client = client_with_timeout(Duration::from_secs(5));
         let result = fetch_image(&client, &format!("{}/large.jpg", server.uri()), Some(3)).await;
 
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("maximum allowed size"));
+        assert!(matches!(
+            result,
+            Err(FetchError::SourceTooLarge {
+                limit: 3,
+                actual: Some(5)
+            })
+        ));
     }
 
     #[tokio::test]
@@ -240,8 +243,13 @@ mod tests {
         let client = client_with_timeout(Duration::from_secs(5));
         let result = fetch_image(&client, &format!("{}/advertised-large.jpg", server.uri()), Some(3)).await;
 
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("maximum allowed size"));
+        assert!(matches!(
+            result,
+            Err(FetchError::SourceTooLarge {
+                limit: 3,
+                actual: Some(10)
+            })
+        ));
     }
 
     #[test]

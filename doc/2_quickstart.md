@@ -72,7 +72,7 @@ Open `portrait.webp` in your image viewer to confirm the result. After this, che
 ## Inspecting available endpoints
 
 | Endpoint          | Description                                                                                                             |
-|-------------------|-------------------------------------------------------------------------------------------------------------------------|
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | `GET /status`     | Returns `{ "status": "ok" }` and an `X-Request-ID` header. Integrate this into liveness/readiness probes.               |
 | `GET /info/{...}` | Validates the URL signature, downloads the source image, and responds with JSON metadata (`width`, `height`, `format`). |
 | `GET /{...}`      | Full processing endpoint. The path encodes processing options and the source URL.                                       |

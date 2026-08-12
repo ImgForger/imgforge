@@ -49,7 +49,7 @@ Processing Options Chain:
 ```
 
 | Segment                | Description                                                                                                                                 |
-|------------------------|---------------------------------------------------------------------------------------------------------------------------------------------|
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
 | `<signature>`          | Base64 URL-safe, unpadded HMAC-SHA256 digest generated from the path. Use `unsafe` when unsigned URLs are permitted.                        |
 | `<processing_options>` | Slash-separated list of directives (e.g., `resize:fill:800:600/quality:85`). See [Processing Options](5_processing_options.md).             |
 | `plain/...`            | Indicates the source URL is provided in plain text (percent-encoded if needed) and may include `@<extension>` to declare the output format. |

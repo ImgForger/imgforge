@@ -1,3 +1,19 @@
+use thiserror::Error;
+
+/// Errors produced while parsing an RGB hexadecimal color.
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum ColorParseError {
+    #[error("hex color must contain exactly six digits")]
+    InvalidLength,
+    #[error("invalid {channel} channel in hex color")]
+    InvalidChannel {
+        channel: &'static str,
+        #[source]
+        source: std::num::ParseIntError,
+    },
+}
+
 /// Parses a hexadecimal color string into an RGBA array.
 ///
 /// # Arguments
@@ -6,15 +22,22 @@
 ///
 /// # Returns
 ///
-/// A `Result` containing the RGBA array on success, or an error message as a `String`.
-pub fn parse_hex_color(hex: &str) -> Result<[u8; 4], String> {
+/// A `Result` containing the RGBA array on success, or a typed color parsing error.
+pub fn parse_hex_color(hex: &str) -> Result<[u8; 4], ColorParseError> {
     let hex = hex.trim_start_matches('#');
     if hex.len() != 6 {
-        return Err("Invalid hex color format".to_string());
+        return Err(ColorParseError::InvalidLength);
     }
-    let r = u8::from_str_radix(&hex[0..2], 16).map_err(|_| "Invalid hex color".to_string())?;
-    let g = u8::from_str_radix(&hex[2..4], 16).map_err(|_| "Invalid hex color".to_string())?;
-    let b = u8::from_str_radix(&hex[4..6], 16).map_err(|_| "Invalid hex color".to_string())?;
+    let r = u8::from_str_radix(&hex[0..2], 16)
+        .map_err(|source| ColorParseError::InvalidChannel { channel: "red", source })?;
+    let g = u8::from_str_radix(&hex[2..4], 16).map_err(|source| ColorParseError::InvalidChannel {
+        channel: "green",
+        source,
+    })?;
+    let b = u8::from_str_radix(&hex[4..6], 16).map_err(|source| ColorParseError::InvalidChannel {
+        channel: "blue",
+        source,
+    })?;
     Ok([r, g, b, 255])
 }
 

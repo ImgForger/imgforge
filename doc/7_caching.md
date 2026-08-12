@@ -82,7 +82,7 @@ Caching dramatically reduces repeated processing costs and shrinks latency for p
 Metrics:
 
 | Metric                                    | Description                                   |
-|-------------------------------------------|-----------------------------------------------|
+| ----------------------------------------- | --------------------------------------------- |
 | `cache_hits_total{cache_type="memory"}`   | Number of successful lookups.                 |
 | `cache_misses_total{cache_type="memory"}` | Number of misses (including disabled caches). |
 
@@ -93,7 +93,7 @@ Set `IMGFORGE_CACHE_TYPE` to one of `memory`, `disk`, or `hybrid`. If unset, the
 ### Common environment variables
 
 | Variable                         | Description                                                                                                                      |
-|----------------------------------|----------------------------------------------------------------------------------------------------------------------------------|
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | `IMGFORGE_CACHE_TYPE`            | Backend selector: `memory`, `disk`, or `hybrid`.                                                                                 |
 | `IMGFORGE_CACHE_MEMORY_CAPACITY` | Maximum number of items retained in memory (default `1000`). Applies to memory and hybrid caches.                                |
 | `IMGFORGE_CACHE_DISK_PATH`       | Directory for on-disk storage. Required for disk and hybrid caches. Ensure it exists and is writable before starting the server. |
