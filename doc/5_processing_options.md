@@ -41,7 +41,7 @@ imgforge encodes image transformations directly in the URL path. Each directive 
 | `strip_color_profile` | `scp`      | `bool`                                                      | Drops color profile metadata with the same encoder path as metadata stripping.                               |
 | `jpeg_options`        | `jpgo`     | `progressive:no_subsample:trellis:dering:scans:quant_table` | Advanced JPEG encoder switches.                                                                              |
 | `png_options`         | `pngo`     | `interlaced:quantize:colors`                                | Advanced PNG encoder switches.                                                                               |
-| `webp_options`        | `webpo`    | `lossless:smart_subsample:preset`                           | Parsed for imgproxy-compatible URLs; currently not applied by the WebP encoder.                              |
+| `webp_options`        | `webpo`    | `lossless:smart_subsample:preset`                           | Advanced WebP encoder switches.                                                                              |
 | `avif_options`        | `avifo`    | `no_subsample`                                              | Advanced AVIF/HEIF encoder switches.                                                                         |
 | `page`                | `pg`       | `page`                                                      | Parses requested multi-page/animation page for imgproxy-compatible URLs.                                     |
 | `pages`               | `pgs`      | `count`                                                     | Parses requested multi-page/animation page count.                                                            |
@@ -182,7 +182,7 @@ Defaults to `85` for lossy codecs (JPEG, WebP, AVIF). `quality` is ignored for l
 - `strip_metadata` and `strip_color_profile` map to libvips metadata retention controls for formats that expose them.
 - `jpeg_options` maps to progressive JPEG, chroma subsampling, trellis quantization, overshoot deringing, optimized scans, and quant table controls.
 - `png_options` maps to interlacing and palette quantization controls.
-- `webp_options` is parsed for imgproxy-compatible URLs, but not currently applied. The libvips 1.7.x generated WebP save bindings can abort the process, so imgforge uses the safe default WebP save path until that dependency is fixed.
+- `webp_options` maps to lossless, smart chroma subsampling, and encoder preset controls. The libvips 1.7.x generated WebP save bindings can abort the process, so imgforge passes these options — along with `quality` and metadata stripping — through the libvips save suffix, which reaches the same encoder without those bindings. Preset names outside libvips' own set (`default`, `picture`, `photo`, `drawing`, `icon`, `text`) are accepted in URLs but ignored by the encoder.
 - `avif_options` maps to AVIF/HEIF chroma subsampling.
 
 ### `background`

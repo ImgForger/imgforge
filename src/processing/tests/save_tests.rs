@@ -1,7 +1,7 @@
 use crate::processing::options::SaveOptions;
 use crate::processing::save;
 use image::{ImageBuffer, Rgb};
-use libvips::VipsImage;
+use libvips::{ops, VipsImage};
 
 use super::tests_support::*;
 
@@ -68,5 +68,70 @@ fn test_webp_save_lossless_applies() {
         "webp lossless option had no effect: lossless {} bytes, lossy {} bytes",
         lossless.len(),
         lossy.len()
+    );
+}
+
+#[test]
+fn test_webp_save_honors_max_bytes() {
+    init_vips();
+    // max_bytes walks quality down until the encode fits; that loop was a
+    // no-op while every WebP encode came back the same size.
+    let base = create_textured_image(400, 400);
+    let img = VipsImage::new_from_buffer(&base, "").unwrap();
+    let unbounded = save::save_image(img, "webp", 95).unwrap();
+    let img = VipsImage::new_from_buffer(&base, "").unwrap();
+    let budget = save::save_image(img, "webp", 20).unwrap().len();
+
+    let options = SaveOptions {
+        max_bytes: Some(budget),
+        ..Default::default()
+    };
+    let img = VipsImage::new_from_buffer(&base, "").unwrap();
+    let bounded = save::save_image_with_options(img, "webp", 95, &options).unwrap();
+
+    assert!(
+        bounded.len() <= budget && bounded.len() < unbounded.len(),
+        "webp max_bytes not enforced: {} bytes for a {} byte budget (unbounded is {} bytes)",
+        bounded.len(),
+        budget,
+        unbounded.len()
+    );
+}
+
+#[test]
+fn test_webp_save_suffix_carries_encoder_options() {
+    let mut options = SaveOptions::default();
+    assert_eq!(
+        save::webp_save_suffix(80, ops::ForeignKeep::All, &options),
+        ".webp[Q=80,keep=all]"
+    );
+
+    options.webp.lossless = Some(true);
+    options.webp.smart_subsample = Some(true);
+    options.webp.preset = Some("photo".to_string());
+    assert_eq!(
+        save::webp_save_suffix(90, ops::ForeignKeep::None, &options),
+        ".webp[Q=90,lossless,smart-subsample,preset=photo,keep=none]"
+    );
+}
+
+#[test]
+fn test_webp_save_suffix_clamps_quality() {
+    let options = SaveOptions::default();
+    assert_eq!(
+        save::webp_save_suffix(0, ops::ForeignKeep::All, &options),
+        ".webp[Q=1,keep=all]"
+    );
+}
+
+#[test]
+fn test_webp_save_suffix_drops_unknown_preset() {
+    // `preset` arrives as free text from the URL, so anything vips does not
+    // define must never reach the option string.
+    let mut options = SaveOptions::default();
+    options.webp.preset = Some("photo],lossless".to_string());
+    assert_eq!(
+        save::webp_save_suffix(75, ops::ForeignKeep::All, &options),
+        ".webp[Q=75,keep=all]"
     );
 }
