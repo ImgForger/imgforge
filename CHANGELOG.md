@@ -10,6 +10,10 @@ Entries start at 0.10.0. For earlier history, see the
 
 ## [Unreleased]
 
+_No changes yet._
+
+## [0.14.0] - 2026-08-12
+
 ### Fixed
 
 - WebP saves now apply the requested `quality` instead of encoding every image at libvips' default.
@@ -111,9 +115,10 @@ Entries start at 0.10.0. For earlier history, see the
 ### Changed
 
 - WebP saves use the safe libvips save path, documented alongside the crash caveat in the generated
-  `webpsave` bindings. (Superseded by the WebP encoder-option fix in Unreleased, above.)
+  `webpsave` bindings. (Superseded by the WebP encoder-option fix in 0.14.0, above.)
 
-[Unreleased]: https://github.com/ImgForger/imgforge/compare/v0.13.0...HEAD
+[Unreleased]: https://github.com/ImgForger/imgforge/compare/v0.14.0...HEAD
+[0.14.0]: https://github.com/ImgForger/imgforge/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/ImgForger/imgforge/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/ImgForger/imgforge/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/ImgForger/imgforge/compare/v0.10.0...v0.11.0
