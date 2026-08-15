@@ -215,3 +215,43 @@ fn assert_encodes_without_property_error(format: &str) {
         }
     }
 }
+
+#[test]
+fn test_tiff_save_produces_output() {
+    assert_encodes_without_property_error("tiff");
+}
+
+/// TIFF is the one format whose compression depends on the requested quality:
+/// `save.rs` picks LZW at 100 to keep the output lossless and JPEG below that.
+/// Nothing exercised either branch, so this asserts the actual property — the
+/// pixels survive at 100 and do not below it — rather than just that bytes come
+/// back.
+#[test]
+fn test_tiff_is_lossless_at_max_quality_and_lossy_below() {
+    init_vips();
+    if !save::is_format_supported("tiff") {
+        eprintln!("skipping: this libvips build has no TIFF saver");
+        return;
+    }
+
+    // Noise: a flat image survives lossy compression intact and would hide the
+    // difference between the two branches.
+    let source_bytes = create_textured_image(64, 64);
+    let expected = decode_rgba(&image_from(source_bytes.clone()));
+
+    let lossless = save::save_image(image_from(source_bytes.clone()), "tiff", 100).unwrap();
+    let lossy = save::save_image(image_from(source_bytes.clone()), "tiff", 60).unwrap();
+
+    let lossless_pixels = collect_rgba_pixels(&decode_rgba(&image_from(lossless)));
+    let lossy_pixels = collect_rgba_pixels(&decode_rgba(&image_from(lossy)));
+    let expected_pixels = collect_rgba_pixels(&expected);
+
+    assert_eq!(
+        lossless_pixels, expected_pixels,
+        "quality 100 should select LZW and round-trip every pixel"
+    );
+    assert_ne!(
+        lossy_pixels, expected_pixels,
+        "quality 60 should select JPEG compression, which is lossy"
+    );
+}
