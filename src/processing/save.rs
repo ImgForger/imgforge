@@ -71,11 +71,20 @@ fn metadata_keep(options: &SaveOptions) -> ops::ForeignKeep {
     }
 }
 
+// WebP, AVIF/HEIF, and GIF encode through the save suffix rather than the
+// generated `*save_buffer_with_opts` bindings. Those bindings pass every
+// option as a varargs name/value pair, including properties that only exist
+// in libvips 8.16 and later: `exact` on webpsave, `tune` on heifsave,
+// `keep-duplicate-frames` on gifsave. An older libvips rejects the entire
+// call with "no property named ...", so nothing encodes at all. Ubuntu 24.04
+// — the base of the published image — ships libvips 8.15.1, which is exactly
+// that case; a WebP save there was also reported to abort the process.
+//
+// The suffix goes through vips' option-string parser, which sets only the
+// options named here, so it stays correct across libvips versions. JPEG, PNG,
+// and TIFF keep the generated bindings: every property they pass predates 8.15.
+
 /// Builds the WebP save suffix carrying the encoder options.
-///
-/// libvips 1.7.x's generated WebP save bindings can abort the process, so the
-/// options travel through the save suffix instead: vips' option-string parser
-/// reaches the same encoder without going through those bindings.
 pub(crate) fn webp_save_suffix(quality: u8, keep: ops::ForeignKeep, options: &SaveOptions) -> String {
     let mut suffix = format!(".webp[Q={}", (quality as i32).clamp(1, 100));
     if options.webp.lossless.unwrap_or(false) {
@@ -109,6 +118,39 @@ fn webp_preset_nickname(preset: &str) -> Option<&'static str> {
         "text" => Some("text"),
         _ => None,
     }
+}
+
+/// Builds the AVIF/HEIF save suffix carrying the encoder options.
+pub(crate) fn heif_save_suffix(
+    extension: &str,
+    compression: &str,
+    quality: u8,
+    effort: i32,
+    keep: ops::ForeignKeep,
+    options: &SaveOptions,
+) -> String {
+    format!(
+        ".{}[Q={},compression={},effort={},subsample-mode={},keep={}]",
+        extension,
+        (quality as i32).clamp(1, 100),
+        compression,
+        effort.clamp(0, 9),
+        if options.avif.no_subsample.unwrap_or(false) {
+            "off"
+        } else {
+            "auto"
+        },
+        foreign_keep_nickname(keep),
+    )
+}
+
+/// Builds the GIF save suffix.
+pub(crate) fn gif_save_suffix(effort: i32, keep: ops::ForeignKeep) -> String {
+    format!(
+        ".gif[effort={},keep={}]",
+        effort.clamp(1, 10),
+        foreign_keep_nickname(keep)
+    )
 }
 
 /// Matched exhaustively so a new `ForeignKeep` variant breaks the build here
@@ -187,42 +229,12 @@ fn encode_once(img: &VipsImage, format: &str, quality: u8, options: &SaveOptions
 
             ops::tiffsave_buffer_with_opts(img, &opts)
         }),
-        "gif" => encode_image("GIF", || {
-            let opts = ops::GifsaveBufferOptions {
-                effort,
-                ..Default::default()
-            };
-
-            ops::gifsave_buffer_with_opts(img, &opts)
-        }),
+        "gif" => encode_image("GIF", || img.image_write_to_buffer(&gif_save_suffix(effort, keep))),
         "avif" => encode_image("AVIF", || {
-            let opts = ops::HeifsaveBufferOptions {
-                q: quality as i32,
-                compression: ops::ForeignHeifCompression::Av1,
-                effort: (effort - 1).clamp(0, 9),
-                subsample_mode: if options.avif.no_subsample.unwrap_or(false) {
-                    ops::ForeignSubsample::Off
-                } else {
-                    ops::ForeignSubsample::Auto
-                },
-                keep,
-                ..Default::default()
-            };
-            ops::heifsave_buffer_with_opts(img, &opts)
+            img.image_write_to_buffer(&heif_save_suffix("avif", "av1", quality, effort - 1, keep, options))
         }),
         "heif" | "heic" => encode_image("HEIF", || {
-            let opts = ops::HeifsaveBufferOptions {
-                q: quality as i32,
-                effort: (effort - 1).clamp(0, 9),
-                subsample_mode: if options.avif.no_subsample.unwrap_or(false) {
-                    ops::ForeignSubsample::Off
-                } else {
-                    ops::ForeignSubsample::Auto
-                },
-                keep,
-                ..Default::default()
-            };
-            ops::heifsave_buffer_with_opts(img, &opts)
+            img.image_write_to_buffer(&heif_save_suffix("heif", "hevc", quality, effort - 1, keep, options))
         }),
         _ => Err(SaveError::UnsupportedFormat {
             format: format.to_string(),

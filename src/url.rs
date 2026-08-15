@@ -1,6 +1,6 @@
 use crate::processing::options::ProcessingOption;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use percent_encoding::percent_decode_str;
 use sha2::Sha256;
 use thiserror::Error;
@@ -203,6 +203,27 @@ mod tests {
         let signature = URL_SAFE_NO_PAD.encode(signature_bytes);
 
         assert!(validate_signature(key, salt, &signature, path));
+    }
+
+    #[test]
+    fn test_validate_signature_matches_known_vector() {
+        // Pinned so a crypto or base64 dependency bump cannot silently change
+        // what imgforge accepts: every signed URL in the wild depends on this
+        // byte-for-byte. Computed independently, not by round-tripping the
+        // code under test.
+        let key = hex_bytes("0011223344556677889900aabbccddeeff");
+        let salt = hex_bytes("ffeeddccbbaa00998877665544332211");
+        let path = "/resize:fill:800:600/quality:85/plain/https://example.com/cat.jpg@webp";
+        let expected = "jr3LcKHV1tS-ZWB6ePfXy4cIb7efsCont3kNLIkkwJQ";
+
+        assert!(validate_signature(&key, &salt, expected, path));
+    }
+
+    fn hex_bytes(value: &str) -> Vec<u8> {
+        (0..value.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&value[i..i + 2], 16).unwrap())
+            .collect()
     }
 
     #[test]

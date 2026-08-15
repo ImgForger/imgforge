@@ -180,8 +180,12 @@ Defaults to `85` for lossy codecs (JPEG, WebP, AVIF). `quality` is ignored for l
 - `strip_metadata` and `strip_color_profile` map to libvips metadata retention controls for formats that expose them.
 - `jpeg_options` maps to progressive JPEG, chroma subsampling, trellis quantization, overshoot deringing, optimized scans, and quant table controls.
 - `png_options` maps to interlacing and palette quantization controls.
-- `webp_options` maps to lossless, smart chroma subsampling, and encoder preset controls. The libvips 1.7.x generated WebP save bindings can abort the process, so imgforge passes these options — along with `quality` and metadata stripping — through the libvips save suffix, which reaches the same encoder without those bindings. Preset names outside libvips' own set (`default`, `picture`, `photo`, `drawing`, `icon`, `text`) are accepted in URLs but ignored by the encoder.
+- `webp_options` maps to lossless, smart chroma subsampling, and encoder preset controls. Preset names outside libvips' own set (`default`, `picture`, `photo`, `drawing`, `icon`, `text`) are accepted in URLs but ignored by the encoder.
 - `avif_options` maps to AVIF/HEIF chroma subsampling.
+
+WebP, AVIF, HEIF, and GIF are encoded through the libvips save suffix (`.webp[Q=80,keep=all]` and friends) rather than the libvips crate's generated save bindings. Those bindings name encoder properties that only exist in libvips 8.16 and later — `exact` on webpsave, `tune` on heifsave, `keep-duplicate-frames` on gifsave — and an older libvips rejects the whole call with `no property named ...`, so nothing encodes. Ubuntu 24.04, the base of the published image, ships libvips 8.15.1, which is exactly that case. JPEG, PNG, and TIFF use the generated bindings; every property they name predates 8.15.
+
+Formats also depend on what your libvips was compiled with. A build without an HEVC encoder advertises `heif` support but fails at encode time with `Unsupported compression`; AVIF, which uses a different codec, is unaffected.
 
 ### `background`
 

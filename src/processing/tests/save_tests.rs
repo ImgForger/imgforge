@@ -135,3 +135,61 @@ fn test_webp_save_suffix_drops_unknown_preset() {
         ".webp[Q=75,keep=all]"
     );
 }
+
+#[test]
+fn test_heif_save_suffix_carries_encoder_options() {
+    let mut options = SaveOptions::default();
+    assert_eq!(
+        save::heif_save_suffix("avif", "av1", 80, 7, ops::ForeignKeep::All, &options),
+        ".avif[Q=80,compression=av1,effort=7,subsample-mode=auto,keep=all]"
+    );
+
+    options.avif.no_subsample = Some(true);
+    assert_eq!(
+        save::heif_save_suffix("heif", "hevc", 80, 12, ops::ForeignKeep::None, &options),
+        // effort clamps to the 0-9 libvips accepts
+        ".heif[Q=80,compression=hevc,effort=9,subsample-mode=off,keep=none]"
+    );
+}
+
+#[test]
+fn test_gif_save_suffix_carries_encoder_options() {
+    assert_eq!(
+        save::gif_save_suffix(5, ops::ForeignKeep::All),
+        ".gif[effort=5,keep=all]"
+    );
+    // gifsave takes effort 1-10, unlike the 0-9 of the HEIF family
+    assert_eq!(
+        save::gif_save_suffix(0, ops::ForeignKeep::None),
+        ".gif[effort=1,keep=none]"
+    );
+}
+
+/// These formats had no encode coverage at all, which is why the encoder
+/// options naming properties absent from older libvips went unnoticed — see
+/// the WebP case in issue #46. Both skip on builds without the codec.
+#[test]
+fn test_avif_save_produces_output() {
+    init_vips();
+    if !save::is_format_supported("avif") {
+        eprintln!("skipping: this libvips build cannot encode AVIF");
+        return;
+    }
+    let base = create_textured_image(64, 64);
+    let img = VipsImage::new_from_buffer(&base, "").unwrap();
+    let bytes = save::save_image(img, "avif", 80).unwrap();
+    assert!(!bytes.is_empty(), "avif encode produced no bytes");
+}
+
+#[test]
+fn test_gif_save_produces_output() {
+    init_vips();
+    if !save::is_format_supported("gif") {
+        eprintln!("skipping: this libvips build cannot encode GIF");
+        return;
+    }
+    let base = create_textured_image(64, 64);
+    let img = VipsImage::new_from_buffer(&base, "").unwrap();
+    let bytes = save::save_image(img, "gif", 80).unwrap();
+    assert!(!bytes.is_empty(), "gif encode produced no bytes");
+}
