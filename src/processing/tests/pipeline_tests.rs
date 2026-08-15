@@ -246,3 +246,194 @@ fn test_fit_inside_a_square_box_downscales_a_wide_source() {
     let output = process_image(img, parsed_options, &source_bytes, None).unwrap();
     assert_eq!(image::load_from_memory(&output).unwrap().dimensions(), (500, 125));
 }
+
+/// The shrink must never take the source below what the pipeline still needs.
+/// Overshooting hands the resize a source smaller than the request, which
+/// `enlarge:false` then refuses to scale back up — the output would silently
+/// come out too small.
+#[test]
+fn test_load_shrink_never_undershoots_the_target() {
+    use crate::processing::load_shrink_factor;
+
+    let plan = |w: u32, h: u32| ParsedOptions {
+        resize: Some(Resize {
+            resizing_type: "fit".to_string(),
+            width: w,
+            height: h,
+        }),
+        ..ParsedOptions::default()
+    };
+
+    for (sw, sh, tw, th) in [
+        (4000u32, 3000u32, 200u32, 200u32),
+        (9000, 7000, 450, 450),
+        (1000, 1000, 999, 999),
+        (4000, 100, 200, 50),
+        (100, 4000, 50, 200),
+        (5000, 5000, 1, 1),
+    ] {
+        let factor = load_shrink_factor(&plan(tw, th), sw, sh);
+        assert!(factor.is_power_of_two() && factor <= 8, "odd factor {factor}");
+        let (after_w, after_h) = (sw / factor, sh / factor);
+        assert!(
+            after_w >= tw && after_h >= th,
+            "shrink 1/{factor} took {sw}x{sh} to {after_w}x{after_h}, below the {tw}x{th} target"
+        );
+    }
+}
+
+#[test]
+fn test_load_shrink_declines_when_it_cannot_reason_about_the_target() {
+    use crate::processing::load_shrink_factor;
+
+    // A 4x target, deliberately clear of the 1/8 ceiling: at the ceiling every
+    // variation below would read as "no change" and the test would prove
+    // nothing.
+    let with = |f: fn(&mut ParsedOptions)| {
+        let mut o = ParsedOptions {
+            resize: Some(Resize {
+                resizing_type: "fit".to_string(),
+                width: 1000,
+                height: 1000,
+            }),
+            ..ParsedOptions::default()
+        };
+        f(&mut o);
+        load_shrink_factor(&o, 4000, 4000)
+    };
+    assert_eq!(with(|_| ()), 4, "baseline");
+
+    // A crop addresses source pixels by coordinate; shrinking underneath it
+    // would move the region being cut.
+    assert_eq!(
+        with(|o| o.crop = Some(Crop {
+            x: 0,
+            y: 0,
+            width: 50,
+            height: 50,
+            gravity: None
+        })),
+        1
+    );
+    // raw returns the source untouched.
+    assert_eq!(with(|o| o.raw = true), 1);
+    // No resize target to reason from.
+    assert_eq!(with(|o| o.resize = None), 1);
+    // Growth after the resize has to be respected, not shrunk away.
+    assert_eq!(with(|o| o.dpr = Some(2.0)), 2, "dpr doubles the pixels needed");
+    assert_eq!(with(|o| o.zoom = Some(2.0)), 2, "zoom doubles the pixels needed");
+    assert_eq!(
+        with(|o| o.min_width = Some(2000)),
+        2,
+        "a minimum above the resize target raises the floor"
+    );
+}
+
+/// End to end: the output must be identical whether or not the source was
+/// decoded at a reduced scale.
+#[test]
+fn test_shrink_on_load_does_not_change_output_dimensions() {
+    init_vips();
+    let source_bytes = Bytes::from(create_test_image_jpeg(2000, 1600));
+    let options = || ParsedOptions {
+        resize: Some(Resize {
+            resizing_type: "fit".to_string(),
+            width: 200,
+            height: 200,
+        }),
+        format: Some("png".to_string()),
+        ..ParsedOptions::default()
+    };
+
+    // Straight through, no shrink.
+    let full = process_image(image_from(source_bytes.to_vec()), options(), &source_bytes, None).unwrap();
+
+    // Decoded at the scale the plan allows, as the service does.
+    let factor = crate::processing::load_shrink_factor(&options(), 2000, 1600);
+    assert!(factor > 1, "this plan should qualify for shrink-on-load");
+    let shrunk = VipsImage::new_from_buffer(&source_bytes, &format!("shrink={factor}")).unwrap();
+    let reduced = process_image(shrunk, options(), &source_bytes, None).unwrap();
+
+    assert_eq!(
+        image::load_from_memory(&full).unwrap().dimensions(),
+        image::load_from_memory(&reduced).unwrap().dimensions()
+    );
+}
+
+/// `force` fills a zero axis from the source dimension, so that axis needs the
+/// source at full size: `resize:force:0:500` on 4000x3000 targets 4000x500, but
+/// after a 1/4 decode `resolve_resize_dimensions` would call it 1000x500 and
+/// silently return a quarter-width image.
+///
+/// Every other resizing type derives a zero axis from the aspect ratio, which
+/// survives a shrink unchanged — asserted here so the distinction is not lost.
+#[test]
+fn test_load_shrink_declines_for_force_with_an_unset_axis() {
+    use crate::processing::load_shrink_factor;
+    use crate::processing::transform::resolve_resize_dimensions;
+
+    let plan = |kind: &str, w: u32, h: u32| ParsedOptions {
+        resize: Some(Resize {
+            resizing_type: kind.to_string(),
+            width: w,
+            height: h,
+        }),
+        ..ParsedOptions::default()
+    };
+
+    for (w, h) in [(0, 500), (500, 0)] {
+        let options = plan("force", w, h);
+        assert_eq!(
+            load_shrink_factor(&options, 4000, 3000),
+            1,
+            "force with an unset axis must decline shrink-on-load"
+        );
+    }
+
+    // fit is unaffected: the derived axis is the same before and after.
+    let fit = plan("fit", 0, 500);
+    let resize = fit.resize.as_ref().unwrap();
+    let full = resolve_resize_dimensions(resize, 4000, 3000).unwrap();
+    let shrunk = resolve_resize_dimensions(resize, 1000, 750).unwrap();
+    assert_eq!(full, shrunk, "an aspect-derived axis should survive a shrink");
+    assert!(load_shrink_factor(&fit, 4000, 3000) > 1, "fit should still qualify");
+}
+
+/// EXIF orientations 5-8 transpose the image, and that rotation happens after
+/// the load. The plan is written against what the viewer sees, so the factor
+/// must be chosen against the rotated dimensions: a stored 8000x4000
+/// orientation-6 image is displayed 4000x8000, and `fill:2000:1000` against the
+/// stored shape picks a factor that leaves too few pixels once rotated.
+#[test]
+fn test_load_shrink_uses_displayed_dimensions_for_rotated_sources() {
+    use crate::processing::load_shrink_factor;
+
+    let options = ParsedOptions {
+        resize: Some(Resize {
+            resizing_type: "fill".to_string(),
+            width: 2000,
+            height: 1000,
+        }),
+        ..ParsedOptions::default()
+    };
+
+    // Stored orientation, which is what the loader reports.
+    let stored = load_shrink_factor(&options, 8000, 4000);
+    // What the pipeline actually sees once orientation 6 is applied.
+    let displayed = load_shrink_factor(&options, 4000, 8000);
+
+    assert_eq!(stored, 4);
+    assert_eq!(displayed, 2, "the rotated shape needs a gentler shrink");
+    assert!(
+        displayed < stored,
+        "choosing against stored dimensions over-shrinks a transposed source"
+    );
+
+    // The decoded image must still cover the request after rotation.
+    let (after_w, after_h) = (8000 / displayed, 4000 / displayed);
+    let (rotated_w, rotated_h) = (after_h, after_w);
+    assert!(
+        rotated_w >= 2000 && rotated_h >= 1000,
+        "rotated {rotated_w}x{rotated_h} cannot fill a 2000x1000 box"
+    );
+}

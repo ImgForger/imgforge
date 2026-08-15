@@ -28,6 +28,74 @@ pub enum ProcessingError {
     ResultTooLarge { width: i32, height: i32, limit: u32 },
 }
 
+/// The JPEG loader can decode at 1/2, 1/4 or 1/8 scale, skipping the work
+/// rather than doing it and throwing the result away.
+const MAX_LOAD_SHRINK: u32 = 8;
+
+/// Picks a power-of-two shrink to apply while decoding, so a large source is
+/// never unpacked at full resolution to produce a small result.
+///
+/// Follows imgproxy: take the *least* shrink any axis needs, so the decoded
+/// image is still at least as large as the target on both axes and the real
+/// resize can finish the job. Overshooting here would hand the pipeline a
+/// source smaller than the request, which `enlarge:false` would then refuse to
+/// scale back up.
+///
+/// Returns 1 when nothing should change.
+pub fn load_shrink_factor(parsed_options: &ParsedOptions, src_width: u32, src_height: u32) -> u32 {
+    // `raw` returns the source untouched, and a crop addresses source pixels by
+    // coordinate — shrinking underneath it would move the region being cut.
+    if parsed_options.raw || parsed_options.crop.is_some() {
+        return 1;
+    }
+    let Some(resize) = parsed_options.resize.as_ref() else {
+        return 1;
+    };
+    if src_width == 0 || src_height == 0 {
+        return 1;
+    }
+
+    // Anything that can grow the target after this point has to be folded in,
+    // or the shrink could drop the source below what the pipeline still needs.
+    let grow =
+        f64::from(parsed_options.dpr.unwrap_or(1.0).max(1.0)) * f64::from(parsed_options.zoom.unwrap_or(1.0).max(1.0));
+    // `force` fills a zero axis from the *source* dimension, so that axis needs
+    // the source at full size — shrinking would shrink the target with it. Every
+    // other type derives a zero axis from the aspect ratio, which survives a
+    // shrink unchanged.
+    let forced = resize.resizing_type == "force";
+    let width_follows_source = forced && resize.width == 0;
+    let height_follows_source = forced && resize.height == 0;
+
+    let target_width = if width_follows_source {
+        f64::from(src_width)
+    } else {
+        (f64::from(resize.width) * grow).max(f64::from(parsed_options.min_width.unwrap_or(0)))
+    };
+    let target_height = if height_follows_source {
+        f64::from(src_height)
+    } else {
+        (f64::from(resize.height) * grow).max(f64::from(parsed_options.min_height.unwrap_or(0)))
+    };
+
+    let mut shrink = f64::INFINITY;
+    if target_width >= 1.0 {
+        shrink = shrink.min(f64::from(src_width) / target_width);
+    }
+    if target_height >= 1.0 {
+        shrink = shrink.min(f64::from(src_height) / target_height);
+    }
+    if !shrink.is_finite() || shrink < 2.0 {
+        return 1;
+    }
+
+    let mut factor = 1;
+    while factor * 2 <= MAX_LOAD_SHRINK && f64::from(factor * 2) <= shrink {
+        factor *= 2;
+    }
+    factor
+}
+
 /// Processes an image by applying the given `ParsedOptions`.
 ///
 /// This function takes a decoded `VipsImage`, the original source bytes, and a set of parsed options,
