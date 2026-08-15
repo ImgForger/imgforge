@@ -66,6 +66,14 @@ fn bg_color_for_bands(bg_color: [u8; 4], bands: i32) -> Vec<f64> {
 }
 
 /// Helper to resize using the requested algorithm, defaulting to lanczos3.
+///
+/// Images carrying alpha are premultiplied for the duration of the scale.
+/// libvips is explicit that `vips_resize` does not do this itself — "if your
+/// image has an alpha channel, you should use vips_premultiply() on it first" —
+/// and without it the kernel averages the colour of fully transparent pixels
+/// into visible ones. Downscaling white-on-transparent that way drags the edge
+/// toward whatever colour happens to sit in the invisible pixels, which shows up
+/// as a dark halo around logos and cutouts once the result is composited.
 pub fn resize_with_algorithm(
     img: &VipsImage,
     hscale: f64,
@@ -79,7 +87,22 @@ pub fn resize_with_algorithm(
         ..Default::default()
     };
 
-    ops::resize_with_opts(img, hscale, &options).map_err(vips(error_context))
+    if !img.image_hasalpha() {
+        return ops::resize_with_opts(img, hscale, &options).map_err(vips(error_context));
+    }
+
+    // A source whose format vips cannot report is not one to guess at; fall
+    // back to the plain resize rather than casting to something invented.
+    let Ok(source_format) = img.get_format() else {
+        return ops::resize_with_opts(img, hscale, &options).map_err(vips(error_context));
+    };
+    let premultiplied = ops::premultiply(img).map_err(vips(error_context))?;
+    let resized = ops::resize_with_opts(&premultiplied, hscale, &options).map_err(vips(error_context))?;
+    let restored = ops::unpremultiply(&resized).map_err(vips(error_context))?;
+
+    // premultiply/unpremultiply work in float; without casting back, every
+    // later step and the encoder would see a float image.
+    ops::cast(&restored, source_format).map_err(vips(error_context))
 }
 
 /// Applies EXIF rotation to an image based on orientation data.

@@ -467,3 +467,60 @@ fn test_force_caps_enlargement_while_keeping_the_requested_distortion() {
     let out = transform::apply_resize(img, &resize, &None, None, true).unwrap();
     assert_eq!((out.get_width(), out.get_height()), (2000, 50));
 }
+
+/// libvips does not premultiply inside `vips_resize` — its own docs say the
+/// caller must do it — so without this the kernel averages the colour of
+/// invisible pixels into visible ones and transparent edges pick up a halo.
+#[test]
+fn test_resize_does_not_bleed_transparent_colour_into_visible_pixels() {
+    init_vips();
+    // Bound to a local: libvips decodes lazily and keeps a pointer into this
+    // buffer, so a temporary would be freed before the pixels are read.
+    let source = create_transparent_edge_image(100, 100);
+    let img = VipsImage::new_from_buffer(&source, "").unwrap();
+    let resize = Resize {
+        resizing_type: "force".to_string(),
+        width: 10,
+        height: 10,
+    };
+    let out = transform::apply_resize(img, &resize, &None, None, false).unwrap();
+    let decoded = decode_rgba(&out);
+
+    // Across the whole boundary, partially transparent pixels must still be
+    // white. Unpremultiplied resizing drags them toward the black that sits in
+    // the transparent half.
+    for y in 0..10u32 {
+        for x in 0..10u32 {
+            let [r, g, b, a] = rgba_pixel(&decoded, x, y);
+            if a == 0 {
+                continue; // fully transparent: colour is meaningless
+            }
+            assert!(
+                r > 250 && g > 250 && b > 250,
+                "pixel ({x},{y}) has alpha {a} but colour {r},{g},{b} — transparent black bled in"
+            );
+        }
+    }
+}
+
+#[test]
+fn test_resize_without_alpha_is_unaffected() {
+    init_vips();
+    // The premultiply round trip must not disturb opaque images.
+    let source = create_test_image_jpeg(100, 100);
+    let img = VipsImage::new_from_buffer(&source, "").unwrap();
+    let resize = Resize {
+        resizing_type: "force".to_string(),
+        width: 50,
+        height: 50,
+    };
+    let out = transform::apply_resize(img, &resize, &None, None, false).unwrap();
+    assert_eq!((out.get_width(), out.get_height()), (50, 50));
+    let decoded = decode_rgba(&out);
+    let [r, g, b, a] = rgba_pixel(&decoded, 25, 25);
+    // JPEG is lossy, so red decodes near but not exactly 255.
+    assert!(
+        r > 250 && g < 5 && b < 5 && a == 255,
+        "opaque red should survive unchanged, got {r},{g},{b},{a}"
+    );
+}

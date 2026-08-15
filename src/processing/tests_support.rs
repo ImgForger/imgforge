@@ -105,3 +105,24 @@ pub fn collect_rgba_pixels(decoded: &RgbaImage) -> Vec<[u8; 4]> {
 pub fn cached_watermark_from_bytes(bytes: Vec<u8>) -> watermark::CachedWatermark {
     watermark::CachedWatermark::from_bytes(Bytes::from(bytes))
 }
+
+/// Opaque white on the left, fully transparent black on the right.
+///
+/// The transparent half carries black RGB, which is invisible until a resize
+/// kernel averages it into neighbouring pixels. Downscaling this without
+/// premultiplying drags the edge toward black; done correctly, RGB stays white
+/// and only alpha varies.
+pub fn create_transparent_edge_image(width: u32, height: u32) -> Vec<u8> {
+    let mut img: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::new(width, height);
+    for (x, _y, pixel) in img.enumerate_pixels_mut() {
+        *pixel = if x < width / 2 {
+            Rgba([255, 255, 255, 255])
+        } else {
+            Rgba([0, 0, 0, 0])
+        };
+    }
+    let mut bytes: Vec<u8> = Vec::new();
+    img.write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
+        .unwrap();
+    bytes
+}
