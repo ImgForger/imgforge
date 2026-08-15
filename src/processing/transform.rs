@@ -6,6 +6,10 @@ use tracing::debug;
 
 const SCALE_EPSILON: f64 = 1e-6;
 
+/// Largest coordinate libvips accepts for `embed`; anything beyond it is
+/// rejected by the operation itself.
+const VIPS_MAX_COORD: i64 = 1_000_000_000;
+
 /// Errors produced while transforming an image.
 #[derive(Debug, Error)]
 #[non_exhaustive]
@@ -391,21 +395,29 @@ pub fn apply_padding(
     left: u32,
     background: &Option<[u8; 4]>,
 ) -> Result<VipsImage, TransformError> {
+    // Padding arrives from the URL as an unbounded u32, so the canvas is summed
+    // in i64. Doing it in i32 wrapped: a value above i32::MAX turned negative,
+    // which either produced a canvas smaller than the source — silently
+    // returning a cropped image with a 200 — or panicked in a debug build.
+    let width = i64::from(img.get_width()) + i64::from(left) + i64::from(right);
+    let height = i64::from(img.get_height()) + i64::from(top) + i64::from(bottom);
+
+    if width > VIPS_MAX_COORD || height > VIPS_MAX_COORD {
+        return Err(TransformError::invalid(
+            "padding",
+            format!("padded canvas {width}x{height} exceeds the maximum of {VIPS_MAX_COORD} pixels per side"),
+        ));
+    }
+
+    // Both offsets are bounded by the canvas checked above, so these fit.
+    let (x, y) = (left as i32, top as i32);
     let bg_color = background.unwrap_or([0, 0, 0, 0]);
     let options = ops::EmbedOptions {
         extend: ops::Extend::Background,
         background: bg_color_for_bands(bg_color, img.get_bands()),
     };
 
-    ops::embed_with_opts(
-        &img,
-        left as i32,
-        top as i32,
-        img.get_width() + left as i32 + right as i32,
-        img.get_height() + top as i32 + bottom as i32,
-        &options,
-    )
-    .map_err(vips("Error applying padding"))
+    ops::embed_with_opts(&img, x, y, width as i32, height as i32, &options).map_err(vips("Error applying padding"))
 }
 
 /// Applies rotation to an image.
