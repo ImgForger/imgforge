@@ -16,7 +16,7 @@ fn test_apply_watermark() {
     watermark_file.write_all(&watermark.bytes).unwrap();
     std::env::set_var(ENV_WATERMARK_PATH, watermark_file.path());
 
-    let img = VipsImage::new_from_buffer(&create_test_image(200, 200), "").unwrap();
+    let img = image_from(create_test_image(200, 200));
     let watermark_opts = Watermark {
         opacity: 0.5,
         position: "ce".to_string(),
@@ -118,7 +118,7 @@ fn test_watermark_all_positions() {
     let positions = vec!["no", "so", "ea", "we", "ce", "nowe", "noea", "sowe", "soea"];
 
     for position in positions {
-        let img = VipsImage::new_from_buffer(&create_test_image(200, 200), "").unwrap();
+        let img = image_from(create_test_image(200, 200));
         let watermark_opts = Watermark {
             opacity: 0.5,
             position: position.to_string(),
@@ -132,7 +132,7 @@ fn test_watermark_all_positions() {
 #[test]
 fn test_watermark_full_opacity() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(200, 200), "").unwrap();
+    let img = image_from(create_test_image(200, 200));
     let watermark = cached_watermark_from_bytes(create_test_image(50, 50));
     let watermark_opts = Watermark {
         opacity: 1.0,
@@ -146,7 +146,7 @@ fn test_watermark_full_opacity() {
 #[test]
 fn test_watermark_zero_opacity() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(200, 200), "").unwrap();
+    let img = image_from(create_test_image(200, 200));
     let watermark = cached_watermark_from_bytes(create_test_image(50, 50));
     let watermark_opts = Watermark {
         opacity: 0.0,

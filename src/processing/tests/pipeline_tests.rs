@@ -11,7 +11,7 @@ use super::tests_support::*;
 #[test]
 fn test_crop_then_resize() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(400, 400), "").unwrap();
+    let img = image_from(create_test_image(400, 400));
     let crop = Crop {
         x: 50,
         y: 50,
@@ -33,7 +33,7 @@ fn test_crop_then_resize() {
 #[test]
 fn test_resize_then_blur() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(200, 200), "").unwrap();
+    let img = image_from(create_test_image(200, 200));
     let resize = Resize {
         resizing_type: "fit".to_string(),
         width: 100,
@@ -48,7 +48,7 @@ fn test_resize_then_blur() {
 #[test]
 fn test_resize_then_sharpen() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(200, 200), "").unwrap();
+    let img = image_from(create_test_image(200, 200));
     let resize = Resize {
         resizing_type: "fit".to_string(),
         width: 300,
@@ -63,7 +63,7 @@ fn test_resize_then_sharpen() {
 #[test]
 fn test_rotation_then_resize() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(100, 200), "").unwrap();
+    let img = image_from(create_test_image(100, 200));
     let rotated = transform::apply_rotation(img, 90).unwrap();
     let resize = Resize {
         resizing_type: "fit".to_string(),
@@ -78,7 +78,7 @@ fn test_rotation_then_resize() {
 #[test]
 fn test_complex_pipeline_crop_resize_blur_rotate() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(400, 400), "").unwrap();
+    let img = image_from(create_test_image(400, 400));
 
     let crop = Crop {
         x: 50,
@@ -107,7 +107,7 @@ fn test_complex_pipeline_crop_resize_blur_rotate() {
 #[test]
 fn test_complex_pipeline_resize_padding_watermark() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(200, 200), "").unwrap();
+    let img = image_from(create_test_image(200, 200));
 
     let resize = Resize {
         resizing_type: "fit".to_string(),

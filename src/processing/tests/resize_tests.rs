@@ -1,13 +1,12 @@
 use crate::processing::options::{Gravity, Resize};
 use crate::processing::transform::{self, TransformError};
-use libvips::VipsImage;
 
 use super::tests_support::*;
 
 #[test]
 fn test_apply_resize_fit() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(400, 300), "").unwrap();
+    let img = image_from(create_test_image(400, 300));
     let resize = Resize {
         resizing_type: "fit".to_string(),
         width: 200,
@@ -21,7 +20,7 @@ fn test_apply_resize_fit() {
 #[test]
 fn test_apply_resize_fill() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(400, 300), "").unwrap();
+    let img = image_from(create_test_image(400, 300));
     let resize = Resize {
         resizing_type: "fill".to_string(),
         width: 200,
@@ -35,7 +34,7 @@ fn test_apply_resize_fill() {
 #[test]
 fn test_apply_resize_fill_width_only() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(400, 300), "").unwrap();
+    let img = image_from(create_test_image(400, 300));
     let resize = Resize {
         resizing_type: "fill".to_string(),
         width: 200,
@@ -49,7 +48,7 @@ fn test_apply_resize_fill_width_only() {
 #[test]
 fn test_apply_resize_fill_height_only() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(400, 300), "").unwrap();
+    let img = image_from(create_test_image(400, 300));
     let resize = Resize {
         resizing_type: "fill".to_string(),
         width: 0,
@@ -63,7 +62,7 @@ fn test_apply_resize_fill_height_only() {
 #[test]
 fn test_apply_resize_force_width_only() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(400, 300), "").unwrap();
+    let img = image_from(create_test_image(400, 300));
     let resize = Resize {
         resizing_type: "force".to_string(),
         width: 200,
@@ -77,7 +76,7 @@ fn test_apply_resize_force_width_only() {
 #[test]
 fn test_apply_resize_force_height_only() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(400, 300), "").unwrap();
+    let img = image_from(create_test_image(400, 300));
     let resize = Resize {
         resizing_type: "force".to_string(),
         width: 0,
@@ -91,7 +90,7 @@ fn test_apply_resize_force_height_only() {
 #[test]
 fn test_apply_resize_force_zero_dimensions_error() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(400, 300), "").unwrap();
+    let img = image_from(create_test_image(400, 300));
     let resize = Resize {
         resizing_type: "force".to_string(),
         width: 0,
@@ -104,7 +103,7 @@ fn test_apply_resize_force_zero_dimensions_error() {
 #[test]
 fn test_apply_resize_unknown_type_error() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(400, 300), "").unwrap();
+    let img = image_from(create_test_image(400, 300));
     let resize = Resize {
         resizing_type: "bogus".to_string(),
         width: 200,
@@ -179,7 +178,7 @@ fn test_resolve_resize_dimensions_force_uses_source_for_missing_side() {
 #[test]
 fn test_resize_very_small_image() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(10, 10), "").unwrap();
+    let img = image_from(create_test_image(10, 10));
     let resize = Resize {
         resizing_type: "fit".to_string(),
         width: 5,
@@ -193,7 +192,7 @@ fn test_resize_very_small_image() {
 #[test]
 fn test_resize_extreme_scale_up() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(10, 10), "").unwrap();
+    let img = image_from(create_test_image(10, 10));
     let resize = Resize {
         resizing_type: "fit".to_string(),
         width: 1000,
@@ -207,7 +206,7 @@ fn test_resize_extreme_scale_up() {
 #[test]
 fn test_resize_extreme_aspect_ratio() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
+    let img = image_from(create_test_image(100, 100));
     let resize = Resize {
         resizing_type: "fill".to_string(),
         width: 1000,
@@ -228,7 +227,7 @@ fn test_resize_fill_with_different_gravities() {
         Gravity::West,
         Gravity::Center,
     ] {
-        let img = VipsImage::new_from_buffer(&create_test_image(200, 100), "").unwrap();
+        let img = image_from(create_test_image(200, 100));
         let resize = Resize {
             resizing_type: "fill".to_string(),
             width: 100,
@@ -243,7 +242,7 @@ fn test_resize_fill_with_different_gravities() {
 #[test]
 fn test_resize_fill_with_lanczos2_kernel() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(800, 600), "").unwrap();
+    let img = image_from(create_test_image(800, 600));
     let resize = Resize {
         resizing_type: "fill".to_string(),
         width: 300,
@@ -257,7 +256,7 @@ fn test_resize_fill_with_lanczos2_kernel() {
 #[test]
 fn test_resize_fit_with_nearest_kernel() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(800, 600), "").unwrap();
+    let img = image_from(create_test_image(800, 600));
     let resize = Resize {
         resizing_type: "fit".to_string(),
         width: 300,
@@ -272,7 +271,7 @@ fn test_resize_fit_with_nearest_kernel() {
 #[test]
 fn test_resize_fit_width_only() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(200, 100), "").unwrap();
+    let img = image_from(create_test_image(200, 100));
     let resize = Resize {
         resizing_type: "fit".to_string(),
         width: 100,
@@ -286,7 +285,7 @@ fn test_resize_fit_width_only() {
 #[test]
 fn test_resize_fit_height_only() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(200, 100), "").unwrap();
+    let img = image_from(create_test_image(200, 100));
     let resize = Resize {
         resizing_type: "fit".to_string(),
         width: 0,
@@ -300,7 +299,7 @@ fn test_resize_fit_height_only() {
 #[test]
 fn test_resize_auto_portrait_to_portrait() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(100, 200), "").unwrap();
+    let img = image_from(create_test_image(100, 200));
     let resize = Resize {
         resizing_type: "auto".to_string(),
         width: 50,
@@ -314,7 +313,7 @@ fn test_resize_auto_portrait_to_portrait() {
 #[test]
 fn test_resize_auto_landscape_to_landscape() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(200, 100), "").unwrap();
+    let img = image_from(create_test_image(200, 100));
     let resize = Resize {
         resizing_type: "auto".to_string(),
         width: 100,
@@ -328,7 +327,7 @@ fn test_resize_auto_landscape_to_landscape() {
 #[test]
 fn test_resize_auto_portrait_to_landscape() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(100, 200), "").unwrap();
+    let img = image_from(create_test_image(100, 200));
     let resize = Resize {
         resizing_type: "auto".to_string(),
         width: 150,
@@ -343,7 +342,7 @@ fn test_resize_auto_portrait_to_landscape() {
 #[test]
 fn test_apply_resize_with_cubic_algorithm() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(400, 300), "").unwrap();
+    let img = image_from(create_test_image(400, 300));
     let resize = Resize {
         resizing_type: "fit".to_string(),
         width: 200,
@@ -359,7 +358,7 @@ fn test_apply_resize_with_cubic_algorithm() {
 #[test]
 fn test_apply_resize_with_invalid_kernel_falls_back_to_default() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(400, 300), "").unwrap();
+    let img = image_from(create_test_image(400, 300));
     let resize = Resize {
         resizing_type: "fit".to_string(),
         width: 200,
@@ -391,7 +390,7 @@ fn test_fit_downscales_even_when_the_box_is_taller_than_the_source() {
     ];
 
     for (sw, sh, tw, th, ew, eh) in cases {
-        let img = VipsImage::new_from_buffer(&create_test_image(sw, sh), "").unwrap();
+        let img = image_from(create_test_image(sw, sh));
         let resize = Resize {
             resizing_type: "fit".to_string(),
             width: tw,
@@ -410,7 +409,7 @@ fn test_fit_downscales_even_when_the_box_is_taller_than_the_source() {
 fn test_fit_still_refuses_to_enlarge() {
     init_vips();
     // Both axes would grow: the cap leaves the image alone.
-    let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
+    let img = image_from(create_test_image(100, 100));
     let resize = Resize {
         resizing_type: "fit".to_string(),
         width: 500,
@@ -420,7 +419,7 @@ fn test_fit_still_refuses_to_enlarge() {
     assert_eq!((out.get_width(), out.get_height()), (100, 100));
 
     // ...and enlarges when asked to.
-    let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
+    let img = image_from(create_test_image(100, 100));
     let out = transform::apply_resize(img, &resize, &None, None, true).unwrap();
     assert_eq!((out.get_width(), out.get_height()), (500, 500));
 }
@@ -430,7 +429,7 @@ fn test_fill_crops_to_what_is_available_when_capped() {
     init_vips();
     // Covering a 500x200 box from 1000x100 would need a 2x upscale. Capped, the
     // image is not scaled, and the crop takes what exists: 500x100, not an error.
-    let img = VipsImage::new_from_buffer(&create_test_image(1000, 100), "").unwrap();
+    let img = image_from(create_test_image(1000, 100));
     let resize = Resize {
         resizing_type: "fill".to_string(),
         width: 500,
@@ -440,7 +439,7 @@ fn test_fill_crops_to_what_is_available_when_capped() {
     assert_eq!((out.get_width(), out.get_height()), (500, 100));
 
     // With enlargement allowed the box is filled exactly.
-    let img = VipsImage::new_from_buffer(&create_test_image(1000, 100), "").unwrap();
+    let img = image_from(create_test_image(1000, 100));
     let out = transform::apply_resize(img, &resize, &Some(Gravity::Center), None, true).unwrap();
     assert_eq!((out.get_width(), out.get_height()), (500, 200));
 }
@@ -454,7 +453,7 @@ fn test_force_caps_enlargement_while_keeping_the_requested_distortion() {
     // This is imgproxy's rule — it caps the scales together rather than
     // clamping each axis independently, which would change the aspect the
     // caller asked for.
-    let img = VipsImage::new_from_buffer(&create_test_image(1000, 100), "").unwrap();
+    let img = image_from(create_test_image(1000, 100));
     let resize = Resize {
         resizing_type: "force".to_string(),
         width: 2000,
@@ -463,7 +462,7 @@ fn test_force_caps_enlargement_while_keeping_the_requested_distortion() {
     let out = transform::apply_resize(img, &resize, &None, None, false).unwrap();
     assert_eq!((out.get_width(), out.get_height()), (1000, 25));
 
-    let img = VipsImage::new_from_buffer(&create_test_image(1000, 100), "").unwrap();
+    let img = image_from(create_test_image(1000, 100));
     let out = transform::apply_resize(img, &resize, &None, None, true).unwrap();
     assert_eq!((out.get_width(), out.get_height()), (2000, 50));
 }
