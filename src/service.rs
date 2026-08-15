@@ -173,6 +173,14 @@ fn processed_cache_key<'a>(
         Cow::Owned(format!("default-format={}:{}", configured.as_str(), path))
     };
 
+    // A raw response is the untouched source: nothing is processed, so the
+    // result ceiling cannot apply to it. It must also keep the bare path as its
+    // key, because that is what serve_raw_response inserts under — namespacing
+    // it here would make every raw request miss and refetch.
+    if is_raw {
+        return base;
+    }
+
     // A persistent cache outlives the configuration that filled it, so an entry
     // stored before the ceiling existed — or under a higher one — would other-
     // wise still be served, handing back the oversized image the limit exists
@@ -815,6 +823,24 @@ mod tests {
         assert_eq!(
             unlimited,
             processed_cache_key(path, DefaultOutputFormat::Source, false, false, None)
+        );
+    }
+
+    #[test]
+    fn raw_cache_keys_ignore_the_result_limit() {
+        // serve_raw_response inserts under the bare path, so the lookup key has
+        // to match it exactly or raw requests miss the cache forever and refetch
+        // the source every time.
+        let path = "/unsafe/raw/example";
+        let limit = Some("1000".parse::<MaxResultDimension>().unwrap());
+
+        assert_eq!(
+            processed_cache_key(path, DefaultOutputFormat::Source, false, true, limit),
+            path
+        );
+        assert_eq!(
+            processed_cache_key(path, DefaultOutputFormat::Source, false, true, None),
+            path
         );
     }
 
