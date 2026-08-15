@@ -202,6 +202,48 @@ fn processed_cache_key<'a>(
     }
 }
 
+/// Reopens the source at a reduced scale when the plan allows it, falling back
+/// to the image already opened.
+///
+/// Only JPEG: its loader takes a power-of-two `shrink` and genuinely skips the
+/// work. Other loaders either have no equivalent or spell it differently, and
+/// naming a property a loader does not have makes libvips reject the whole
+/// call — the failure mode that broke AVIF and GIF encoding.
+fn shrink_source_on_load(source_image: VipsImage, image_bytes: &Bytes, parsed_options: &ParsedOptions) -> VipsImage {
+    if sniff_image_format(image_bytes) != Some("jpeg") {
+        return source_image;
+    }
+
+    let (width, height) = (source_image.get_width(), source_image.get_height());
+    let (Ok(width), Ok(height)) = (u32::try_from(width), u32::try_from(height)) else {
+        return source_image;
+    };
+
+    let factor = crate::processing::load_shrink_factor(parsed_options, width, height);
+    if factor <= 1 {
+        return source_image;
+    }
+
+    match VipsImage::new_from_buffer(image_bytes, &format!("shrink={factor}")) {
+        Ok(shrunk) => {
+            debug!(
+                "Decoding at 1/{} scale: {}x{} -> {}x{}",
+                factor,
+                width,
+                height,
+                shrunk.get_width(),
+                shrunk.get_height()
+            );
+            shrunk
+        }
+        // Nothing is lost by carrying on with the image already opened.
+        Err(err) => {
+            debug!("Shrink-on-load unavailable, using the full-size source: {}", err);
+            source_image
+        }
+    }
+}
+
 fn detect_image_format(content_type: Option<&str>, image_bytes: &[u8]) -> String {
     if let Some(format) = content_type.and_then(content_type_to_format) {
         return format.to_string();
@@ -365,6 +407,16 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
             source_content_type.as_deref(),
             Some(&source_image),
         )?;
+
+        // Scale-on-load. The guards above must see the *original* dimensions,
+        // so this comes after them: shrinking first would let a source sneak
+        // past a resolution limit by arriving smaller than it really is.
+        //
+        // Opening an image does not decode it — libvips is demand-driven, so
+        // everything so far has read the header and nothing more. Reopening
+        // with a shrink means the full-resolution pixels are never unpacked at
+        // all. Same ordering imgproxy uses: load, check, then scale on load.
+        let source_image = shrink_source_on_load(source_image, &image_bytes, &parsed_options);
 
         let processed_image_bytes = process_image(source_image, parsed_options, &image_bytes, watermark.as_ref())?;
         Ok::<_, ServiceError>((processed_image_bytes, output_format))
