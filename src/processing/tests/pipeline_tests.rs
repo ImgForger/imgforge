@@ -152,3 +152,54 @@ fn test_process_image_extend_uses_current_dimensions_after_min_height() {
 
     assert_eq!(decoded.dimensions(), (300, 200));
 }
+
+#[test]
+fn test_max_result_dimension_rejects_oversized_output() {
+    init_vips();
+    // Nothing else bounds the requested output: a small source with
+    // enlarge:true will happily be told to become enormous, and the source
+    // guards only cover what was read in.
+    let source_bytes = Bytes::from(create_test_image(64, 64));
+    let img = VipsImage::new_from_buffer(&source_bytes, "").unwrap();
+    let parsed_options = ParsedOptions {
+        resize: Some(Resize {
+            resizing_type: "fit".to_string(),
+            width: 4000,
+            height: 4000,
+        }),
+        format: Some("png".to_string()),
+        enlarge: true,
+        max_result_dimension: Some("2000".parse().unwrap()),
+        ..ParsedOptions::default()
+    };
+
+    let err = process_image(img, parsed_options, &source_bytes, None).expect_err("should be rejected");
+    let message = err.to_string();
+    assert!(
+        message.contains("4000") && message.contains("2000"),
+        "error should name the result and the limit, got: {message}"
+    );
+}
+
+#[test]
+fn test_max_result_dimension_allows_output_within_limit() {
+    init_vips();
+    let source_bytes = Bytes::from(create_test_image(64, 64));
+    let img = VipsImage::new_from_buffer(&source_bytes, "").unwrap();
+    let parsed_options = ParsedOptions {
+        resize: Some(Resize {
+            resizing_type: "fit".to_string(),
+            width: 500,
+            height: 500,
+        }),
+        format: Some("png".to_string()),
+        enlarge: true,
+        max_result_dimension: Some("500".parse().unwrap()),
+        ..ParsedOptions::default()
+    };
+
+    // The limit is inclusive: a result exactly at the ceiling is allowed.
+    let output = process_image(img, parsed_options, &source_bytes, None).unwrap();
+    let decoded = image::load_from_memory(&output).unwrap();
+    assert_eq!(decoded.dimensions(), (500, 500));
+}

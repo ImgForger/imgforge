@@ -10,7 +10,7 @@ pub struct ProcessingOption {
     /// Arguments for the processing option.
     pub args: Vec<String>,
 }
-use crate::limits::{MaxSourceFileSize, MaxSourceResolution};
+use crate::limits::{MaxResultDimension, MaxSourceFileSize, MaxSourceResolution};
 use base64::engine::general_purpose;
 use base64::Engine as _;
 use std::collections::HashMap;
@@ -181,6 +181,10 @@ const FORMAT_EXT: &str = "ext";
 const MAX_SRC_RESOLUTION: &str = "max_src_resolution";
 /// Shorthand for max_src_resolution.
 const MAX_SRC_RESOLUTION_SHORT: &str = "msr";
+/// Option name for max_result_dimension.
+const MAX_RESULT_DIMENSION: &str = "max_result_dimension";
+/// Shorthand for max_result_dimension.
+const MAX_RESULT_DIMENSION_SHORT: &str = "mrd";
 /// Option name for max_src_file_size.
 const MAX_SRC_FILE_SIZE: &str = "max_src_file_size";
 /// Shorthand for max_src_file_size.
@@ -521,6 +525,8 @@ pub struct ParsedOptions {
     pub raw: bool,
     /// Maximum allowed source image resolution in megapixels.
     pub max_src_resolution: Option<MaxSourceResolution>,
+    /// Ceiling for either dimension of the processed image.
+    pub max_result_dimension: Option<MaxResultDimension>,
     /// Maximum allowed source image file size in bytes.
     pub max_src_file_size: Option<MaxSourceFileSize>,
     /// Value to bypass cache (e.g., timestamp).
@@ -584,6 +590,7 @@ impl Default for ParsedOptions {
             auto_rotate: true,
             raw: false,
             max_src_resolution: None,
+            max_result_dimension: None,
             max_src_file_size: None,
             cache_buster: None,
             expires: None,
@@ -906,6 +913,20 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
                 if let Some(ref mut background) = parsed_options.background {
                     background[3] = (alpha * 255.0).round() as u8;
                 }
+            }
+            MAX_RESULT_DIMENSION | MAX_RESULT_DIMENSION_SHORT => {
+                if option.args.is_empty() {
+                    return Err(OptionParseError::invalid(
+                        "max_result_dimension option requires one argument",
+                    ));
+                }
+                parsed_options.max_result_dimension =
+                    Some(option.args[0].parse::<MaxResultDimension>().map_err(|source| {
+                        OptionParseError::SecurityLimit {
+                            option: "max_result_dimension".to_string(),
+                            source,
+                        }
+                    })?);
             }
             MAX_SRC_RESOLUTION | MAX_SRC_RESOLUTION_SHORT => {
                 if option.args.is_empty() {

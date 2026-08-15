@@ -1,5 +1,5 @@
 use crate::constants::*;
-use crate::limits::{MaxSourceFileSize, MaxSourceResolution, SecurityLimitError};
+use crate::limits::{MaxResultDimension, MaxSourceFileSize, MaxSourceResolution, SecurityLimitError};
 use crate::processing::options::ProcessingOption;
 use crate::processing::presets::{parse_options_string, PresetError};
 use std::collections::HashMap;
@@ -130,6 +130,7 @@ pub struct Config {
     pub allow_security_options: bool,
     pub max_src_file_size: Option<MaxSourceFileSize>,
     pub max_src_resolution: Option<MaxSourceResolution>,
+    pub max_result_dimension: Option<MaxResultDimension>,
     pub allowed_mime_types: Option<Vec<String>>,
     pub download_timeout: u64,
     pub secret: Option<String>,
@@ -242,6 +243,7 @@ impl Config {
             allow_security_options: false,
             max_src_file_size: None,
             max_src_resolution: None,
+            max_result_dimension: None,
             allowed_mime_types: None,
             download_timeout: 10,
             secret: None,
@@ -283,6 +285,7 @@ impl Config {
 
         config.max_src_file_size = parse_optional_security_limit(ENV_MAX_SRC_FILE_SIZE)?;
         config.max_src_resolution = parse_optional_security_limit(ENV_MAX_SRC_RESOLUTION)?;
+        config.max_result_dimension = parse_optional_security_limit(ENV_MAX_RESULT_DIMENSION)?;
         config.allowed_mime_types = env::var(ENV_ALLOWED_MIME_TYPES)
             .ok()
             .map(|s| s.split(',').map(|s| s.to_string()).collect());
@@ -576,6 +579,31 @@ mod tests {
         }
 
         restore_env_var(ENV_MAX_SRC_RESOLUTION, original);
+    }
+
+    #[test]
+    fn max_result_dimension_is_validated_at_startup() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let original = env::var(ENV_MAX_RESULT_DIMENSION).ok();
+
+        env::set_var(ENV_MAX_RESULT_DIMENSION, "8192");
+        let config = Config::from_env().expect("valid dimension");
+        assert_eq!(config.max_result_dimension.map(MaxResultDimension::get), Some(8192));
+
+        // A malformed ceiling stops startup rather than silently leaving the
+        // result size unbounded.
+        for value in ["0", "-1", "huge"] {
+            env::set_var(ENV_MAX_RESULT_DIMENSION, value);
+            assert!(matches!(
+                Config::from_env(),
+                Err(ConfigError::InvalidSecurityLimit {
+                    name: ENV_MAX_RESULT_DIMENSION,
+                    ..
+                })
+            ));
+        }
+
+        restore_env_var(ENV_MAX_RESULT_DIMENSION, original);
     }
 
     #[test]

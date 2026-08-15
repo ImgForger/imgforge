@@ -2,7 +2,7 @@ use crate::app::AppState;
 use crate::caching::cache::{CachedImage, CachedMetadata, ImgforgeCache, MetadataCache};
 use crate::config::DefaultOutputFormat;
 use crate::fetch::{fetch_image, FetchError};
-use crate::limits::{MaxSourceFileSize, MaxSourceResolution};
+use crate::limits::{MaxResultDimension, MaxSourceFileSize, MaxSourceResolution};
 use crate::monitoring::{ImageOperation, ImageOperationActivityGuard, ImageOperationPhase, ImageOperationTimer};
 use crate::processing::options::{parse_all_options, OptionParseError, ParsedOptions};
 use crate::processing::presets::{expand_presets, PresetError};
@@ -313,6 +313,8 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
         // even if the async request future is cancelled while awaiting it.
         let _permit = permit;
 
+        parsed_options.max_result_dimension = resolve_max_result_dimension(&blocking_state.config, &parsed_options);
+
         if parsed_options.format.is_none() {
             parsed_options.format =
                 default_output_format(blocking_state.config.default_format, &image_bytes).map(str::to_owned);
@@ -621,6 +623,17 @@ fn resolve_max_src_resolution(
     }
 }
 
+fn resolve_max_result_dimension(
+    config: &crate::config::Config,
+    parsed_options: &ParsedOptions,
+) -> Option<MaxResultDimension> {
+    if config.allow_security_options {
+        parsed_options.max_result_dimension.or(config.max_result_dimension)
+    } else {
+        config.max_result_dimension
+    }
+}
+
 fn needs_watermark(parsed_options: &ParsedOptions) -> bool {
     parsed_options.watermark.is_some() || parsed_options.watermark_url.is_some()
 }
@@ -755,6 +768,39 @@ fn content_disposition_for(parsed_options: &ParsedOptions) -> Option<String> {
 mod tests {
     use super::*;
     use std::error::Error as _;
+
+    #[test]
+    fn max_result_dimension_override_requires_security_options() {
+        let request_limit = "1000".parse::<MaxResultDimension>().unwrap();
+        let server_limit = "4000".parse::<MaxResultDimension>().unwrap();
+
+        let parsed_options = ParsedOptions {
+            max_result_dimension: Some(request_limit),
+            ..ParsedOptions::default()
+        };
+
+        let mut config = crate::config::Config::new(vec![0u8; 32], vec![0u8; 32]);
+        config.max_result_dimension = Some(server_limit);
+
+        // Locked down: the URL cannot set its own ceiling, so the server's stands.
+        config.allow_security_options = false;
+        assert_eq!(
+            resolve_max_result_dimension(&config, &parsed_options),
+            Some(server_limit)
+        );
+
+        // Opted in: the request wins, matching how max_src_* already behave.
+        config.allow_security_options = true;
+        assert_eq!(
+            resolve_max_result_dimension(&config, &parsed_options),
+            Some(request_limit)
+        );
+
+        // No server limit and no opt-in means no ceiling at all.
+        config.allow_security_options = false;
+        config.max_result_dimension = None;
+        assert_eq!(resolve_max_result_dimension(&config, &parsed_options), None);
+    }
 
     #[test]
     fn fetch_size_error_has_centralized_http_mapping() {

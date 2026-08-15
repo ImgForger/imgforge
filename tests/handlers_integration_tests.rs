@@ -1242,3 +1242,74 @@ async fn test_default_output_format_explicit_format_wins() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(headers.get("content-type").unwrap(), "image/jpeg");
 }
+
+#[tokio::test]
+async fn test_max_result_dimension_rejects_oversized_request() {
+    let mock_server = MockServer::start().await;
+    let test_image = create_test_image(100, 100, [0, 0, 0, 255]);
+
+    Mock::given(method("GET"))
+        .and(path("/big.jpg"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_bytes(test_image)
+                .insert_header("Content-Type", "image/jpeg"),
+        )
+        .mount(&mock_server)
+        .await;
+
+    let config = create_test_config(vec![], vec![], true);
+    let state = create_test_state(config).await;
+
+    let source_url = format!("{}/big.jpg", mock_server.uri());
+    let encoded_url = URL_SAFE_NO_PAD.encode(source_url.as_bytes());
+    // A 100x100 source told to become 4000x4000, against a 1000px ceiling.
+    let path = format!(
+        "/unsafe/max_result_dimension:1000/resize:fit:4000:4000/enlarge:true/{}",
+        encoded_url
+    );
+
+    let app = axum::Router::new()
+        .route("/{*path}", axum::routing::get(image_forge_handler))
+        .with_state(state)
+        .layer(axum::middleware::from_fn(request_id_middleware));
+
+    let (status, _body, _) = make_request(app, &path, None).await;
+
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn test_max_result_dimension_allows_request_within_limit() {
+    let mock_server = MockServer::start().await;
+    let test_image = create_test_image(100, 100, [0, 0, 0, 255]);
+
+    Mock::given(method("GET"))
+        .and(path("/ok.jpg"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_bytes(test_image)
+                .insert_header("Content-Type", "image/jpeg"),
+        )
+        .mount(&mock_server)
+        .await;
+
+    let config = create_test_config(vec![], vec![], true);
+    let state = create_test_state(config).await;
+
+    let source_url = format!("{}/ok.jpg", mock_server.uri());
+    let encoded_url = URL_SAFE_NO_PAD.encode(source_url.as_bytes());
+    let path = format!(
+        "/unsafe/max_result_dimension:1000/resize:fit:800:800/enlarge:true/{}",
+        encoded_url
+    );
+
+    let app = axum::Router::new()
+        .route("/{*path}", axum::routing::get(image_forge_handler))
+        .with_state(state)
+        .layer(axum::middleware::from_fn(request_id_middleware));
+
+    let (status, _body, _) = make_request(app, &path, None).await;
+
+    assert_eq!(status, StatusCode::OK);
+}
