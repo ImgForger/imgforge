@@ -24,6 +24,8 @@ pub enum ProcessingError {
     Watermark(#[from] watermark::WatermarkError),
     #[error(transparent)]
     Save(#[from] save::SaveError),
+    #[error("processed image would be {width}x{height}, over the {limit}px result dimension limit")]
+    ResultTooLarge { width: i32, height: i32, limit: u32 },
 }
 
 /// Processes an image by applying the given `ParsedOptions`.
@@ -225,6 +227,27 @@ pub fn process_image(
         if output_format == "jpeg" {
             debug!("Applying background color for JPEG output: {:?}", bg_color);
             img = transform::apply_background_color(img, bg_color)?;
+        }
+    }
+
+    // Enforce the result-dimension ceiling before encoding. libvips has built a
+    // pipeline but not materialised it yet, so the dimensions are already known
+    // while the pixels are not — rejecting here avoids the allocation entirely
+    // rather than reporting it afterwards.
+    if let Some(limit) = parsed_options.max_result_dimension {
+        let (width, height) = (img.get_width(), img.get_height());
+        if width.max(height) as u32 > limit.get() {
+            debug!(
+                "Result {}x{} exceeds max_result_dimension {}",
+                width,
+                height,
+                limit.get()
+            );
+            return Err(ProcessingError::ResultTooLarge {
+                width,
+                height,
+                limit: limit.get(),
+            });
         }
     }
 

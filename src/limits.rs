@@ -1,4 +1,4 @@
-use std::num::{NonZeroU64, NonZeroUsize, ParseFloatError, ParseIntError};
+use std::num::{NonZeroU32, NonZeroU64, NonZeroUsize, ParseFloatError, ParseIntError};
 use std::str::FromStr;
 use thiserror::Error;
 
@@ -19,6 +19,10 @@ pub enum SecurityLimitError {
     ResolutionBelowOnePixel,
     #[error("is too large to represent as a pixel count")]
     ResolutionTooLarge,
+    #[error("must be a positive whole number of pixels")]
+    InvalidDimension(#[source] ParseIntError),
+    #[error("must be greater than zero")]
+    ZeroDimension,
 }
 
 /// Validated maximum source-image size in bytes.
@@ -85,6 +89,38 @@ impl FromStr for MaxSourceResolution {
     }
 }
 
+/// Validated ceiling for either dimension of the processed image.
+///
+/// The source limits bound what imgforge will read; this bounds what it will
+/// produce. Nothing else does: a request may ask for any width and height it
+/// likes, and with `enlarge:true` a small source can be told to become
+/// arbitrarily large.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct MaxResultDimension(NonZeroU32);
+
+impl MaxResultDimension {
+    /// Construct a limit from a positive pixel count.
+    pub fn new(pixels: u32) -> Result<Self, SecurityLimitError> {
+        NonZeroU32::new(pixels)
+            .map(Self)
+            .ok_or(SecurityLimitError::ZeroDimension)
+    }
+
+    /// Return the maximum allowed width or height, in pixels.
+    pub fn get(self) -> u32 {
+        self.0.get()
+    }
+}
+
+impl FromStr for MaxResultDimension {
+    type Err = SecurityLimitError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        let pixels = value.parse::<u32>().map_err(SecurityLimitError::InvalidDimension)?;
+        Self::new(pixels)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -100,6 +136,14 @@ mod tests {
     fn resolution_converts_megapixels_to_pixels() {
         let limit = "10.5".parse::<MaxSourceResolution>().expect("valid resolution");
         assert_eq!(limit.pixels(), 10_500_000);
+    }
+
+    #[test]
+    fn result_dimension_requires_a_positive_whole_number() {
+        for value in ["0", "-1", "1.5", "abc", ""] {
+            assert!(value.parse::<MaxResultDimension>().is_err(), "accepted {value}");
+        }
+        assert_eq!("4096".parse::<MaxResultDimension>().unwrap().get(), 4096);
     }
 
     #[test]

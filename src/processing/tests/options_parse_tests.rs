@@ -1,4 +1,4 @@
-use crate::limits::{MaxSourceFileSize, MaxSourceResolution};
+use crate::limits::{MaxResultDimension, MaxSourceFileSize, MaxSourceResolution};
 use crate::processing::options::{parse_all_options, Gravity, OptionParseError, ProcessingOption};
 use crate::processing::presets::parse_options_string;
 use crate::processing::utils;
@@ -248,6 +248,36 @@ fn test_parse_max_src_resolution_option() {
         parsed.max_src_resolution.map(MaxSourceResolution::pixels),
         Some(10_500_000)
     );
+}
+
+#[test]
+fn test_parse_max_result_dimension_option() {
+    for name in ["max_result_dimension", "mrd"] {
+        let options = vec![ProcessingOption {
+            name: name.to_string(),
+            args: vec!["2048".to_string()],
+        }];
+        let parsed = parse_all_options(options).unwrap();
+        assert_eq!(
+            parsed.max_result_dimension.map(MaxResultDimension::get),
+            Some(2048),
+            "{name} did not parse"
+        );
+    }
+}
+
+#[test]
+fn test_parse_max_result_dimension_rejects_invalid_limits() {
+    for value in ["0", "-1", "abc", "1.5"] {
+        let options = vec![ProcessingOption {
+            name: "max_result_dimension".to_string(),
+            args: vec![value.to_string()],
+        }];
+        assert!(
+            parse_all_options(options).is_err(),
+            "accepted invalid max_result_dimension {value}"
+        );
+    }
 }
 
 #[test]

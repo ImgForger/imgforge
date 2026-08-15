@@ -32,19 +32,22 @@ imgforge is configured entirely through environment variables. Every one of them
 | `IMGFORGE_SALT`                   | _required_ | Hex-encoded salt prepended to the signed path prior to hashing. Rotate alongside the key.                                                                           |
 | `IMGFORGE_ALLOW_UNSIGNED`         | `false`    | When `true`, accepts `unsafe/...` paths without signature validation. Restrict to development environments.                                                         |
 | `IMGFORGE_SECRET`                 | unset      | If provided, requests to `/info` and image endpoints must include `Authorization: Bearer <token>`. Combine with load balancer ACLs when exposing imgforge publicly. |
-| `IMGFORGE_ALLOW_SECURITY_OPTIONS` | `false`    | Permits request-level overrides of file size and resolution limits. Keep disabled unless you trust all URL builders.                                                |
+| `IMGFORGE_ALLOW_SECURITY_OPTIONS` | `false`    | Permits request-level overrides of the source and result limits (`msfs`, `msr`, `mrd`). Keep disabled unless you trust all URL builders.                            |
 
-## Source validation safeguards
+## Source & result safeguards
 
-| Variable                      | Default  | Description & tips                                                                                                                                                                                           |
-| ----------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `IMGFORGE_MAX_SRC_FILE_SIZE`  | unset    | Positive integer byte limit. Rejects larger source images before processing.                                                                                                                                 |
-| `IMGFORGE_MAX_SRC_RESOLUTION` | unset    | Finite, positive megapixel limit (width × height ÷ 1_000_000). Helps avoid processing extremely large images.                                                                                                |
-| `IMGFORGE_ALLOWED_MIME_TYPES` | unset    | Comma-separated allowlist (e.g., `image/jpeg,image/png,image/webp`). Requests with other MIME types fail with `400 Bad Request`.                                                                             |
-| `IMGFORGE_WATERMARK_PATH`     | unset    | Filesystem path to a watermark image automatically applied when the `watermark` option is present and no `watermark_url` is supplied.                                                                        |
-| `IMGFORGE_DEFAULT_FORMAT`     | `source` | Output format when the URL requests none. `source` keeps the source image's format (imgproxy-compatible); a concrete format (`jpeg`, `webp`, ...) fixes the default — `jpeg` restores the pre-0.11 behavior. |
+| Variable                        | Default  | Description & tips                                                                                                                                                                                           |
+| ------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `IMGFORGE_MAX_SRC_FILE_SIZE`    | unset    | Positive integer byte limit. Rejects larger source images before processing.                                                                                                                                 |
+| `IMGFORGE_MAX_SRC_RESOLUTION`   | unset    | Finite, positive megapixel limit (width × height ÷ 1_000_000). Helps avoid processing extremely large images.                                                                                                |
+| `IMGFORGE_MAX_RESULT_DIMENSION` | unset    | Positive integer pixel ceiling for the width and height of the processed image. Rejects the request with `400 Bad Request` before encoding. Nothing else bounds output size.                                 |
+| `IMGFORGE_ALLOWED_MIME_TYPES`   | unset    | Comma-separated allowlist (e.g., `image/jpeg,image/png,image/webp`). Requests with other MIME types fail with `400 Bad Request`.                                                                             |
+| `IMGFORGE_WATERMARK_PATH`       | unset    | Filesystem path to a watermark image automatically applied when the `watermark` option is present and no `watermark_url` is supplied.                                                                        |
+| `IMGFORGE_DEFAULT_FORMAT`       | `source` | Output format when the URL requests none. `source` keeps the source image's format (imgproxy-compatible); a concrete format (`jpeg`, `webp`, ...) fixes the default — `jpeg` restores the pre-0.11 behavior. |
 
-imgforge refuses to start when either source limit or `IMGFORGE_WORKERS` is malformed. Source limits must also be positive, finite, and inside their supported ranges. An unset source-limit variable is the only way to disable that limit.
+imgforge refuses to start when any of the three limits above or `IMGFORGE_WORKERS` is malformed. Limits must be positive, finite, and inside their supported ranges. Leaving a variable unset is the only way to disable that limit.
+
+The first two bound what imgforge will *read*; `IMGFORGE_MAX_RESULT_DIMENSION` bounds what it will *produce*. Without it there is no ceiling on requested output size — `resize:fill:40000:40000/enlarge:true` will try to build a 40000x40000 image from any source. Because libvips defers the pixel work, the check runs before anything is materialised, so an over-limit request costs nothing beyond the source fetch.
 
 Changing `IMGFORGE_DEFAULT_FORMAT` uses a separate cache namespace for format-less URLs, preventing persistent cache entries encoded under the previous default from being served with stale bytes or content types.
 
