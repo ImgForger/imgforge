@@ -33,7 +33,8 @@ plan ─▶ dpr ─▶ load ─▶ geometry ─▶ canvas ─▶ effects ─▶ 
 ## Failure modes
 
 - Invalid numbers — negative widths, NaN, out-of-range blur sigma — are rejected with `400 Bad Request` before libvips runs.
-- The resolution and file-size guards apply to the *source* image and run before this pipeline starts. Nothing here — `dpr`, padding, minimums — can trip them, and there is no ceiling on the size of the output you ask for.
+- The resolution and file-size guards apply to the *source* image and run before this pipeline starts. Nothing here — `dpr`, padding, minimums — can trip them.
+- The output has its own ceiling, `max_result_dimension`, and it is the only thing bounding how large a result you may ask for. It is checked at the end of this pipeline, once every stage above has settled the dimensions, but before encoding — so an over-limit request is rejected without the pixels ever being materialised. Unset, there is no ceiling at all.
 - Watermark fetches share the timeout and size limits of the main source. A failure fails the request.
 
 ## Observability
