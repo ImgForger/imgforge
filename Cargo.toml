@@ -27,7 +27,7 @@ path = "src/main.rs"
 
 [dependencies]
 axum = "0.8.9"
-base64 = "0.22.1"
+base64 = "0.23.1"
 hex = "0.4.3"
 hmac = "0.12.1"
 libvips = "1.7.6"
@@ -67,6 +67,6 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
 wiremock = "0.6"
-base64 = "0.22.1"
+base64 = "0.23.1"
 hmac = "0.12.1"
 futures = "0.3"
