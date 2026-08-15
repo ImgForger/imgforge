@@ -10,6 +10,10 @@ Entries start at 0.10.0. For earlier history, see the
 
 ## [Unreleased]
 
+_No changes yet._
+
+## [0.16.0] - 2026-08-15
+
 ### Fixed
 
 - `enlarge:false` — the default — no longer skips resizes that would only shrink the image. The
@@ -208,7 +212,8 @@ Entries start at 0.10.0. For earlier history, see the
 - WebP saves use the safe libvips save path, documented alongside the crash caveat in the generated
   `webpsave` bindings. (Superseded by the WebP encoder-option fix in 0.14.0, above.)
 
-[Unreleased]: https://github.com/ImgForger/imgforge/compare/v0.15.0...HEAD
+[Unreleased]: https://github.com/ImgForger/imgforge/compare/v0.16.0...HEAD
+[0.16.0]: https://github.com/ImgForger/imgforge/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/ImgForger/imgforge/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/ImgForger/imgforge/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/ImgForger/imgforge/compare/v0.12.0...v0.13.0
