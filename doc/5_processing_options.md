@@ -100,7 +100,8 @@ See [Presets](5.2_presets.md) for comprehensive preset documentation including p
 
 - **Types** – `fill`, `fit`, `force`, and `auto`. `auto` selects `fill` when orientations match and `fit` otherwise.
 - **Defaults** – If width or height are omitted (or `0`), imgforge preserves aspect ratio using the provided dimension. `enlarge` and `extend` default to `false` unless explicitly set.
-- **Enlarging** – Without `enlarge:true`, target dimensions that exceed the original image are clamped to avoid upscale work. Combine with `min-width`/`min-height` when you want conditional enlargement.
+- **Enlarging** – `enlarge:false` (the default) means the image is never scaled *up*; it does not mean the resize is skipped. The resizing type settles the scale first, then that scale is capped so no axis grows. A 1600×400 banner asked for `resize:fit:500:500` still comes back at 500×125 — it fits the box, it just is not enlarged to fill it. Only when every axis would grow does the image pass through untouched.
+- With `fill`, capping can leave the result smaller than the requested box: covering a 500×200 box from a 1000×100 source would need a 2× upscale, so the crop takes what exists and returns 500×100. Set `enlarge:true` to get the exact box. `min-width`/`min-height` are the other way to force a size — see below, they upscale regardless.
 - **Extending** – `extend:true` pads the canvas to the requested size after resizing but before padding. The background colour determines the filled area.
 
 ### `size`

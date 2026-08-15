@@ -10,7 +10,47 @@ Entries start at 0.10.0. For earlier history, see the
 
 ## [Unreleased]
 
-_No changes yet._
+### Fixed
+
+- `enlarge:false` — the default — no longer skips resizes that would only shrink the image. The
+  check compared the requested box against the source and abandoned the whole resize when either
+  side was larger, so a 1600×400 banner asked for `resize:fit:500:500` came back at full size
+  instead of 500×125. Any square-ish box larger than the source's short side was affected.
+
+  **Operational note:** URLs that were silently returning a full-size image now return the correctly
+  scaled one — smaller responses and different bytes. Cache keys are URL-based, so existing entries
+  keep serving the old output until they expire or are evicted; clear the cache if you need the
+  corrected sizes immediately.
+
+  Enlargement is now capped the way imgproxy caps it: the resizing type settles the scale, then every
+  axis is divided by the largest scale when that exceeds 1. Two consequences worth knowing —
+  `force` keeps the distortion you asked for rather than clamping each axis separately, and `fill`
+  can return less than the requested box (500×100 from a 1000×100 source against a 500×200 box)
+  where it previously failed with an error.
+
+- Large `padding` values produced a wrong image instead of an error. The canvas was summed in `i32`,
+  so a value above `i32::MAX` wrapped negative: `padding:0:4294967268:0:0` on a 64×64 source returned
+  a **36×64 image with a 200**, quietly cropped rather than padded. Oversized padding is now refused
+  with `400`. Debug builds previously panicked on the overflow.
+
+- Argument errors reach the client. Out-of-range values in `zoom`, `sharpen`, `extend`, and `padding`
+  were flattened into `Error processing image`; the response now names the actual problem.
+
+- The `crop` and `min-width`/`min-height` documentation described behaviour the code never had.
+  `crop` is `crop:width:height[:gravity]` — there are no x/y arguments, and gravity is what positions
+  the window; the previously documented `crop:x:y:width:height` returns `400`. The minimums upscale
+  **regardless of `enlarge`**, so `enlarge:false` is not a guard against them.
+
+### Added
+
+- `max_result_dimension` / `mrd`, with `IMGFORGE_MAX_RESULT_DIMENSION`, capping the width and height
+  of the processed image. Nothing previously bounded output size: a request could ask for any
+  dimensions it liked and imgforge would attempt them. Per-request overrides require
+  `IMGFORGE_ALLOW_SECURITY_OPTIONS`, matching `max_src_resolution` and `max_src_file_size`.
+
+  Cached responses are namespaced by the effective limit, so entries stored under a higher ceiling
+  are not served after you lower it. Enabling the option does not invalidate a cache that was not
+  using it.
 
 ## [0.15.0] - 2026-08-15
 

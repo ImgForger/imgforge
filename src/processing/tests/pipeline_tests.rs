@@ -25,7 +25,7 @@ fn test_crop_then_resize() {
         width: 100,
         height: 100,
     };
-    let final_img = transform::apply_resize(cropped, &resize, &None, None).unwrap();
+    let final_img = transform::apply_resize(cropped, &resize, &None, None, true).unwrap();
     assert_eq!(final_img.get_width(), 100);
     assert_eq!(final_img.get_height(), 100);
 }
@@ -39,7 +39,7 @@ fn test_resize_then_blur() {
         width: 100,
         height: 100,
     };
-    let resized = transform::apply_resize(img, &resize, &None, None).unwrap();
+    let resized = transform::apply_resize(img, &resize, &None, None, true).unwrap();
     let blurred = transform::apply_blur(resized, 3.0).unwrap();
     assert_eq!(blurred.get_width(), 100);
     assert_eq!(blurred.get_height(), 100);
@@ -54,7 +54,7 @@ fn test_resize_then_sharpen() {
         width: 300,
         height: 300,
     };
-    let resized = transform::apply_resize(img, &resize, &None, None).unwrap();
+    let resized = transform::apply_resize(img, &resize, &None, None, true).unwrap();
     let sharpened = transform::apply_sharpen(resized, 1.0).unwrap();
     assert_eq!(sharpened.get_width(), 300);
     assert_eq!(sharpened.get_height(), 300);
@@ -70,7 +70,7 @@ fn test_rotation_then_resize() {
         width: 100,
         height: 100,
     };
-    let resized = transform::apply_resize(rotated, &resize, &None, None).unwrap();
+    let resized = transform::apply_resize(rotated, &resize, &None, None, true).unwrap();
     assert_eq!(resized.get_width(), 100);
     assert_eq!(resized.get_height(), 50);
 }
@@ -95,7 +95,7 @@ fn test_complex_pipeline_crop_resize_blur_rotate() {
         width: 200,
         height: 200,
     };
-    let img = transform::apply_resize(img, &resize, &None, None).unwrap();
+    let img = transform::apply_resize(img, &resize, &None, None, true).unwrap();
     assert_eq!(img.get_width(), 200);
 
     let img = transform::apply_blur(img, 2.0).unwrap();
@@ -114,7 +114,7 @@ fn test_complex_pipeline_resize_padding_watermark() {
         width: 150,
         height: 150,
     };
-    let img = transform::apply_resize(img, &resize, &None, None).unwrap();
+    let img = transform::apply_resize(img, &resize, &None, None, true).unwrap();
 
     let img = transform::apply_padding(img, 10, 10, 10, 10, &Some([255, 255, 255, 255])).unwrap();
     assert_eq!(img.get_width(), 170);
@@ -223,4 +223,26 @@ fn test_min_dimensions_upscale_regardless_of_enlarge() {
     let decoded = image::load_from_memory(&output).unwrap();
     // Aspect preserved: min-width raises the height too.
     assert_eq!(decoded.dimensions(), (500, 500));
+}
+
+/// End to end: the request a user actually sends. A wide banner asked to fit a
+/// square box must come back inside that box, not at full size.
+#[test]
+fn test_fit_inside_a_square_box_downscales_a_wide_source() {
+    init_vips();
+    let source_bytes = Bytes::from(create_test_image(1600, 400));
+    let img = VipsImage::new_from_buffer(&source_bytes, "").unwrap();
+    let parsed_options = ParsedOptions {
+        resize: Some(Resize {
+            resizing_type: "fit".to_string(),
+            width: 500,
+            height: 500,
+        }),
+        format: Some("png".to_string()),
+        enlarge: false,
+        ..ParsedOptions::default()
+    };
+
+    let output = process_image(img, parsed_options, &source_bytes, None).unwrap();
+    assert_eq!(image::load_from_memory(&output).unwrap().dimensions(), (500, 125));
 }
