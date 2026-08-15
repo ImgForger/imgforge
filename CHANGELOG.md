@@ -12,6 +12,37 @@ Entries start at 0.10.0. For earlier history, see the
 
 _No changes yet._
 
+## [0.15.0] - 2026-08-15
+
+### Fixed
+
+- AVIF, HEIF, and GIF output failed on the libvips shipped with the published Docker image, with
+  errors like `heifsave_buffer: no property named 'tune'`. The libvips crate's generated save
+  bindings name encoder properties that only exist in libvips 8.16 and later — `tune` on heifsave,
+  `keep-duplicate-frames` on gifsave, `exact` on webpsave — and an older libvips rejects the entire
+  call, so those formats did not encode at all. The image is built `FROM ubuntu:24.04`, which ships
+  libvips 8.15.1.
+
+  These formats now encode through the libvips save suffix, as WebP already did since 0.14.0. The
+  option-string parser sets only the options named, so it stays correct across libvips versions.
+  JPEG, PNG, and TIFF are unaffected; every property their bindings name predates 8.15.
+
+  HEIF specifically still fails on a libvips built without an HEVC encoder, but now reports the
+  real reason (`Unsupported compression`) instead of a misleading property error. AVIF uses a
+  different codec and is unaffected.
+
+### Changed
+
+- GIF output now honours `strip_metadata`. The previous encoder call never passed the metadata
+  setting, so GIF retained metadata regardless of the option — unlike every other format.
+- Dependency upgrades: `hmac` 0.12 → 0.13, `sha2` 0.10 → 0.11, `base64` 0.22 → 0.23, `tower-http`
+  0.6 → 0.7, plus semver-compatible updates across the tree. URL signatures are byte-identical:
+  signatures issued by earlier releases keep validating, and a pinned signature vector in the test
+  suite now guards that across future dependency bumps.
+
+  `libvips` stays on 1.7.6 deliberately. Version 2.x passes the same encoder property names, so it
+  does not address the issue above.
+
 ## [0.14.0] - 2026-08-12
 
 ### Fixed
@@ -117,7 +148,8 @@ _No changes yet._
 - WebP saves use the safe libvips save path, documented alongside the crash caveat in the generated
   `webpsave` bindings. (Superseded by the WebP encoder-option fix in 0.14.0, above.)
 
-[Unreleased]: https://github.com/ImgForger/imgforge/compare/v0.14.0...HEAD
+[Unreleased]: https://github.com/ImgForger/imgforge/compare/v0.15.0...HEAD
+[0.15.0]: https://github.com/ImgForger/imgforge/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/ImgForger/imgforge/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/ImgForger/imgforge/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/ImgForger/imgforge/compare/v0.11.0...v0.12.0
