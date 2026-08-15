@@ -201,11 +201,29 @@ pub fn resolve_resize_dimensions(
 }
 
 /// Applies resize operation based on the resize type.
+/// Caps scaling so nothing is enlarged, following imgproxy: the resizing type
+/// settles the scale first, then the cap divides every axis by the largest
+/// scale when that exceeds 1. The axis that would have been enlarged lands
+/// exactly at 1 and the others keep their relative proportion — which is not
+/// the same as refusing the whole operation, because a fit whose box is taller
+/// than the source still has to shrink the width.
+fn cap_enlargement(scales: &mut [f64; 2], enlarge: bool) {
+    if enlarge {
+        return;
+    }
+    let largest = scales[0].max(scales[1]);
+    if largest > 1.0 {
+        scales[0] /= largest;
+        scales[1] /= largest;
+    }
+}
+
 pub fn apply_resize(
     img: VipsImage,
     resize: &Resize,
     gravity: &Option<Gravity>,
     resizing_algorithm: Option<&str>,
+    enlarge: bool,
 ) -> Result<VipsImage, TransformError> {
     let src_width = img.get_width() as u32;
     let src_height = img.get_height() as u32;
@@ -218,9 +236,10 @@ pub fn apply_resize(
             target_h,
             gravity.unwrap_or(Gravity::Center),
             resizing_algorithm,
+            enlarge,
         ),
-        "fit" => resize_to_fit(img, target_w, target_h, resizing_algorithm),
-        "force" => resize_to_force(img, target_w, target_h, resizing_algorithm),
+        "fit" => resize_to_fit(img, target_w, target_h, resizing_algorithm, enlarge),
+        "force" => resize_to_force(img, target_w, target_h, resizing_algorithm, enlarge),
         "auto" => {
             let src_is_portrait = super::utils::is_portrait(src_width, src_height);
             let target_is_portrait = super::utils::is_portrait(target_w, target_h);
@@ -233,10 +252,11 @@ pub fn apply_resize(
                     target_h,
                     gravity.unwrap_or(Gravity::Center),
                     resizing_algorithm,
+                    enlarge,
                 )
             } else {
                 debug!("Auto resize: orientations differ, using fit");
-                resize_to_fit(img, target_w, target_h, resizing_algorithm)
+                resize_to_fit(img, target_w, target_h, resizing_algorithm, enlarge)
             }
         }
         _ => Err(TransformError::invalid(
@@ -253,36 +273,44 @@ fn resize_to_fill(
     height: u32,
     gravity: Gravity,
     resizing_algorithm: Option<&str>,
+    enlarge: bool,
 ) -> Result<VipsImage, TransformError> {
     let (img_w, img_h) = (img.get_width() as u32, img.get_height() as u32);
     let aspect_ratio = img_w as f32 / img_h as f32;
     let target_aspect_ratio = width as f32 / height as f32;
 
-    let mut scale = if aspect_ratio > target_aspect_ratio {
+    // Cover the box: scale by whichever axis needs the most.
+    let cover = if aspect_ratio > target_aspect_ratio {
         height as f64 / img_h as f64
     } else {
         width as f64 / img_w as f64
     };
-    // Bump the scale slightly so kernels that round down still cover the target.
-    scale *= 1.0 + SCALE_EPSILON;
+    let mut scales = [cover; 2];
+    cap_enlargement(&mut scales, enlarge);
 
-    let resized_img = resize_with_algorithm(&img, scale, None, resizing_algorithm, "Error resizing for fill")?;
+    let resized_img = if (scales[0] - 1.0).abs() < SCALE_EPSILON {
+        img
+    } else {
+        // Bump the scale slightly so kernels that round down still cover the target.
+        resize_with_algorithm(
+            &img,
+            scales[0] * (1.0 + SCALE_EPSILON),
+            None,
+            resizing_algorithm,
+            "Error resizing for fill",
+        )?
+    };
 
     let resized_w = resized_img.get_width() as u32;
     let resized_h = resized_img.get_height() as u32;
 
-    if resized_w < width || resized_h < height {
-        return Err(TransformError::invalid(
-            "resize",
-            format!(
-                "Resized image {}x{} is smaller than fill target {}x{}",
-                resized_w, resized_h, width, height
-            ),
-        ));
-    }
-
-    let extra_w = resized_w - width;
-    let extra_h = resized_h - height;
+    // With enlargement capped the image can be smaller than the requested box,
+    // so the window is what is actually available. Cropping to the full box
+    // would ask libvips for pixels that do not exist.
+    let crop_w = width.min(resized_w);
+    let crop_h = height.min(resized_h);
+    let extra_w = resized_w - crop_w;
+    let extra_h = resized_h - crop_h;
 
     let crop_x = match gravity {
         Gravity::West | Gravity::NorthWest | Gravity::SouthWest => 0,
@@ -296,7 +324,7 @@ fn resize_to_fill(
         _ => extra_h / 2,
     };
 
-    ops::extract_area(&resized_img, crop_x as i32, crop_y as i32, width as i32, height as i32)
+    ops::extract_area(&resized_img, crop_x as i32, crop_y as i32, crop_w as i32, crop_h as i32)
         .map_err(vips("Error cropping after fill resize"))
 }
 
@@ -306,15 +334,22 @@ fn resize_to_force(
     width: u32,
     height: u32,
     resizing_algorithm: Option<&str>,
+    enlarge: bool,
 ) -> Result<VipsImage, TransformError> {
     let (src_w, src_h) = (img.get_width() as f64, img.get_height() as f64);
-    let scale_x = width as f64 / src_w;
-    let scale_y = height as f64 / src_h;
+    let mut scales = [width as f64 / src_w, height as f64 / src_h];
+    cap_enlargement(&mut scales, enlarge);
 
-    if (scale_x - 1.0).abs() < SCALE_EPSILON && (scale_y - 1.0).abs() < SCALE_EPSILON {
+    if (scales[0] - 1.0).abs() < SCALE_EPSILON && (scales[1] - 1.0).abs() < SCALE_EPSILON {
         return Ok(img);
     }
-    resize_with_algorithm(&img, scale_x, Some(scale_y), resizing_algorithm, "Error force resizing")
+    resize_with_algorithm(
+        &img,
+        scales[0],
+        Some(scales[1]),
+        resizing_algorithm,
+        "Error force resizing",
+    )
 }
 
 /// Resizes an image to fit within the target dimensions while maintaining aspect ratio.
@@ -323,6 +358,7 @@ fn resize_to_fit(
     width: u32,
     height: u32,
     resizing_algorithm: Option<&str>,
+    enlarge: bool,
 ) -> Result<VipsImage, TransformError> {
     let (img_w, img_h) = (img.get_width() as u32, img.get_height() as u32);
     let aspect_ratio = img_w as f32 / img_h as f32;
@@ -338,9 +374,14 @@ fn resize_to_fit(
     debug!("Resizing to fit from {}x{} to {}x{}", img_w, img_h, target_w, target_h);
     let scale_w = target_w as f64 / img_w as f64;
     let scale_h = target_h as f64 / img_h as f64;
-    let scale = scale_w.min(scale_h);
+    let mut scales = [scale_w.min(scale_h); 2];
+    cap_enlargement(&mut scales, enlarge);
 
-    resize_with_algorithm(&img, scale, None, resizing_algorithm, "Error fitting resize")
+    if (scales[0] - 1.0).abs() < SCALE_EPSILON {
+        return Ok(img);
+    }
+
+    resize_with_algorithm(&img, scales[0], None, resizing_algorithm, "Error fitting resize")
 }
 
 /// Extends an image to the target dimensions with background color.

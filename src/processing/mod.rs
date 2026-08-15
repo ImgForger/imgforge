@@ -113,19 +113,17 @@ pub fn process_image(
         );
         resolved_resize_dims = Some((target_w, target_h));
 
-        if !parsed_options.enlarge && (target_w > src_width || target_h > src_height) {
-            debug!(
-                "Not enlarging image as enlarge is false and target {}x{} exceeds source {}x{}",
-                target_w, target_h, src_width, src_height
-            );
-        } else {
-            img = transform::apply_resize(
-                img,
-                resize,
-                &parsed_options.gravity,
-                parsed_options.resizing_algorithm.as_deref(),
-            )?;
-        }
+        // The enlargement cap lives inside apply_resize, per resizing type. It
+        // used to be here, comparing the requested box against the source and
+        // skipping the whole resize when either side was larger — which threw
+        // away downscales that never enlarged anything.
+        img = transform::apply_resize(
+            img,
+            resize,
+            &parsed_options.gravity,
+            parsed_options.resizing_algorithm.as_deref(),
+            parsed_options.enlarge,
+        )?;
     }
 
     // Apply min dimensions if specified
