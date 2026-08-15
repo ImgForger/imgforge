@@ -206,6 +206,27 @@ mod tests {
     }
 
     #[test]
+    fn test_validate_signature_matches_known_vector() {
+        // Pinned so a crypto or base64 dependency bump cannot silently change
+        // what imgforge accepts: every signed URL in the wild depends on this
+        // byte-for-byte. Computed independently, not by round-tripping the
+        // code under test.
+        let key = hex_bytes("0011223344556677889900aabbccddeeff");
+        let salt = hex_bytes("ffeeddccbbaa00998877665544332211");
+        let path = "/resize:fill:800:600/quality:85/plain/https://example.com/cat.jpg@webp";
+        let expected = "jr3LcKHV1tS-ZWB6ePfXy4cIb7efsCont3kNLIkkwJQ";
+
+        assert!(validate_signature(&key, &salt, expected, path));
+    }
+
+    fn hex_bytes(value: &str) -> Vec<u8> {
+        (0..value.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&value[i..i + 2], 16).unwrap())
+            .collect()
+    }
+
+    #[test]
     fn test_validate_signature_invalid() {
         let key = b"test_key";
         let salt = b"test_salt";
