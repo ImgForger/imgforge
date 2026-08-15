@@ -59,8 +59,24 @@ pub fn load_shrink_factor(parsed_options: &ParsedOptions, src_width: u32, src_he
     // or the shrink could drop the source below what the pipeline still needs.
     let grow =
         f64::from(parsed_options.dpr.unwrap_or(1.0).max(1.0)) * f64::from(parsed_options.zoom.unwrap_or(1.0).max(1.0));
-    let target_width = (f64::from(resize.width) * grow).max(f64::from(parsed_options.min_width.unwrap_or(0)));
-    let target_height = (f64::from(resize.height) * grow).max(f64::from(parsed_options.min_height.unwrap_or(0)));
+    // `force` fills a zero axis from the *source* dimension, so that axis needs
+    // the source at full size — shrinking would shrink the target with it. Every
+    // other type derives a zero axis from the aspect ratio, which survives a
+    // shrink unchanged.
+    let forced = resize.resizing_type == "force";
+    let width_follows_source = forced && resize.width == 0;
+    let height_follows_source = forced && resize.height == 0;
+
+    let target_width = if width_follows_source {
+        f64::from(src_width)
+    } else {
+        (f64::from(resize.width) * grow).max(f64::from(parsed_options.min_width.unwrap_or(0)))
+    };
+    let target_height = if height_follows_source {
+        f64::from(src_height)
+    } else {
+        (f64::from(resize.height) * grow).max(f64::from(parsed_options.min_height.unwrap_or(0)))
+    };
 
     let mut shrink = f64::INFINITY;
     if target_width >= 1.0 {

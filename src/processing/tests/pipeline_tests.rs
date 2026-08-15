@@ -359,3 +359,81 @@ fn test_shrink_on_load_does_not_change_output_dimensions() {
         image::load_from_memory(&reduced).unwrap().dimensions()
     );
 }
+
+/// `force` fills a zero axis from the source dimension, so that axis needs the
+/// source at full size: `resize:force:0:500` on 4000x3000 targets 4000x500, but
+/// after a 1/4 decode `resolve_resize_dimensions` would call it 1000x500 and
+/// silently return a quarter-width image.
+///
+/// Every other resizing type derives a zero axis from the aspect ratio, which
+/// survives a shrink unchanged — asserted here so the distinction is not lost.
+#[test]
+fn test_load_shrink_declines_for_force_with_an_unset_axis() {
+    use crate::processing::load_shrink_factor;
+    use crate::processing::transform::resolve_resize_dimensions;
+
+    let plan = |kind: &str, w: u32, h: u32| ParsedOptions {
+        resize: Some(Resize {
+            resizing_type: kind.to_string(),
+            width: w,
+            height: h,
+        }),
+        ..ParsedOptions::default()
+    };
+
+    for (w, h) in [(0, 500), (500, 0)] {
+        let options = plan("force", w, h);
+        assert_eq!(
+            load_shrink_factor(&options, 4000, 3000),
+            1,
+            "force with an unset axis must decline shrink-on-load"
+        );
+    }
+
+    // fit is unaffected: the derived axis is the same before and after.
+    let fit = plan("fit", 0, 500);
+    let resize = fit.resize.as_ref().unwrap();
+    let full = resolve_resize_dimensions(resize, 4000, 3000).unwrap();
+    let shrunk = resolve_resize_dimensions(resize, 1000, 750).unwrap();
+    assert_eq!(full, shrunk, "an aspect-derived axis should survive a shrink");
+    assert!(load_shrink_factor(&fit, 4000, 3000) > 1, "fit should still qualify");
+}
+
+/// EXIF orientations 5-8 transpose the image, and that rotation happens after
+/// the load. The plan is written against what the viewer sees, so the factor
+/// must be chosen against the rotated dimensions: a stored 8000x4000
+/// orientation-6 image is displayed 4000x8000, and `fill:2000:1000` against the
+/// stored shape picks a factor that leaves too few pixels once rotated.
+#[test]
+fn test_load_shrink_uses_displayed_dimensions_for_rotated_sources() {
+    use crate::processing::load_shrink_factor;
+
+    let options = ParsedOptions {
+        resize: Some(Resize {
+            resizing_type: "fill".to_string(),
+            width: 2000,
+            height: 1000,
+        }),
+        ..ParsedOptions::default()
+    };
+
+    // Stored orientation, which is what the loader reports.
+    let stored = load_shrink_factor(&options, 8000, 4000);
+    // What the pipeline actually sees once orientation 6 is applied.
+    let displayed = load_shrink_factor(&options, 4000, 8000);
+
+    assert_eq!(stored, 4);
+    assert_eq!(displayed, 2, "the rotated shape needs a gentler shrink");
+    assert!(
+        displayed < stored,
+        "choosing against stored dimensions over-shrinks a transposed source"
+    );
+
+    // The decoded image must still cover the request after rotation.
+    let (after_w, after_h) = (8000 / displayed, 4000 / displayed);
+    let (rotated_w, rotated_h) = (after_h, after_w);
+    assert!(
+        rotated_w >= 2000 && rotated_h >= 1000,
+        "rotated {rotated_w}x{rotated_h} cannot fill a 2000x1000 box"
+    );
+}

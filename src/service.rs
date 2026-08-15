@@ -202,6 +202,15 @@ fn processed_cache_key<'a>(
     }
 }
 
+/// Whether EXIF orientation will transpose the image during processing.
+fn swaps_axes(parsed_options: &ParsedOptions, image_bytes: &Bytes) -> bool {
+    parsed_options.auto_rotate
+        && matches!(
+            crate::utils::read_exif_orientation(image_bytes),
+            Some(5) | Some(6) | Some(7) | Some(8)
+        )
+}
+
 /// Reopens the source at a reduced scale when the plan allows it, falling back
 /// to the image already opened.
 ///
@@ -217,6 +226,15 @@ fn shrink_source_on_load(source_image: VipsImage, image_bytes: &Bytes, parsed_op
     let (width, height) = (source_image.get_width(), source_image.get_height());
     let (Ok(width), Ok(height)) = (u32::try_from(width), u32::try_from(height)) else {
         return source_image;
+    };
+
+    // EXIF orientations 5-8 swap the axes, and the rotation happens after the
+    // load. The plan is written against what the viewer sees, so the factor has
+    // to be chosen against the rotated dimensions, not the stored ones.
+    let (width, height) = if swaps_axes(parsed_options, image_bytes) {
+        (height, width)
+    } else {
+        (width, height)
     };
 
     let factor = crate::processing::load_shrink_factor(parsed_options, width, height);
@@ -885,6 +903,74 @@ mod tests {
             unlimited,
             processed_cache_key(path, DefaultOutputFormat::Source, false, false, None)
         );
+    }
+
+    /// A real JPEG with an APP1/Exif segment carrying just the Orientation tag,
+    /// spliced in after SOI. Built by hand so the fixture needs no tooling and
+    /// no checked-in binary.
+    fn exif_orientation_jpeg(orientation: u16) -> Vec<u8> {
+        use image::{ImageBuffer, ImageFormat, Rgb};
+
+        let mut base = Vec::new();
+        ImageBuffer::<Rgb<u8>, Vec<u8>>::from_pixel(8, 4, Rgb([10, 20, 30]))
+            .write_to(&mut std::io::Cursor::new(&mut base), ImageFormat::Jpeg)
+            .unwrap();
+
+        let mut tiff = Vec::new();
+        tiff.extend_from_slice(b"II"); // little-endian
+        tiff.extend_from_slice(&42u16.to_le_bytes());
+        tiff.extend_from_slice(&8u32.to_le_bytes()); // IFD0 starts here
+        tiff.extend_from_slice(&1u16.to_le_bytes()); // one entry
+        tiff.extend_from_slice(&0x0112u16.to_le_bytes()); // Orientation
+        tiff.extend_from_slice(&3u16.to_le_bytes()); // SHORT
+        tiff.extend_from_slice(&1u32.to_le_bytes()); // count
+        tiff.extend_from_slice(&orientation.to_le_bytes());
+        tiff.extend_from_slice(&0u16.to_le_bytes()); // value field is 4 bytes wide
+        tiff.extend_from_slice(&0u32.to_le_bytes()); // no further IFD
+
+        let mut app1 = Vec::from(&b"Exif\0\0"[..]);
+        app1.extend_from_slice(&tiff);
+
+        let mut out = Vec::new();
+        out.extend_from_slice(&base[..2]); // SOI
+        out.extend_from_slice(&[0xFF, 0xE1]);
+        out.extend_from_slice(&((app1.len() + 2) as u16).to_be_bytes());
+        out.extend_from_slice(&app1);
+        out.extend_from_slice(&base[2..]);
+        out
+    }
+
+    #[test]
+    fn axis_swapping_orientations_are_recognised() {
+        // The wiring that feeds load_shrink_factor its dimensions. Without this,
+        // a transposed source is measured on its stored shape and over-shrunk:
+        // the factor test proves the arithmetic, this proves it is reached.
+        let rotating = ParsedOptions {
+            auto_rotate: true,
+            ..ParsedOptions::default()
+        };
+        let fixed = ParsedOptions {
+            auto_rotate: false,
+            ..ParsedOptions::default()
+        };
+
+        // A JPEG carrying orientation 6, which transposes the image.
+        let rotated_jpeg = Bytes::from(exif_orientation_jpeg(6));
+        assert!(
+            swaps_axes(&rotating, &rotated_jpeg),
+            "orientation 6 transposes and must swap the axes"
+        );
+        assert!(
+            !swaps_axes(&fixed, &rotated_jpeg),
+            "auto_rotate:false leaves the stored shape alone"
+        );
+
+        // Orientation 3 is a 180 rotation: same shape, no swap.
+        let upright_jpeg = Bytes::from(exif_orientation_jpeg(3));
+        assert!(!swaps_axes(&rotating, &upright_jpeg));
+
+        // No EXIF at all.
+        assert!(!swaps_axes(&rotating, &Bytes::from_static(b"not an image")));
     }
 
     #[test]
