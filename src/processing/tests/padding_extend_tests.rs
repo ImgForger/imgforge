@@ -111,3 +111,55 @@ fn test_extend_with_different_gravities() {
         assert_eq!(extended.get_height(), 200);
     }
 }
+
+#[test]
+fn test_padding_rejects_canvas_beyond_vips_limits() {
+    init_vips();
+    // Padding parses as an unbounded u32. Summing the canvas in i32 wrapped:
+    // 4_294_967_268 is -28 as i32, so a 64-wide image came back 36 wide — a
+    // silently cropped result served with a 200 — and debug builds panicked
+    // on the overflow instead.
+    let img = VipsImage::new_from_buffer(&create_test_image(64, 64), "").unwrap();
+    let err = transform::apply_padding(img, 0, 4_294_967_268, 0, 0, &None)
+        .expect_err("a canvas this size must be refused, not silently wrapped");
+
+    assert!(
+        matches!(
+            err,
+            TransformError::InvalidArgument {
+                operation: "padding",
+                ..
+            }
+        ),
+        "expected an invalid-argument error, got: {err:?}"
+    );
+    assert!(
+        err.to_string().contains("exceeds the maximum"),
+        "error should name the limit, got: {err}"
+    );
+}
+
+#[test]
+fn test_padding_rejects_values_that_do_not_wrap_but_are_still_too_large() {
+    init_vips();
+    let img = VipsImage::new_from_buffer(&create_test_image(64, 64), "").unwrap();
+    // Well inside u32 and inside i32, but far past what libvips will embed.
+    let err = transform::apply_padding(img, 2_000_000_000, 0, 0, 0, &None).expect_err("must be refused");
+    assert!(matches!(
+        err,
+        TransformError::InvalidArgument {
+            operation: "padding",
+            ..
+        }
+    ));
+}
+
+#[test]
+fn test_padding_still_accepts_a_large_but_valid_canvas() {
+    init_vips();
+    // Just under the ceiling on one side: the guard must not reject usable work.
+    let img = VipsImage::new_from_buffer(&create_test_image(64, 64), "").unwrap();
+    let padded = transform::apply_padding(img, 0, 4_000, 0, 4_000, &None).expect("valid padding");
+    assert_eq!(padded.get_width(), 8_064);
+    assert_eq!(padded.get_height(), 64);
+}

@@ -464,3 +464,87 @@ async fn test_pixelate_effect() {
     let (status, _) = make_request(app, &path).await;
     assert_eq!(status, StatusCode::OK);
 }
+
+/// The oversized-padding guard, exercised through the handler rather than by
+/// calling the transform directly: the directive has to survive parsing and the
+/// service wiring and come back as a client error naming the problem.
+///
+/// Before the guard, this exact URL returned `200` with a 36x64 image — the
+/// canvas wrapped negative in i32 and libvips quietly clipped it.
+#[tokio::test]
+async fn test_oversized_padding_returns_client_error() {
+    let mock_server = MockServer::start().await;
+    let test_image = create_test_image(64, 64, [10, 200, 90, 255]);
+
+    Mock::given(method("GET"))
+        .and(path("/padding-overflow.jpg"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_bytes(test_image)
+                .insert_header("Content-Type", "image/jpeg"),
+        )
+        .mount(&mock_server)
+        .await;
+
+    let config = create_test_config(vec![], vec![], true);
+    let state = create_test_state_with_cache(config, ImgforgeCache::None).await;
+
+    let source_url = format!("{}/padding-overflow.jpg", mock_server.uri());
+    let encoded_url = URL_SAFE_NO_PAD.encode(source_url.as_bytes());
+    // 4_294_967_268 is -28 as i32.
+    let path = format!("/unsafe/padding:0:4294967268:0:0/{}", encoded_url);
+
+    let app = axum::Router::new()
+        .route("/{*path}", axum::routing::get(image_forge_handler))
+        .with_state(state)
+        .layer(axum::middleware::from_fn(request_id_middleware));
+
+    let (status, body) = make_request(app, &path).await;
+
+    assert_eq!(status, StatusCode::BAD_REQUEST, "oversized padding must not succeed");
+    let message = String::from_utf8_lossy(&body);
+    assert!(
+        message.contains("padded canvas") && message.contains("exceeds the maximum"),
+        "response should explain which limit was hit, got: {message}"
+    );
+}
+
+/// A padded canvas that is large but legitimate still renders, so the guard
+/// cannot be tightened into rejecting usable work without this failing.
+#[tokio::test]
+async fn test_large_but_valid_padding_still_renders() {
+    let mock_server = MockServer::start().await;
+    let test_image = create_test_image(64, 64, [10, 200, 90, 255]);
+
+    Mock::given(method("GET"))
+        .and(path("/padding-ok.jpg"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_bytes(test_image)
+                .insert_header("Content-Type", "image/jpeg"),
+        )
+        .mount(&mock_server)
+        .await;
+
+    let config = create_test_config(vec![], vec![], true);
+    let state = create_test_state_with_cache(config, ImgforgeCache::None).await;
+
+    let source_url = format!("{}/padding-ok.jpg", mock_server.uri());
+    let encoded_url = URL_SAFE_NO_PAD.encode(source_url.as_bytes());
+    let path = format!("/unsafe/padding:100:100:100:100/{}", encoded_url);
+
+    let app = axum::Router::new()
+        .route("/{*path}", axum::routing::get(image_forge_handler))
+        .with_state(state)
+        .layer(axum::middleware::from_fn(request_id_middleware));
+
+    let (status, body) = make_request(app, &path).await;
+
+    assert_eq!(status, StatusCode::OK);
+    let decoded = image::load_from_memory(&body).expect("a decodable image");
+    assert_eq!(
+        image::GenericImageView::dimensions(&decoded),
+        (264, 264),
+        "64px source plus 100px on each side"
+    );
+}

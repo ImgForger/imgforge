@@ -20,10 +20,10 @@ Unrecognised directive *names* are ignored rather than rejected, so a typo silen
 | `enlarge`               | `el`       | `bool`                                                      | Allows upscaling globally. Defaults to `false`.                                                              |
 | `extend`                | `ex`       | `bool`                                                      | Pads to target dimensions after resize. Defaults to `false`.                                                 |
 | `padding`               | `pd`       | `top[:right][:bottom][:left]`                               | Adds padding after resizing. Defaults to zero padding.                                                       |
-| `min-width`             | `mw`       | `value`                                                     | Ensures result width meets minimum. Upscales if required.                                                    |
-| `min-height`            | `mh`       | `value`                                                     | Ensures result height meets minimum. Upscales if required.                                                   |
+| `min-width`             | `mw`       | `value`                                                     | Floor for result width. Upscales regardless of `enlarge`.                                                    |
+| `min-height`            | `mh`       | `value`                                                     | Floor for result height. Upscales regardless of `enlarge`.                                                   |
 | `zoom`                  | `z`        | `factor`                                                    | Multiplies dimensions after resizing. Defaults to `1.0`.                                                     |
-| `crop`                  | `c`        | `x:y:width:height`                                          | Crops before resizing. No crop by default.                                                                   |
+| `crop`                  | `c`        | `width:height[:gravity]`                                    | Crops before resizing. Gravity positions the window. No crop by default.                                     |
 | `rotate`                | `rot`      | `0\|90\|180\|270`                                           | Applies fixed rotation. Defaults to `0`.                                                                     |
 | `auto_rotate`           | `ar`       | `bool`                                                      | Honours EXIF orientation (`true` by default).                                                                |
 | `adjust`                | `a`        | `brightness[:contrast[:saturation]]`                        | Meta-option for brightness, contrast, and saturation. Saturation is applied; brightness/contrast are parsed. |
@@ -139,7 +139,8 @@ imgforge accepts imgproxy's gravity anchors: `ce`, `no`, `so`, `ea`, `we`, `noea
 
 ### Minimum dimensions & zoom
 
-- `min-width` and `min-height` trigger an extra resize pass if the image is still smaller after primary resizing. This pass honours `enlarge`; if you want guaranteed minimums, set `enlarge:true`.
+- `min-width` and `min-height` trigger an extra resize pass when the image is still smaller after primary resizing. This pass **upscales regardless of `enlarge`** — the minimums are a floor, and `enlarge:false` does not override them. Use them only when you actually want a guaranteed size.
+- That pass scales both axes by the same factor, so aspect ratio is preserved: `min-width:500` on a 100×100 image returns 500×500, not 500×100.
 - `zoom` multiplies dimensions after resizing and minimum checks. Values < 1 shrink the image; values > 1 enlarge it even if `enlarge` is `false`.
 
 ### `padding`
@@ -153,7 +154,9 @@ imgforge accepts imgproxy's gravity anchors: `ce`, `no`, `so`, `ea`, `we`, `noea
 
 ### `crop`
 
-`crop:x:y:width:height` executes before any resizing. Coordinates are absolute, so gravity has no effect. Use it to isolate a region of interest that subsequent resizes should operate on.
+`crop:width:height[:gravity]` executes before any resizing, isolating a region for the rest of the pipeline to work on.
+
+There are no x/y coordinates in the URL form: **gravity is what positions the crop window**. Without it the region is taken from the top-left. `crop:300:200:soea` takes a 300×200 region from the bottom-right corner. A width or height of `0` means "the full source extent in that direction", and both are clamped to the source, so asking for more than exists yields the whole image rather than an error.
 
 ### `auto_rotate` and `rotate`
 

@@ -7,6 +7,7 @@ use crate::monitoring::{ImageOperation, ImageOperationActivityGuard, ImageOperat
 use crate::processing::options::{parse_all_options, OptionParseError, ParsedOptions};
 use crate::processing::presets::{expand_presets, PresetError};
 use crate::processing::save::SaveError;
+use crate::processing::transform::TransformError;
 use crate::processing::watermark::{self, CachedWatermark};
 use crate::processing::{process_image, ProcessingError};
 use crate::url::{parse_path, validate_signature, ImgforgeUrl, SourceUrlDecodeError};
@@ -136,6 +137,14 @@ impl ServiceError {
                 Cow::Owned(format!("Unsupported output format: {format}"))
             }
             Self::Processing(ProcessingError::Save(_)) => Cow::Borrowed("Failed to encode image"),
+            // Every InvalidArgument message describes the caller's own input —
+            // an out-of-range zoom, a padded canvas past what libvips will
+            // embed — so it is more useful in the response than "error
+            // processing image", and carries nothing internal. Vips failures
+            // stay generic.
+            Self::Processing(ProcessingError::Transform(TransformError::InvalidArgument { message, .. })) => {
+                Cow::Borrowed(message.as_str())
+            }
             Self::Processing(ProcessingError::ResultTooLarge { width, height, limit }) => Cow::Owned(format!(
                 "Processed image would be {width}x{height}, over the {limit}px result dimension limit"
             )),

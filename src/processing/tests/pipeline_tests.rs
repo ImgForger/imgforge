@@ -203,3 +203,24 @@ fn test_max_result_dimension_allows_output_within_limit() {
     let decoded = image::load_from_memory(&output).unwrap();
     assert_eq!(decoded.dimensions(), (500, 500));
 }
+
+/// The minimums are a floor, not a request: they upscale even with
+/// `enlarge:false`, and they scale both axes by the same factor. Documented in
+/// doc/5_processing_options.md, which previously claimed the opposite.
+#[test]
+fn test_min_dimensions_upscale_regardless_of_enlarge() {
+    init_vips();
+    let source_bytes = Bytes::from(create_test_image(100, 100));
+    let img = VipsImage::new_from_buffer(&source_bytes, "").unwrap();
+    let parsed_options = ParsedOptions {
+        min_width: Some(500),
+        format: Some("png".to_string()),
+        enlarge: false,
+        ..ParsedOptions::default()
+    };
+
+    let output = process_image(img, parsed_options, &source_bytes, None).unwrap();
+    let decoded = image::load_from_memory(&output).unwrap();
+    // Aspect preserved: min-width raises the height too.
+    assert_eq!(decoded.dimensions(), (500, 500));
+}
