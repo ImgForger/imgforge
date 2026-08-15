@@ -19,13 +19,13 @@ plan ─▶ dpr ─▶ load ─▶ geometry ─▶ canvas ─▶ effects ─▶ 
 3. **Image loading** – libvips reads the source buffer, converts the colour profile when needed, and applies EXIF orientation unless `auto_rotate:false`.
 4. **Geometry** – Crop runs first, then resizing (`resize`, `size`, `width`, `height`) using the active `resizing_type`. Gravity positions the crop window and the fill canvas. Upscaling is refused unless `enlarge:true`.
 5. **Canvas** – Padding, `extend`, and `background` apply after resizing, so they operate on the final viewport. Output formats without an alpha channel are flattened against the background colour.
-6. **Effects and safeguards** – Blur, sharpen, pixelate, and zoom run after geometry. `min-width` and `min-height` can trigger one more upscale if the image is still too small. Watermarks load here, clamped to the canvas; a watermark that cannot be fetched or decoded fails the request.
+6. **Effects and safeguards** – Blur, sharpen, pixelate, and zoom run after geometry. `min-width` and `min-height` can trigger one more upscale if the image is still too small, and do so whether or not `enlarge` is set. Watermarks load here, clamped to the canvas; a watermark that cannot be fetched or decoded fails the request.
 7. **Encoding** – The image is encoded to the requested format. An explicit `format` directive beats the format implied by `@extension`. Quality follows the `quality` directive, defaulting to `85` for lossy codecs.
 
 ## How options interact
 
 - **Resizing and padding** – Padding is additive: `resize:fit:800:600` with `padding:20` yields an 840×640 canvas before flattening. Padding inherits `dpr` scaling, so check both together.
-- **Crop and gravity** – `crop:x:y:width:height` uses absolute coordinates and ignores gravity. Gravity only matters for the implicit crop that `fill` performs, and for watermark placement.
+- **Crop and gravity** – `crop:width:height[:gravity]` has no coordinates of its own: gravity positions the crop window, and without it the region comes from the top-left. Gravity also drives the implicit crop that `fill` performs, the `extend` canvas, and watermark placement.
 - **Zoom and minimums** – `zoom` multiplies the dimensions produced by resizing, and the minimum checks run afterward. A `zoom` below 1.0 can still be pulled back up by `min-width` or `min-height`.
 - **Watermark precedence** – A `watermark_url` in the request beats `IMGFORGE_WATERMARK_PATH`. If the directive repeats, the last one wins.
 - **`raw` mode** – Skips the worker semaphore but changes nothing about the order above.

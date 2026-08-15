@@ -1,4 +1,4 @@
-use crate::processing::options::{Adjust, Crop, Flip};
+use crate::processing::options::{Adjust, Crop, Flip, Gravity};
 use crate::processing::transform::{self, TransformError};
 use libvips::VipsImage;
 
@@ -373,4 +373,80 @@ fn test_apply_background_color_with_transparency() {
     let result = transform::apply_background_color(img, [255, 255, 255, 255]).unwrap();
     // Should flatten to 3 bands (RGB)
     assert_eq!(result.get_bands(), 3);
+}
+
+/// The URL form is `crop:width:height[:gravity]` — there are no x/y arguments,
+/// so gravity is the only thing that positions the window. Documented in
+/// doc/5_processing_options.md; asserted here so the two cannot drift apart.
+#[test]
+fn test_crop_window_is_positioned_by_gravity() {
+    init_vips();
+    // Quadrant image: red top-left, green top-right, blue bottom-left, yellow bottom-right.
+    let source = create_quadrant_test_image(100, 100);
+
+    let cases = [
+        (None, [255, 0, 0, 255]), // no gravity -> top-left
+        (Some(Gravity::NorthWest), [255, 0, 0, 255]),
+        (Some(Gravity::NorthEast), [0, 255, 0, 255]),
+        (Some(Gravity::SouthWest), [0, 0, 255, 255]),
+        (Some(Gravity::SouthEast), [255, 255, 0, 255]),
+    ];
+
+    for (gravity, expected) in cases {
+        let img = VipsImage::new_from_buffer(&source, "").unwrap();
+        let cropped = transform::crop_image(
+            img,
+            Crop {
+                x: 0,
+                y: 0,
+                width: 40,
+                height: 40,
+                gravity,
+            },
+        )
+        .unwrap();
+        assert_eq!((cropped.get_width(), cropped.get_height()), (40, 40));
+        let decoded = decode_rgba(&cropped);
+        assert_eq!(
+            rgba_pixel(&decoded, 20, 20),
+            expected,
+            "gravity {gravity:?} selected the wrong quadrant"
+        );
+    }
+}
+
+#[test]
+fn test_crop_zero_means_full_extent_and_oversized_clamps() {
+    init_vips();
+    let source = create_test_image(100, 60);
+
+    // 0 keeps the whole extent on that axis.
+    let img = VipsImage::new_from_buffer(&source, "").unwrap();
+    let cropped = transform::crop_image(
+        img,
+        Crop {
+            x: 0,
+            y: 0,
+            width: 0,
+            height: 30,
+            gravity: None,
+        },
+    )
+    .unwrap();
+    assert_eq!((cropped.get_width(), cropped.get_height()), (100, 30));
+
+    // Asking for more than exists yields the source extent, not an error.
+    let img = VipsImage::new_from_buffer(&source, "").unwrap();
+    let cropped = transform::crop_image(
+        img,
+        Crop {
+            x: 0,
+            y: 0,
+            width: 5000,
+            height: 5000,
+            gravity: None,
+        },
+    )
+    .unwrap();
+    assert_eq!((cropped.get_width(), cropped.get_height()), (100, 60));
 }
