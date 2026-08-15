@@ -473,10 +473,7 @@ fn test_force_caps_enlargement_while_keeping_the_requested_distortion() {
 #[test]
 fn test_resize_does_not_bleed_transparent_colour_into_visible_pixels() {
     init_vips();
-    // Bound to a local: libvips decodes lazily and keeps a pointer into this
-    // buffer, so a temporary would be freed before the pixels are read.
-    let source = create_transparent_edge_image(100, 100);
-    let img = VipsImage::new_from_buffer(&source, "").unwrap();
+    let img = image_from(create_transparent_edge_image(100, 100));
     let resize = Resize {
         resizing_type: "force".to_string(),
         width: 10,
@@ -506,8 +503,7 @@ fn test_resize_does_not_bleed_transparent_colour_into_visible_pixels() {
 fn test_resize_without_alpha_is_unaffected() {
     init_vips();
     // The premultiply round trip must not disturb opaque images.
-    let source = create_test_image_jpeg(100, 100);
-    let img = VipsImage::new_from_buffer(&source, "").unwrap();
+    let img = image_from(create_test_image_jpeg(100, 100));
     let resize = Resize {
         resizing_type: "force".to_string(),
         width: 50,
