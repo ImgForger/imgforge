@@ -33,6 +33,18 @@ Entries start at 0.10.0. For earlier history, see the
   a **36×64 image with a 200**, quietly cropped rather than padded. Oversized padding is now refused
   with `400`. Debug builds previously panicked on the overflow.
 
+- Resizing an image with transparency no longer bleeds the colour of invisible pixels into visible
+  ones. libvips does not premultiply alpha inside `vips_resize` — its documentation says the caller
+  must do it — and imgforge never did, so the kernel averaged fully transparent pixels into the
+  edge. Downscaling white-on-transparent produced `241,241,241` at the boundary where it should
+  produce `255,255,255`; in practice a dark halo around logos, icons, and cutouts, which also
+  carried into `flatten` for JPEG output.
+
+  Applies to every scaling path: `fit`, `fill`, `force`, `zoom`, the minimum-dimension pass,
+  `pixelate`, and watermark scaling. Images without an alpha channel are untouched.
+
+  **Operational note:** output bytes change for any image with transparency that gets scaled.
+
 - Argument errors reach the client. Out-of-range values in `zoom`, `sharpen`, `extend`, and `padding`
   were flattened into `Error processing image`; the response now names the actual problem.
 
@@ -40,6 +52,14 @@ Entries start at 0.10.0. For earlier history, see the
   `crop` is `crop:width:height[:gravity]` — there are no x/y arguments, and gravity is what positions
   the window; the previously documented `crop:x:y:width:height` returns `400`. The minimums upscale
   **regardless of `enlarge`**, so `enlarge:false` is not a guard against them.
+
+### Internal
+
+- Test images are no longer handed to libvips as freed memory. The suite's idiom passed a reference
+  to a temporary, and libvips decodes lazily while holding a pointer into that buffer — it worked
+  only while the freed allocation happened not to be reused. Forcing 26 MB of allocator churn
+  between load and use made it fail outright. 82 call sites now go through a helper that owns the
+  buffer.
 
 ### Added
 
