@@ -1274,9 +1274,16 @@ async fn test_max_result_dimension_rejects_oversized_request() {
         .with_state(state)
         .layer(axum::middleware::from_fn(request_id_middleware));
 
-    let (status, _body, _) = make_request(app, &path, None).await;
+    let (status, body, _) = make_request(app, &path, None).await;
 
     assert_eq!(status, StatusCode::BAD_REQUEST);
+    // The client has to be told what it asked for and what the ceiling is;
+    // a generic "error processing image" leaves them guessing.
+    let message = String::from_utf8_lossy(body.as_ref());
+    assert!(
+        message.contains("4000") && message.contains("1000"),
+        "response should name the result size and the limit, got: {message}"
+    );
 }
 
 #[tokio::test]

@@ -136,6 +136,9 @@ impl ServiceError {
                 Cow::Owned(format!("Unsupported output format: {format}"))
             }
             Self::Processing(ProcessingError::Save(_)) => Cow::Borrowed("Failed to encode image"),
+            Self::Processing(ProcessingError::ResultTooLarge { width, height, limit }) => Cow::Owned(format!(
+                "Processed image would be {width}x{height}, over the {limit}px result dimension limit"
+            )),
             Self::Processing(_) => Cow::Borrowed("Error processing image"),
             Self::SourceImageDecode { .. } => Cow::Borrowed("Failed to decode source image"),
             Self::BlockingTask { .. } => Cow::Borrowed("Image operation failed"),
@@ -162,11 +165,23 @@ fn processed_cache_key<'a>(
     configured: DefaultOutputFormat,
     has_explicit_format: bool,
     is_raw: bool,
+    max_result_dimension: Option<MaxResultDimension>,
 ) -> Cow<'a, str> {
-    if has_explicit_format || is_raw {
+    let base = if has_explicit_format || is_raw {
         Cow::Borrowed(path)
     } else {
         Cow::Owned(format!("default-format={}:{}", configured.as_str(), path))
+    };
+
+    // A persistent cache outlives the configuration that filled it, so an entry
+    // stored before the ceiling existed — or under a higher one — would other-
+    // wise still be served, handing back the oversized image the limit exists
+    // to refuse. Namespacing by the effective limit retires those entries.
+    // Keys are left untouched when no limit applies, so enabling this feature
+    // does not invalidate an existing cache.
+    match max_result_dimension {
+        Some(limit) => Cow::Owned(format!("mrd={}:{}", limit.get(), base)),
+        None => base,
     }
 }
 
@@ -240,11 +255,15 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
 
     enforce_expiration(&parsed_options)?;
 
+    // Resolved before the cache lookup: the key depends on it.
+    parsed_options.max_result_dimension = resolve_max_result_dimension(config, &parsed_options);
+
     let cache_key = processed_cache_key(
         path,
         config.default_format,
         parsed_options.format.is_some(),
         parsed_options.raw,
+        parsed_options.max_result_dimension,
     );
 
     if let Some(cached_image) = state.cache.get(cache_key.as_ref()).await {
@@ -312,8 +331,6 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
         // Keep the concurrency slot until the blocking operation actually ends,
         // even if the async request future is cancelled while awaiting it.
         let _permit = permit;
-
-        parsed_options.max_result_dimension = resolve_max_result_dimension(&blocking_state.config, &parsed_options);
 
         if parsed_options.format.is_none() {
             parsed_options.format =
@@ -770,6 +787,38 @@ mod tests {
     use std::error::Error as _;
 
     #[test]
+    fn cache_keys_are_namespaced_by_the_effective_result_limit() {
+        let path = "/unsafe/resize:fit:4000:4000/example";
+        let unlimited = processed_cache_key(path, DefaultOutputFormat::Source, false, false, None);
+        let limited = processed_cache_key(
+            path,
+            DefaultOutputFormat::Source,
+            false,
+            false,
+            Some("1000".parse().unwrap()),
+        );
+        let raised = processed_cache_key(
+            path,
+            DefaultOutputFormat::Source,
+            false,
+            false,
+            Some("8192".parse().unwrap()),
+        );
+
+        // A disk cache outlives the config that filled it. Entries stored under
+        // one ceiling must not be served under another, or a request that the
+        // limit should refuse comes straight back out of the cache.
+        assert_ne!(unlimited, limited);
+        assert_ne!(limited, raised);
+
+        // Turning the feature on must not invalidate caches that never use it.
+        assert_eq!(
+            unlimited,
+            processed_cache_key(path, DefaultOutputFormat::Source, false, false, None)
+        );
+    }
+
+    #[test]
     fn max_result_dimension_override_requires_security_options() {
         let request_limit = "1000".parse::<MaxResultDimension>().unwrap();
         let server_limit = "4000".parse::<MaxResultDimension>().unwrap();
@@ -929,9 +978,15 @@ mod tests {
 
     #[test]
     fn implicit_format_cache_keys_include_the_configured_default() {
-        let source_key = processed_cache_key("/unsafe/example", DefaultOutputFormat::Source, false, false);
-        let jpeg_key = processed_cache_key("/unsafe/example", DefaultOutputFormat::Jpeg, false, false);
-        let explicit_key = processed_cache_key("/unsafe/format:png/example", DefaultOutputFormat::Jpeg, true, false);
+        let source_key = processed_cache_key("/unsafe/example", DefaultOutputFormat::Source, false, false, None);
+        let jpeg_key = processed_cache_key("/unsafe/example", DefaultOutputFormat::Jpeg, false, false, None);
+        let explicit_key = processed_cache_key(
+            "/unsafe/format:png/example",
+            DefaultOutputFormat::Jpeg,
+            true,
+            false,
+            None,
+        );
 
         assert_ne!(source_key, jpeg_key);
         assert_eq!(explicit_key, "/unsafe/format:png/example");

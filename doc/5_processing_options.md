@@ -7,7 +7,7 @@ Unrecognised directive *names* are ignored rather than rejected, so a typo silen
 ## Quick reference
 
 | Option                  | Aliases    | Arguments                                                   | Purpose & defaults                                                                                           |
-| --------------------- - | ---------- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| ----------------------- | ---------- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
 | `preset`                | `pr`       | `name`                                                      | References a named preset defined via `IMGFORGE_PRESETS`. See [Configuration](3_configuration.md).           |
 | `resize`                | `rs`       | `type:width:height[:enlarge][:extend]`                      | Primary resize control. Defaults to no resize. `enlarge`/`extend` default to `false`.                        |
 | `size`                  | `s`        | `width:height[:enlarge][:extend]`                           | Convenience wrapper for `resize` with implicit `fit`.                                                        |
@@ -242,7 +242,9 @@ Listed earlier under geometry, but keep in mind it also affects the intensity of
 
 `max_src_resolution`, `max_src_file_size`, and `max_result_dimension` override the server-wide safeguards for a single request. They only take effect when `IMGFORGE_ALLOW_SECURITY_OPTIONS=true` is set (see [Configuration](3_configuration.md)); otherwise the configured value applies and the directive is ignored. Use cautiously, preferably on trusted internal URLs.
 
-`max_result_dimension:<pixels>` caps the width and height of the *processed* image, where the other two cap the source. A request whose result would exceed it fails with `400 Bad Request` naming both the result size and the limit. The check runs after the full transformation chain — so it sees `dpr`, padding, `extend`, `zoom`, and the minimum dimensions — but before encoding, so an over-limit request never materialises the pixels.
+`max_result_dimension:<pixels>` caps the width and height of the *processed* image, where the other two cap the source. A request whose result would exceed it fails with `400 Bad Request`, and the response body names both the result size and the limit. The check runs after the full transformation chain — so it sees `dpr`, padding, `extend`, `zoom`, and the minimum dimensions — but before encoding, so an over-limit request never materialises the pixels.
+
+Cached responses are namespaced by the effective limit, so entries stored under a higher ceiling (or none at all) are not served after you lower it. Turning the option on does not invalidate a cache that was not using it.
 
 ## When output does not match the URL
 
