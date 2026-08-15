@@ -17,6 +17,17 @@ pub fn init_vips() {
     let _ = &*APP;
 }
 
+/// libvips reports the useful part of a failure in a global buffer that the
+/// crate's error type does not carry, so tests that need to tell one failure
+/// from another have to read it directly. It is sticky — clear it first.
+pub fn clear_vips_error() {
+    APP.error_clear();
+}
+
+pub fn vips_error_buffer() -> String {
+    APP.error_buffer().unwrap_or_default().to_string()
+}
+
 pub fn create_test_image(width: u32, height: u32) -> Vec<u8> {
     let mut img: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::new(width, height);
     for (_x, _y, pixel) in img.enumerate_pixels_mut() {

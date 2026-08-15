@@ -167,29 +167,51 @@ fn test_gif_save_suffix_carries_encoder_options() {
 
 /// These formats had no encode coverage at all, which is why the encoder
 /// options naming properties absent from older libvips went unnoticed — see
-/// the WebP case in issue #46. Both skip on builds without the codec.
+/// the WebP case in issue #46.
 #[test]
 fn test_avif_save_produces_output() {
-    init_vips();
-    if !save::is_format_supported("avif") {
-        eprintln!("skipping: this libvips build cannot encode AVIF");
-        return;
-    }
-    let base = create_textured_image(64, 64);
-    let img = VipsImage::new_from_buffer(&base, "").unwrap();
-    let bytes = save::save_image(img, "avif", 80).unwrap();
-    assert!(!bytes.is_empty(), "avif encode produced no bytes");
+    assert_encodes_without_property_error("avif");
 }
 
 #[test]
 fn test_gif_save_produces_output() {
+    assert_encodes_without_property_error("gif");
+}
+
+/// Fails only on the regression these tests exist for: an encoder option
+/// naming a property the runtime libvips does not have, which rejects the
+/// whole call.
+///
+/// Whether a build ships a given codec is environmental and separate.
+/// `is_format_supported` cannot tell the two apart — it asks libvips for a
+/// saver for the extension, which exists whether or not the codec was
+/// compiled in — so the distinction has to come from the failure itself. CI
+/// runs a libvips with no AV1 encoder, where AVIF fails with "Unsupported
+/// compression"; that is a skip, while "no property named ..." is a bug.
+fn assert_encodes_without_property_error(format: &str) {
     init_vips();
-    if !save::is_format_supported("gif") {
-        eprintln!("skipping: this libvips build cannot encode GIF");
+    if !save::is_format_supported(format) {
+        eprintln!("skipping {format}: this libvips build has no saver for it");
         return;
     }
+
     let base = create_textured_image(64, 64);
     let img = VipsImage::new_from_buffer(&base, "").unwrap();
-    let bytes = save::save_image(img, "gif", 80).unwrap();
-    assert!(!bytes.is_empty(), "gif encode produced no bytes");
+    clear_vips_error();
+
+    match save::save_image(img, format, 80) {
+        Ok(bytes) => assert!(!bytes.is_empty(), "{format} encode produced no bytes"),
+        Err(err) => {
+            let detail = vips_error_buffer();
+            assert!(
+                !detail.contains("no property named"),
+                "{format}: encoder options named a property this libvips does not have — {} ({err})",
+                detail.trim()
+            );
+            eprintln!(
+                "skipping {format}: not encodable by this libvips build — {}",
+                detail.trim()
+            );
+        }
+    }
 }
