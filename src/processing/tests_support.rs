@@ -28,6 +28,24 @@ pub fn vips_error_buffer() -> String {
     APP.error_buffer().unwrap_or_default().to_string()
 }
 
+/// Decodes encoded bytes into a `VipsImage`, keeping the buffer alive as long
+/// as the image needs it.
+///
+/// libvips decodes lazily and holds a pointer into the input, so the buffer has
+/// to outlive every operation that eventually reads pixels. Passing a temporary
+/// — `VipsImage::new_from_buffer(&create_test_image(..), "")` — hands it a
+/// pointer that is freed at the end of the statement. That survives only while
+/// the allocation happens not to be reused, so it fails unpredictably: adding a
+/// stage to the pipeline was enough to turn it into
+/// "VipsJpeg: Not a JPEG file: starts with 0x80 0xeb".
+///
+/// Taking ownership and leaking is bounded in a test binary and keeps call
+/// sites to one line, which matters when there are eighty of them.
+pub fn image_from(bytes: Vec<u8>) -> VipsImage {
+    let leaked: &'static [u8] = Box::leak(bytes.into_boxed_slice());
+    VipsImage::new_from_buffer(leaked, "").expect("test image should decode")
+}
+
 pub fn create_test_image(width: u32, height: u32) -> Vec<u8> {
     let mut img: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::new(width, height);
     for (_x, _y, pixel) in img.enumerate_pixels_mut() {

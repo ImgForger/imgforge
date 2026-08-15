@@ -7,7 +7,7 @@ use super::tests_support::*;
 #[test]
 fn test_crop_image() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(400, 300), "").unwrap();
+    let img = image_from(create_test_image(400, 300));
     let crop = Crop {
         x: 10,
         y: 20,
@@ -23,7 +23,7 @@ fn test_crop_image() {
 #[test]
 fn test_apply_rotation() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(100, 200), "").unwrap();
+    let img = image_from(create_test_image(100, 200));
     let rotated_img = transform::apply_rotation(img, 90).unwrap();
     assert_eq!(rotated_img.get_width(), 200);
     assert_eq!(rotated_img.get_height(), 100);
@@ -32,7 +32,7 @@ fn test_apply_rotation() {
 #[test]
 fn test_apply_flip() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(100, 50), "").unwrap();
+    let img = image_from(create_test_image(100, 50));
     let flipped_img = transform::apply_flip(
         img,
         Flip {
@@ -48,7 +48,7 @@ fn test_apply_flip() {
 #[test]
 fn test_apply_adjust_saturation_keeps_dimensions() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image_jpeg(100, 50), "").unwrap();
+    let img = image_from(create_test_image_jpeg(100, 50));
     let adjusted_img = transform::apply_adjust(
         img,
         Adjust {
@@ -64,7 +64,7 @@ fn test_apply_adjust_saturation_keeps_dimensions() {
 #[test]
 fn test_apply_blur() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
+    let img = image_from(create_test_image(100, 100));
     let blurred_img = transform::apply_blur(img, 5.0).unwrap();
     assert_eq!(blurred_img.get_width(), 100);
     assert_eq!(blurred_img.get_height(), 100);
@@ -73,7 +73,7 @@ fn test_apply_blur() {
 #[test]
 fn test_apply_background_color() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
+    let img = image_from(create_test_image(100, 100));
     let bg_applied_img = transform::apply_background_color(img, [255, 0, 0, 255]).unwrap();
     assert_eq!(bg_applied_img.get_bands(), 3);
 }
@@ -81,7 +81,7 @@ fn test_apply_background_color() {
 #[test]
 fn test_apply_background_color_no_alpha() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image_jpeg(100, 100), "").unwrap();
+    let img = image_from(create_test_image_jpeg(100, 100));
     let bands_before = img.get_bands();
     let bg_applied_img = transform::apply_background_color(img, [255, 0, 0, 255]).unwrap();
     assert_eq!(bg_applied_img.get_bands(), bands_before);
@@ -90,7 +90,7 @@ fn test_apply_background_color_no_alpha() {
 #[test]
 fn test_apply_min_dimensions() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
+    let img = image_from(create_test_image(100, 100));
     let min_dims_img = transform::apply_min_dimensions(img, Some(200), Some(150), None).unwrap();
     assert_eq!(min_dims_img.get_width(), 200);
     assert_eq!(min_dims_img.get_height(), 200); // Scales by max(2, 1.5) = 2
@@ -99,7 +99,7 @@ fn test_apply_min_dimensions() {
 #[test]
 fn test_apply_zoom() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
+    let img = image_from(create_test_image(100, 100));
     let zoomed_img = transform::apply_zoom(img, 2.0, None).unwrap();
     assert_eq!(zoomed_img.get_width(), 200);
     assert_eq!(zoomed_img.get_height(), 200);
@@ -108,7 +108,7 @@ fn test_apply_zoom() {
 #[test]
 fn test_apply_sharpen() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
+    let img = image_from(create_test_image(100, 100));
     let sharpened_img = transform::apply_sharpen(img, 0.5).unwrap();
     assert_eq!(sharpened_img.get_width(), 100);
     assert_eq!(sharpened_img.get_height(), 100);
@@ -117,7 +117,7 @@ fn test_apply_sharpen() {
 #[test]
 fn test_apply_pixelate() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
+    let img = image_from(create_test_image(100, 100));
     let pixelated_img = transform::apply_pixelate(img, 10, None).unwrap();
     assert_eq!(pixelated_img.get_width(), 100);
     assert_eq!(pixelated_img.get_height(), 100);
@@ -126,7 +126,7 @@ fn test_apply_pixelate() {
 #[test]
 fn test_apply_pixelate_ignores_requested_resizing_kernel() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_quadrant_test_image(40, 40), "").unwrap();
+    let img = image_from(create_quadrant_test_image(40, 40));
     let pixelated_img = transform::apply_pixelate(img, 10, Some("lanczos3")).unwrap();
     assert_eq!(pixelated_img.get_width(), 40);
     assert_eq!(pixelated_img.get_height(), 40);
@@ -135,7 +135,7 @@ fn test_apply_pixelate_ignores_requested_resizing_kernel() {
 #[test]
 fn test_apply_pixelate_with_extreme_amount_keeps_dimensions() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(10, 10), "").unwrap();
+    let img = image_from(create_test_image(10, 10));
     let pixelated_img = transform::apply_pixelate(img, 1_000, None).unwrap();
     assert_eq!(pixelated_img.get_width(), 10);
     assert_eq!(pixelated_img.get_height(), 10);
@@ -144,7 +144,7 @@ fn test_apply_pixelate_with_extreme_amount_keeps_dimensions() {
 #[test]
 fn test_crop_at_edge() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
+    let img = image_from(create_test_image(100, 100));
     let crop = Crop {
         x: 0,
         y: 0,
@@ -160,7 +160,7 @@ fn test_crop_at_edge() {
 #[test]
 fn test_crop_bottom_right_corner() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
+    let img = image_from(create_test_image(100, 100));
     let crop = Crop {
         x: 50,
         y: 50,
@@ -176,7 +176,7 @@ fn test_crop_bottom_right_corner() {
 #[test]
 fn test_rotation_on_non_square() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(150, 100), "").unwrap();
+    let img = image_from(create_test_image(150, 100));
     let rotated_img = transform::apply_rotation(img, 90).unwrap();
     assert_eq!(rotated_img.get_width(), 100);
     assert_eq!(rotated_img.get_height(), 150);
@@ -185,7 +185,7 @@ fn test_rotation_on_non_square() {
 #[test]
 fn test_rotation_180_degrees() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(100, 200), "").unwrap();
+    let img = image_from(create_test_image(100, 200));
     let rotated_img = transform::apply_rotation(img, 180).unwrap();
     assert_eq!(rotated_img.get_width(), 100);
     assert_eq!(rotated_img.get_height(), 200);
@@ -194,7 +194,7 @@ fn test_rotation_180_degrees() {
 #[test]
 fn test_rotation_270_degrees() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(100, 200), "").unwrap();
+    let img = image_from(create_test_image(100, 200));
     let rotated_img = transform::apply_rotation(img, 270).unwrap();
     assert_eq!(rotated_img.get_width(), 200);
     assert_eq!(rotated_img.get_height(), 100);
@@ -203,7 +203,7 @@ fn test_rotation_270_degrees() {
 #[test]
 fn test_rotation_unsupported_angle() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
+    let img = image_from(create_test_image(100, 100));
     assert!(matches!(
         transform::apply_rotation(img, 45),
         Err(TransformError::InvalidArgument {
@@ -216,7 +216,7 @@ fn test_rotation_unsupported_angle() {
 #[test]
 fn test_pixelate_zero() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
+    let img = image_from(create_test_image(100, 100));
     let original_width = img.get_width();
     let pixelated_img = transform::apply_pixelate(img, 0, None).unwrap();
     assert_eq!(pixelated_img.get_width(), original_width);
@@ -225,7 +225,7 @@ fn test_pixelate_zero() {
 #[test]
 fn test_pixelate_small_amount() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
+    let img = image_from(create_test_image(100, 100));
     let pixelated_img = transform::apply_pixelate(img, 1, None).unwrap();
     assert_eq!(pixelated_img.get_width(), 100);
 }
@@ -233,7 +233,7 @@ fn test_pixelate_small_amount() {
 #[test]
 fn test_pixelate_large_amount() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(200, 200), "").unwrap();
+    let img = image_from(create_test_image(200, 200));
     let pixelated_img = transform::apply_pixelate(img, 50, None).unwrap();
     assert_eq!(pixelated_img.get_width(), 200);
     assert_eq!(pixelated_img.get_height(), 200);
@@ -243,7 +243,7 @@ fn test_pixelate_large_amount() {
 #[test]
 fn test_apply_min_width_only() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
+    let img = image_from(create_test_image(100, 100));
     let result = transform::apply_min_dimensions(img, Some(200), None, None).unwrap();
     assert_eq!(result.get_width(), 200);
     assert_eq!(result.get_height(), 200);
@@ -252,7 +252,7 @@ fn test_apply_min_width_only() {
 #[test]
 fn test_apply_min_height_only() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
+    let img = image_from(create_test_image(100, 100));
     let result = transform::apply_min_dimensions(img, None, Some(150), None).unwrap();
     assert_eq!(result.get_width(), 150);
     assert_eq!(result.get_height(), 150);
@@ -261,7 +261,7 @@ fn test_apply_min_height_only() {
 #[test]
 fn test_apply_min_dimensions_already_larger() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(200, 200), "").unwrap();
+    let img = image_from(create_test_image(200, 200));
     let result = transform::apply_min_dimensions(img, Some(100), Some(100), None).unwrap();
     assert_eq!(result.get_width(), 200);
     assert_eq!(result.get_height(), 200);
@@ -270,7 +270,7 @@ fn test_apply_min_dimensions_already_larger() {
 #[test]
 fn test_apply_zoom_scale_down() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(200, 200), "").unwrap();
+    let img = image_from(create_test_image(200, 200));
     let zoomed = transform::apply_zoom(img, 0.5, None).unwrap();
     assert_eq!(zoomed.get_width(), 100);
     assert_eq!(zoomed.get_height(), 100);
@@ -279,7 +279,7 @@ fn test_apply_zoom_scale_down() {
 #[test]
 fn test_apply_zoom_scale_up() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
+    let img = image_from(create_test_image(100, 100));
     let zoomed = transform::apply_zoom(img, 3.0, None).unwrap();
     assert_eq!(zoomed.get_width(), 300);
     assert_eq!(zoomed.get_height(), 300);
@@ -288,7 +288,7 @@ fn test_apply_zoom_scale_up() {
 #[test]
 fn test_apply_zoom_rejects_non_positive_values() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
+    let img = image_from(create_test_image(100, 100));
     assert!(matches!(
         transform::apply_zoom(img, 0.0, None),
         Err(TransformError::InvalidArgument { operation: "zoom", .. })
@@ -299,7 +299,7 @@ fn test_apply_zoom_rejects_non_positive_values() {
 #[test]
 fn test_apply_blur_minimal() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
+    let img = image_from(create_test_image(100, 100));
     let blurred = transform::apply_blur(img, 0.1).unwrap();
     assert_eq!(blurred.get_width(), 100);
     assert_eq!(blurred.get_height(), 100);
@@ -308,7 +308,7 @@ fn test_apply_blur_minimal() {
 #[test]
 fn test_apply_blur_extreme() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
+    let img = image_from(create_test_image(100, 100));
     let blurred = transform::apply_blur(img, 50.0).unwrap();
     assert_eq!(blurred.get_width(), 100);
     assert_eq!(blurred.get_height(), 100);
@@ -317,7 +317,7 @@ fn test_apply_blur_extreme() {
 #[test]
 fn test_apply_blur_rejects_non_positive_sigma() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
+    let img = image_from(create_test_image(100, 100));
     assert!(matches!(
         transform::apply_blur(img, 0.0),
         Err(TransformError::InvalidArgument { operation: "blur", .. })
@@ -328,7 +328,7 @@ fn test_apply_blur_rejects_non_positive_sigma() {
 #[test]
 fn test_apply_sharpen_minimal() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
+    let img = image_from(create_test_image(100, 100));
     let sharpened = transform::apply_sharpen(img, 0.1).unwrap();
     assert_eq!(sharpened.get_width(), 100);
     assert_eq!(sharpened.get_height(), 100);
@@ -337,7 +337,7 @@ fn test_apply_sharpen_minimal() {
 #[test]
 fn test_apply_sharpen_extreme() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
+    let img = image_from(create_test_image(100, 100));
     let sharpened = transform::apply_sharpen(img, 10.0).unwrap();
     assert_eq!(sharpened.get_width(), 100);
     assert_eq!(sharpened.get_height(), 100);
@@ -346,7 +346,7 @@ fn test_apply_sharpen_extreme() {
 #[test]
 fn test_apply_sharpen_clamps_sigma() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(50, 50), "").unwrap();
+    let img = image_from(create_test_image(50, 50));
     let sharpened = transform::apply_sharpen(img, 100.0).unwrap();
     assert_eq!(sharpened.get_width(), 50);
     assert_eq!(sharpened.get_height(), 50);
@@ -355,7 +355,7 @@ fn test_apply_sharpen_clamps_sigma() {
 #[test]
 fn test_apply_sharpen_rejects_non_positive_sigma() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(50, 50), "").unwrap();
+    let img = image_from(create_test_image(50, 50));
     assert!(matches!(
         transform::apply_sharpen(img, 0.0),
         Err(TransformError::InvalidArgument {
@@ -369,7 +369,7 @@ fn test_apply_sharpen_rejects_non_positive_sigma() {
 #[test]
 fn test_apply_background_color_with_transparency() {
     init_vips();
-    let img = VipsImage::new_from_buffer(&create_test_image(100, 100), "").unwrap();
+    let img = image_from(create_test_image(100, 100));
     let result = transform::apply_background_color(img, [255, 255, 255, 255]).unwrap();
     // Should flatten to 3 bands (RGB)
     assert_eq!(result.get_bands(), 3);
