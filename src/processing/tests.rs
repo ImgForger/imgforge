@@ -23,6 +23,10 @@ mod exif_tests;
 mod effects_tests;
 
 #[cfg(test)]
+#[path = "tests/animation_tests.rs"]
+mod animation_tests;
+
+#[cfg(test)]
 #[path = "tests/watermark_tests.rs"]
 mod watermark_tests;
 

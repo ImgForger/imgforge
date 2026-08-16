@@ -24,7 +24,7 @@ Unrecognised directive *names* are ignored rather than rejected, so a typo silen
 | `min-height`            | `mh`       | `value`                                                     | Floor for result height. Upscales regardless of `enlarge`.                                                   |
 | `zoom`                  | `z`        | `factor`                                                    | Multiplies dimensions after resizing. Defaults to `1.0`.                                                     |
 | `crop`                  | `c`        | `width:height[:gravity]`                                    | Crops before resizing. Gravity positions the window. No crop by default.                                     |
-| `trim`                  | `t`        | `threshold[:color[:equal_hor[:equal_ver]]]`                 | Removes a uniform border before cropping and resizing.                                                       |
+| `trim`                  | `t`        | `threshold[:color[:equal_hor[:equal_ver]]]`                 | Removes a uniform border before cropping and resizing. Ignored for animated sources.                         |
 | `rotate`                | `rot`      | `0\|90\|180\|270`                                           | Applies fixed rotation. Defaults to `0`.                                                                     |
 | `auto_rotate`           | `ar`       | `bool`                                                      | Honours EXIF orientation (`true` by default).                                                                |
 | `adjust`                | `a`        | `brightness[:contrast[:saturation]]`                        | Meta-option for brightness, contrast, and saturation. Saturation is applied; brightness/contrast are parsed. |
@@ -174,6 +174,12 @@ everything after it sees the trimmed extent.
   position instead of shifting toward the thicker border.
 
 An image that is entirely background is returned untouched rather than reduced to nothing.
+
+**Animated sources ignore `trim`**, with a warning in the log, and the rest of the request proceeds normally.
+Trim measures one image's borders, and every frame of an animation has its own: a subject that grows across the
+animation trims to a different width in each frame, which no animated container can hold — the frames share a
+single canvas. Refusing the request would fail an otherwise reasonable URL over an option that simply does not
+apply to it, so the option is dropped instead. imgproxy behaves the same way.
 
 The background is matched to the image: libvips wants one value per non-alpha band, so greyscale sources reduce an
 explicit colour to its luminance, and a CMYK source refuses one outright — omit the colour there and let it be

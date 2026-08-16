@@ -154,16 +154,28 @@ pub fn join(mut frames: Vec<VipsImage>) -> Result<(VipsImage, Option<i32>), Tran
         return Ok((single, None));
     }
 
+    let frame_width = frames[0].get_width();
     let frame_height = frames[0].get_height();
-    if frames.iter().any(|frame| frame.get_height() != frame_height) {
+    if frames
+        .iter()
+        .any(|frame| frame.get_height() != frame_height || frame.get_width() != frame_width)
+    {
         return Err(TransformError::invalid(
             "animation",
-            "animation frames came out of processing at different heights",
+            "animation frames came out of processing at different sizes",
         ));
     }
 
+    // The spacings are the grid step, not padding: they have to be the frame's
+    // own size or the frames overlap. The bindings always pass them, so leaving
+    // them at the struct's default of 1 stacks every frame on the same pixel
+    // row. The background needs at least one component for the same reason —
+    // an empty colour vector is rejected outright.
     let options = ops::ArrayjoinOptions {
         across: 1,
+        hspacing: frame_width,
+        vspacing: frame_height,
+        background: vec![0.0],
         ..Default::default()
     };
     let joined = ops::arrayjoin_with_opts(&mut frames, &options).map_err(vips("Error joining animation frames"))?;

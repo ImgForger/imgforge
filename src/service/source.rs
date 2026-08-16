@@ -236,8 +236,16 @@ pub fn shrink_source_on_load(
         return source_image;
     }
 
-    let (width, height) = (source_image.get_width(), source_image.get_height());
-    let (Ok(width), Ok(height)) = (u32::try_from(width), u32::try_from(height)) else {
+    // An animated source arrives from libvips as one tall stack of frames, so
+    // its height is the sum of them. Planning the decode against that
+    // over-shrinks every frame: ten 2000x1000 frames asked for a 100x100 fit
+    // would take the ratio from 10000 rather than 1000 and decode each frame at
+    // 100x50, which `enlarge:false` then cannot make up.
+    let height = match crate::processing::animation::frame_geometry(&source_image) {
+        Some((_, page_height)) => page_height,
+        None => source_image.get_height(),
+    };
+    let (Ok(width), Ok(height)) = (u32::try_from(source_image.get_width()), u32::try_from(height)) else {
         return source_image;
     };
 
