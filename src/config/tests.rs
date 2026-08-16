@@ -300,3 +300,40 @@ fn valid_security_limits_are_stored_as_validated_types() {
     restore_env_var(ENV_MAX_SRC_FILE_SIZE, original_file_size);
     restore_env_var(ENV_MAX_SRC_RESOLUTION, original_resolution);
 }
+
+/// Every boolean setting accepts the documented spellings. Three of them used
+/// to compare against the literal `"true"`, so `IMGFORGE_ONLY_PRESETS=1` left
+/// arbitrary transformations enabled while the operator believed otherwise.
+#[test]
+fn every_boolean_setting_accepts_the_documented_spellings() {
+    let _guard = ENV_LOCK.lock().unwrap();
+    let names = [ENV_ALLOW_UNSIGNED, ENV_ALLOW_SECURITY_OPTIONS, ENV_ONLY_PRESETS];
+    let originals: Vec<_> = names.iter().map(|name| (*name, env::var(name).ok())).collect();
+
+    for value in ["1", "t", "true", "TRUE", "yes", "on"] {
+        for name in names {
+            env::set_var(name, value);
+        }
+        let config = Config::from_env().expect("config loads");
+        assert!(config.allow_unsigned, "{value} should enable allow_unsigned");
+        assert!(config.allow_security_options, "{value} should enable security options");
+        assert!(config.only_presets, "{value} should enable only_presets");
+    }
+
+    for value in ["0", "false", "no", ""] {
+        for name in names {
+            env::set_var(name, value);
+        }
+        let config = Config::from_env().expect("config loads");
+        assert!(!config.allow_unsigned, "{value:?} should leave allow_unsigned off");
+        assert!(
+            !config.allow_security_options,
+            "{value:?} should leave security options off"
+        );
+        assert!(!config.only_presets, "{value:?} should leave only_presets off");
+    }
+
+    for (name, original) in originals {
+        restore_env_var(name, original);
+    }
+}

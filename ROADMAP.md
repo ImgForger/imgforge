@@ -4,20 +4,43 @@ Candidate work, mostly sourced by comparing imgforge against [imgproxy](https://
 [processing options](https://docs.imgproxy.net/usage/processing) and its pipeline source. Nothing here is committed;
 it is a list of what is missing, what it would cost, and what is known about each.
 
-Measurements below were taken on libvips 8.15.1 (the version the published image ships) unless noted.
+Measurements below were taken on libvips 8.16.1 (the version the published image now ships) unless noted.
 
-## Where imgforge already stands
+## Where imgforge stands
 
-imgproxy gates a number of options behind its Pro tier that imgforge implements for free:
-`resizing_algorithm`, `background_alpha`, `watermark_url`, all four `*_options` encoder groups, and the
-`adjust`/`brightness`/`contrast`/`saturation` family. Compatibility work is about closing specific gaps, not
-catching up wholesale.
+imgproxy gates a number of options behind its Pro tier that imgforge implements for free: `resizing_algorithm`,
+`background_alpha`, `watermark_url`, all four `*_options` encoder groups, the `adjust`/`brightness`/`contrast`/
+`saturation` family, and `page`/`pages`/`disable_animation`.
+
+0.18.0 closed the free-tier gap that remained. Every option in imgproxy's free tier is now implemented rather than
+merely parsed, with the exceptions listed under **Known gaps** below.
+
+## Known gaps in what imgforge accepts
+
+- **`keep_copyright` on non-JPEG output** — libvips' `keep` flags have no copyright granularity, so imgforge reads
+  the EXIF `Copyright` and `Artist` fields from the source and splices a minimal EXIF segment into the encoded
+  result. That mechanism only exists for JPEG. PNG and WebP can carry EXIF too, and the same approach would work
+  for them; nobody has needed it yet.
+- **`preserve_hdr` on libvips below 8.16** — the `gainmap` keep flag does not exist there, and naming it makes the
+  encode fail rather than degrade. The published image ships 8.16.1, so this only affects a build against an older
+  system libvips. A runtime version check that drops the flag would fix it; the cost is a `vips_version` call at
+  startup and a branch in the suffix builder.
+- **`webp_options` preset** — only libvips' own preset names reach the encoder. Others are ignored rather than
+  failing, because an unknown name makes libvips reject the whole encode.
+
+## imgproxy Pro options imgforge does not implement
+
+Listed so the comparison is honest rather than because they are planned: `autoquality`, `crop_aspect_ratio`,
+`objects_position` and the object-detection family, `monochrome`, `duotone`, `colorize`, `gradient`,
+`unsharp_masking`, `blur_areas`, `style`, `dpi`, `color_profile`, `hashsum`, `watermark_text`/`_size`/`_rotate`/
+`_shadow`, `fallback_image_url`, and the `video_thumbnail_*` family. Smart gravity (`gravity:sm`) is Pro as well;
+libvips does expose `smartcrop`, so it is the one entry here that would be cheap.
 
 ## Performance
 
 ### Scale-on-load — done
 
-Both loaders now decode at a reduced scale when the plan allows, so a large source is no longer unpacked at full
+Both loaders decode at a reduced scale when the plan allows, so a large source is no longer unpacked at full
 resolution to produce a small result. Measured through the real load path, downscaling a 9000×7000 source to 450px:
 
 | Source | Before | After |
@@ -30,86 +53,60 @@ WebP the worst case imgforge had. Its loader also takes a continuous `scale` rat
 `shrink`, so it lands closer to what the request needs.
 
 Cropped requests are included. A crop names a region of the source in pixels, so the region is rewritten against
-what was actually decoded — the same thing imgproxy does in `scaleOnLoad` (`c.CropWidth = max(1,
-imath.Shrink(c.CropWidth, wpreshrink))`). The reduction is measured against the crop region rather than the whole
-source, since the crop is what has to survive: an 8000×6000 source cropped to 2000×1500 for a 500-wide target can
-only lose a factor of 4, not 16.
+what was actually decoded. A *fractional* crop needs no rewriting at all, since it is measured against whatever was
+decoded — one of the incidental wins from making crop extents fractional.
 
 A note on estimating: this entry originally read "expect to restructure `process_path`". It was about 40 lines,
 because the processing plan is already parsed before the decode and libvips' loader already takes an option string.
-The WebP half was smaller still, since it reused the target calculation the JPEG half had already earned. Check the
-code before trusting a cost written here.
+Check the code before trusting a cost written here.
 
-### Colour management
+### Animation cost
 
-imgproxy runs `colorspaceToProcessing` before scaling and `colorspaceToResult` at the end. imgforge does neither —
-it processes in whatever colourspace the source arrived in. Worth investigating for colour accuracy on images with
-unusual ICC profiles; no measurement yet, so the size of the problem is unknown.
+Every frame now goes through the whole pipeline separately, which is what makes rotation and padding work on an
+animation at all. It also means an N-frame source costs N times a still, and the frames are materialised rather
+than streamed. `IMGFORGE_MAX_ANIMATION_FRAMES` and `IMGFORGE_MAX_ANIMATION_FRAME_RESOLUTION` exist because of this;
+they are unset by default, which is the wrong default for a public deployment and the right one for an upgrade.
 
-## Compatibility: standard imgproxy options imgforge lacks
+No measurements yet on where the practical ceiling sits. The obvious optimisation — recognising that a request
+which only resizes could go through `vips_thumbnail`, which handles the stack natively — has not been attempted.
 
-Every option below is free-tier in imgproxy. Ordered by usefulness relative to effort. `trim` was the pick of this
-list and has shipped.
+### Colour management cost
 
-### `enforce_thumbnail` / `eth`
-
-Use the source's embedded EXIF thumbnail when one exists and is large enough. Cheap at request time, moderate to
-implement.
-
-### `keep_copyright` / `kcr`
-
-Retain the copyright tag when stripping metadata. Looks trivial and is not: libvips' `keep` flags are
-`none|exif|xmp|iptc|icc|other|gainmap|all`, with no copyright granularity. Requires reading the EXIF copyright field
-and re-attaching it after the strip.
-
-### `preserve_hdr` / `ph`
-
-**Blocked** on libvips ≥ 8.16. See the libvips upgrade below.
-
-### `max_animation_frames` / `maf`, `max_animation_frame_resolution` / `mafr`
-
-**Blocked** on animation support, which imgforge does not have — these limits have nothing to bound today.
-
-## Known gaps in what imgforge already accepts
-
-Options that parse successfully but do not fully apply. Each is documented in
-[Processing Options](doc/5_processing_options.md); this is the summary.
-
-- **`brightness`, `contrast`** — parsed and validated, never applied. The libvips Rust crate does not publicly expose
-  the `linear` operation they need. Unblocking means either a crate contribution or dropping to the raw bindings.
-- **`page`, `pages`, `disable_animation`, `skip_processing`** — accepted for URL compatibility only. Real support
-  needs a multi-page decode path; today everything goes through a single-image decode.
-- **`webp_options` preset** — only libvips' own preset names reach the encoder. Others are ignored rather than
-  failing, because an unknown name makes libvips reject the whole encode.
-- **HEIF output** — fails on a libvips built without an HEVC encoder, reporting `Unsupported compression`. AVIF uses
-  a different codec and is unaffected. Consider reporting HEIF as unsupported at the format-probe stage instead of
-  failing at encode time.
+Colour conversion runs once per image rather than once per frame, and is a no-op for a source already in sRGB,
+which is nearly all of them. No measurable cost has been observed on the common path, but nothing has been
+measured carefully either.
 
 ## Infrastructure
 
-### libvips ≥ 8.16 in the published image
+### libvips 8.16 in the published image — done
 
-The image is built `FROM ubuntu:24.04`, which ships libvips 8.15.1. That version is why WebP, AVIF, HEIF, and GIF
-all encode through hand-built save suffixes: the libvips crate's generated bindings name encoder properties added in
-8.16 (`exact`, `tune`, `keep-duplicate-frames`), and an older libvips rejects the entire call.
+The image is built `FROM debian:trixie-slim`, which ships libvips 8.16.1. Ubuntu 24.04 shipped 8.15.1, which is
+why the encoder suffixes exist and why HEIF output failed at encode time there.
 
-Shipping 8.16+ would let those four formats use the generated bindings and delete the suffix builders, and unblocks
-`preserve_hdr`. Noble has no such package, so it means a source build or a third-party repository — weigh that
-against the maintenance the suffixes currently cost, which is low.
+Debian packages libheif's codecs as separate plugins that libvips only *Recommends*, so a
+`--no-install-recommends` image registers AVIF and HEIF savers that cannot encode anything. `libheif-plugin-aomenc`
+and `libheif-plugin-x265` are named explicitly for that reason, with `dav1d` and `libde265` for decoding AVIF and
+HEIF *sources*. Verified by encoding all seven output formats through a running container.
 
-Upgrading the **crate** does not help: 2.3.0 passes the same property names. Verified by running both crate versions
-against 8.15.1.
+The build context needed a `.dockerignore`: `COPY . .` was shipping the local `target/` directory into the image,
+which was slow and, once the directory held a couple of gigabytes of debug artefacts, ran the builder out of disk.
+
+The suffix builders were kept rather than replaced with the generated bindings: they work across libvips versions,
+and they are the only form that can express a *combination* of metadata `keep` flags, which `strip_metadata` and
+`strip_color_profile` need in order to be independent of each other.
 
 ### Test coverage gaps
 
-- **`extend_image`** carries the same `u32 → i32` cast that caused the padding overflow. It is not reachable the
-  same way — an absurd resize target wraps negative at the guard in `processing/mod.rs` and extend is silently
-  skipped rather than producing a wrong image — but it is a silent no-op on nonsense input and belongs with the
-  resize-target handling.
+- **Animation** is covered for split, join, resize, rotation, and the frame limit, all against a real animated GIF.
+  Not covered: animated WebP and AVIF output, or a source whose frames have differing sizes.
+- **Colour management** has no test against a real CMYK or wide-gamut ICC source, because there is no such fixture
+  in the repository and generating a correct one by hand is not obviously cheaper than checking in a file.
+- **`enforce_thumbnail`** is covered for the "no thumbnail" and "malformed thumbnail" paths but not for a JPEG that
+  actually carries one, for the same reason.
 
 ## How to extend this list
 
 The comparisons that produced it are repeatable: read the option table in imgproxy's processing docs against
-`src/processing/options.rs`, and read a pipeline stage in `imgproxy/processing/*.go` against the equivalent in
-`src/processing/`. The two findings with the most impact — enlargement capping and alpha premultiplication — both
-came from reading their pipeline rather than their documentation.
+`src/processing/options/names.rs`, and read a pipeline stage in `imgproxy/processing/*.go` against the equivalent
+in `src/processing/`. The two findings with the most impact — enlargement capping and alpha premultiplication —
+both came from reading their pipeline rather than their documentation.

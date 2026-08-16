@@ -11,7 +11,8 @@ imgforge is a fast, secure image proxy and transformation server written in Rust
 
 - **Production-ready from day one** – Health checks, structured logging, and Prometheus metrics make imgforge easy to drop into modern platforms.
 - **Container-native** – Ship the provided multi-stage Docker image anywhere, or extend it with your own watermark assets and presets.
-- **High-fidelity transforms** – Resize, crop, format-convert, blur, sharpen, watermark, and more—powered by libvips for incredible performance.
+- **High-fidelity transforms** – Resize, crop, format-convert, blur, sharpen, watermark, and more—powered by libvips for incredible performance. Animated GIF and WebP sources are processed frame by frame and come back as animations.
+- **Modern delivery** – Serve AVIF or WebP to the clients that accept them from the same URL, with `ETag`, `Cache-Control`, and conditional requests handled for you.
 - **Defense in depth** – Signed URLs, bearer tokens, per-request safeguards, and global rate limiting protect your origins from abuse.
 
 ## Get started in minutes
@@ -37,4 +38,4 @@ The documentation is live on the [docs site](https://imgforger.github.io/).
 
 ## Community
 
-Issues and pull requests are welcome. Please review the [contributing guide](CONTRIBUTING.md) before submitting significant changes. If you are upgrading from imgproxy, most existing URL builders will continue to work—consult the processing and URL references for the few imgforge-specific differences.
+Issues and pull requests are welcome. Please review the [contributing guide](CONTRIBUTING.md) before submitting significant changes. If you are upgrading from imgproxy, most existing URL builders will continue to work—consult the processing and URL references for the few imgforge-specific differences. Every option in imgproxy's free tier is implemented, and several of its Pro options (`resizing_algorithm`, `watermark_url`, the encoder option groups, and the colour adjustments) are available here at no cost.
