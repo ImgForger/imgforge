@@ -15,26 +15,24 @@ catching up wholesale.
 
 ## Performance
 
-### Scale-on-load
+### Scale-on-load — done for JPEG, open for WebP
 
-**The largest single win available.** imgproxy decodes the source at a reduced size before anything else
-(`processing/scale_on_load.go`): it computes `preshrink = min(wshrink, hshrink)`, normalises to the 1/2/4/8 that
-JPEG supports, and reloads at that scale. imgforge always decodes at full resolution and downsamples afterwards.
+JPEG sources now decode at 1/2, 1/4 or 1/8 when the plan allows, so a large source is no longer unpacked at full
+resolution to produce a small result. Measured through the real load path on a 9000×7000 JPEG downscaled to 450px:
+114 MB peak RSS before, 49 MB after.
 
-Measured on a 9000×7000 JPEG:
+Two pieces are still open:
 
-| | Peak RSS |
-| --- | --- |
-| Decode full, then resize (imgforge today) | 84 MB |
-| Shrink-on-load | 53 MB |
+- **WebP.** Its loader takes a `scale` (a double), not JPEG's power-of-two `shrink`, so it needs its own branch.
+  imgproxy covers both.
+- **Cropped requests decline it entirely.** A crop addresses source pixels by coordinate, so shrinking underneath it
+  would move the region. imgproxy instead scales the crop coordinates by the shrink factor, which lets cropped
+  requests benefit too — worth doing, and the reason to keep their `processing/crop.go` alongside `scale_on_load.go`
+  when implementing.
 
-Memory is the binding constraint for this service — [Performance Tips](doc/9_performance.md) tells operators to size
-`IMGFORGE_WORKERS` from measured peak memory — so ~40% off per-request peak converts fairly directly into
-concurrency at the same memory ceiling. Wall-clock gains are real but smaller and content-dependent.
-
-Not a small change: the decode currently happens in `service.rs` before the processing plan is known, and
-scale-on-load needs the target scale first. Expect to restructure `process_path`. Applies to JPEG and WebP, plus
-formats with embedded thumbnails.
+A note on estimating: this entry originally read "expect to restructure `process_path`". It was about 40 lines, because
+the processing plan is already parsed before the decode and libvips' loader already takes an option string. Check the
+code before trusting a cost written here.
 
 ### Colour management
 
@@ -108,8 +106,6 @@ against 8.15.1.
 
 ### Test coverage gaps
 
-- **TIFF encoding has no test.** Its binding properties check out against 8.15 by inspection, so it is not broken,
-  but it is in the position AVIF and GIF were in before their failure was found: shipping and unexercised.
 - **`extend_image`** carries the same `u32 → i32` cast that caused the padding overflow. It is not reachable the
   same way — an absurd resize target wraps negative at the guard in `processing/mod.rs` and extend is silently
   skipped rather than producing a wrong image — but it is a silent no-op on nonsense input and belongs with the

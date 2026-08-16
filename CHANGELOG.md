@@ -10,7 +10,28 @@ Entries start at 0.10.0. For earlier history, see the
 
 ## [Unreleased]
 
-_No changes yet._
+### Changed
+
+- JPEG sources are decoded at a reduced scale when the request allows it, instead of being unpacked at full
+  resolution and then downsampled. A 9000×7000 JPEG asked for a 450px thumbnail previously decoded 63 million pixels
+  to keep 157 thousand. Measured through the real load path, peak memory per request drops from 114 MB to 49 MB.
+
+  Since `IMGFORGE_WORKERS` is sized from measured peak memory, this converts fairly directly into concurrency at the
+  same memory ceiling.
+
+  The reduction never takes the source below what the request needs, is skipped for `raw` and for any request with a
+  `crop`, and accounts for `dpr`, `zoom`, the minimum dimensions, and EXIF orientations that transpose the image.
+  Source limits are still enforced against the original dimensions, before any of this.
+
+  **Operational note:** output is visually identical but not bit-identical — DCT scaling and a lanczos downscale do
+  not agree exactly. Mean absolute difference measured at 0.49 of 255 (max 3) on noise, the worst case for such a
+  comparison. Existing cache entries keep serving their current bytes until they expire.
+
+### Internal
+
+- TIFF encoding has tests. It was the last save path with none, in the same position AVIF and GIF were in before
+  their failure was found. Nothing was broken; the quality-dependent compression branch — LZW at 100, JPEG below —
+  had simply never run.
 
 ## [0.16.0] - 2026-08-15
 
