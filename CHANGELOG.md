@@ -10,6 +10,10 @@ Entries start at 0.10.0. For earlier history, see the
 
 ## [Unreleased]
 
+_No changes yet._
+
+## [0.17.0] - 2026-08-16
+
 ### Changed
 
 - JPEG and WebP sources are decoded at a reduced scale when the request allows it, instead of being unpacked at
@@ -252,7 +256,8 @@ Entries start at 0.10.0. For earlier history, see the
 - WebP saves use the safe libvips save path, documented alongside the crash caveat in the generated
   `webpsave` bindings. (Superseded by the WebP encoder-option fix in 0.14.0, above.)
 
-[Unreleased]: https://github.com/ImgForger/imgforge/compare/v0.16.0...HEAD
+[Unreleased]: https://github.com/ImgForger/imgforge/compare/v0.17.0...HEAD
+[0.17.0]: https://github.com/ImgForger/imgforge/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/ImgForger/imgforge/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/ImgForger/imgforge/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/ImgForger/imgforge/compare/v0.13.0...v0.14.0
