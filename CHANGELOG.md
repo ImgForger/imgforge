@@ -12,9 +12,11 @@ Entries start at 0.10.0. For earlier history, see the
 
 ### Changed
 
-- JPEG sources are decoded at a reduced scale when the request allows it, instead of being unpacked at full
-  resolution and then downsampled. A 9000×7000 JPEG asked for a 450px thumbnail previously decoded 63 million pixels
-  to keep 157 thousand. Measured through the real load path, peak memory per request drops from 114 MB to 49 MB.
+- JPEG and WebP sources are decoded at a reduced scale when the request allows it, instead of being unpacked at
+  full resolution and then downsampled. A 9000×7000 JPEG asked for a 450px thumbnail previously decoded 63 million
+  pixels to keep 157 thousand. Measured through the real load path, peak memory per request drops from 114 MB to
+  49 MB for JPEG, and from 737 MB to 50 MB for WebP — libwebp decodes the whole image at once rather than
+  streaming, so a large WebP had been the heaviest request imgforge could receive.
 
   Since `IMGFORGE_WORKERS` is sized from measured peak memory, this converts fairly directly into concurrency at the
   same memory ceiling.
