@@ -1,5 +1,6 @@
 use crate::processing::options::{Crop, ParsedOptions, Resize, Watermark};
 use crate::processing::process_image;
+use crate::processing::save;
 use crate::processing::transform;
 use crate::processing::watermark;
 use bytes::Bytes;
@@ -436,4 +437,77 @@ fn test_load_shrink_uses_displayed_dimensions_for_rotated_sources() {
         rotated_w >= 2000 && rotated_h >= 1000,
         "rotated {rotated_w}x{rotated_h} cannot fill a 2000x1000 box"
     );
+}
+
+/// The WebP loader rounds decoded dimensions to nearest, which can round *down*
+/// — 4000 x 0.3333 is 1333.2 and decodes to 1333. This decodes real WebP data at
+/// the computed scale and checks the result against the target, rather than
+/// trusting a model of that rounding.
+#[test]
+fn test_webp_load_scale_never_undershoots_the_target() {
+    use crate::processing::load_scale_factor;
+
+    init_vips();
+    if !crate::processing::save::is_format_supported("webp") {
+        eprintln!("skipping: this libvips build cannot encode WebP");
+        return;
+    }
+
+    for (sw, sh, tw, th) in [
+        (4000u32, 3000u32, 1333u32, 1000u32), // ratio just over 3
+        (4000, 3000, 999, 749),
+        (1000, 1000, 333, 333),
+        (1000, 1000, 667, 667),
+        (2000, 1000, 700, 300),
+        (999, 1001, 333, 334),
+    ] {
+        let options = ParsedOptions {
+            resize: Some(Resize {
+                resizing_type: "fit".to_string(),
+                width: tw,
+                height: th,
+            }),
+            ..ParsedOptions::default()
+        };
+        let Some(scale) = load_scale_factor(&options, sw, sh) else {
+            continue;
+        };
+
+        let webp = save::save_image(image_from(create_test_image(sw, sh)), "webp", 80).unwrap();
+        let decoded = VipsImage::new_from_buffer(&webp, &format!("scale={scale}")).unwrap();
+        let (dw, dh) = (decoded.get_width() as u32, decoded.get_height() as u32);
+
+        assert!(
+            dw >= tw && dh >= th,
+            "scale {scale} took {sw}x{sh} to {dw}x{dh}, below the {tw}x{th} target"
+        );
+    }
+}
+
+/// The point of the WebP branch: a continuous scale lands much closer to what is
+/// needed than JPEG's power-of-two shrink can.
+#[test]
+fn test_webp_scale_is_finer_than_the_jpeg_shrink() {
+    use crate::processing::{load_scale_factor, load_shrink_factor};
+
+    let options = ParsedOptions {
+        resize: Some(Resize {
+            resizing_type: "fit".to_string(),
+            width: 1000,
+            height: 1000,
+        }),
+        ..ParsedOptions::default()
+    };
+
+    // A 3x reduction: JPEG has to settle for 2x, WebP can take all of it.
+    assert_eq!(load_shrink_factor(&options, 3000, 3000), 2);
+    let scale = load_scale_factor(&options, 3000, 3000).unwrap();
+    assert!(
+        (scale - 1.0 / 3.0).abs() < 0.01,
+        "expected roughly a third, got {scale}"
+    );
+
+    // And a reduction JPEG declines entirely still pays off for WebP.
+    assert_eq!(load_shrink_factor(&options, 1800, 1800), 1);
+    assert!(load_scale_factor(&options, 1800, 1800).is_some());
 }

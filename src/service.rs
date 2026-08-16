@@ -219,7 +219,8 @@ fn swaps_axes(parsed_options: &ParsedOptions, image_bytes: &Bytes) -> bool {
 /// naming a property a loader does not have makes libvips reject the whole
 /// call — the failure mode that broke AVIF and GIF encoding.
 fn shrink_source_on_load(source_image: VipsImage, image_bytes: &Bytes, parsed_options: &ParsedOptions) -> VipsImage {
-    if sniff_image_format(image_bytes) != Some("jpeg") {
+    let format = sniff_image_format(image_bytes);
+    if !matches!(format, Some("jpeg") | Some("webp")) {
         return source_image;
     }
 
@@ -237,16 +238,25 @@ fn shrink_source_on_load(source_image: VipsImage, image_bytes: &Bytes, parsed_op
         (width, height)
     };
 
-    let factor = crate::processing::load_shrink_factor(parsed_options, width, height);
-    if factor <= 1 {
+    // JPEG takes a power-of-two shrink; WebP takes a continuous scale and can
+    // therefore decode much closer to what is actually needed.
+    let load_option = if format == Some("webp") {
+        crate::processing::load_scale_factor(parsed_options, width, height).map(|scale| format!("scale={scale}"))
+    } else {
+        match crate::processing::load_shrink_factor(parsed_options, width, height) {
+            factor if factor > 1 => Some(format!("shrink={factor}")),
+            _ => None,
+        }
+    };
+    let Some(load_option) = load_option else {
         return source_image;
-    }
+    };
 
-    match VipsImage::new_from_buffer(image_bytes, &format!("shrink={factor}")) {
+    match VipsImage::new_from_buffer(image_bytes, &load_option) {
         Ok(shrunk) => {
             debug!(
-                "Decoding at 1/{} scale: {}x{} -> {}x{}",
-                factor,
+                "Decoding with {}: {}x{} -> {}x{}",
+                load_option,
                 width,
                 height,
                 shrunk.get_width(),

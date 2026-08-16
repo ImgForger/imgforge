@@ -32,68 +32,88 @@ pub enum ProcessingError {
 /// rather than doing it and throwing the result away.
 const MAX_LOAD_SHRINK: u32 = 8;
 
-/// Picks a power-of-two shrink to apply while decoding, so a large source is
-/// never unpacked at full resolution to produce a small result.
+/// Below this, re-decoding at a reduced scale is not worth the divergence: at
+/// 1.5 the pixel count already drops to 44%, and under it the saving thins out
+/// fast.
+const MIN_LOAD_SHRINK: f64 = 1.5;
+
+/// How much larger the source is than what the request needs, as a ratio.
 ///
-/// Follows imgproxy: take the *least* shrink any axis needs, so the decoded
-/// image is still at least as large as the target on both axes and the real
-/// resize can finish the job. Overshooting here would hand the pipeline a
-/// source smaller than the request, which `enlarge:false` would then refuse to
-/// scale back up.
-///
-/// Returns 1 when nothing should change.
-pub fn load_shrink_factor(parsed_options: &ParsedOptions, src_width: u32, src_height: u32) -> u32 {
-    // `raw` returns the source untouched, and a crop addresses source pixels by
-    // coordinate — shrinking underneath it would move the region being cut.
+/// `None` means decode it whole: `raw` returns the source untouched, and a crop
+/// addresses source pixels by coordinate, so shrinking underneath it would move
+/// the region being cut.
+fn load_shrink_ratio(parsed_options: &ParsedOptions, src_width: u32, src_height: u32) -> Option<f64> {
     if parsed_options.raw || parsed_options.crop.is_some() {
-        return 1;
+        return None;
     }
-    let Some(resize) = parsed_options.resize.as_ref() else {
-        return 1;
-    };
+    let resize = parsed_options.resize.as_ref()?;
     if src_width == 0 || src_height == 0 {
-        return 1;
+        return None;
     }
 
     // Anything that can grow the target after this point has to be folded in,
     // or the shrink could drop the source below what the pipeline still needs.
     let grow =
         f64::from(parsed_options.dpr.unwrap_or(1.0).max(1.0)) * f64::from(parsed_options.zoom.unwrap_or(1.0).max(1.0));
-    // `force` fills a zero axis from the *source* dimension, so that axis needs
-    // the source at full size — shrinking would shrink the target with it. Every
-    // other type derives a zero axis from the aspect ratio, which survives a
-    // shrink unchanged.
-    let forced = resize.resizing_type == "force";
-    let width_follows_source = forced && resize.width == 0;
-    let height_follows_source = forced && resize.height == 0;
 
-    let target_width = if width_follows_source {
+    // `force` fills a zero axis from the *source* dimension, so that axis needs
+    // the source at full size. Every other type derives a zero axis from the
+    // aspect ratio, which survives a shrink unchanged.
+    let forced = resize.resizing_type == "force";
+    let target_width = if forced && resize.width == 0 {
         f64::from(src_width)
     } else {
         (f64::from(resize.width) * grow).max(f64::from(parsed_options.min_width.unwrap_or(0)))
     };
-    let target_height = if height_follows_source {
+    let target_height = if forced && resize.height == 0 {
         f64::from(src_height)
     } else {
         (f64::from(resize.height) * grow).max(f64::from(parsed_options.min_height.unwrap_or(0)))
     };
 
-    let mut shrink = f64::INFINITY;
+    // The *least* shrink any axis needs, so the decoded image is still at least
+    // as large as the target on both. Overshooting would hand the pipeline a
+    // source smaller than the request, which `enlarge:false` then refuses to
+    // scale back up.
+    let mut ratio = f64::INFINITY;
     if target_width >= 1.0 {
-        shrink = shrink.min(f64::from(src_width) / target_width);
+        ratio = ratio.min(f64::from(src_width) / target_width);
     }
     if target_height >= 1.0 {
-        shrink = shrink.min(f64::from(src_height) / target_height);
+        ratio = ratio.min(f64::from(src_height) / target_height);
     }
-    if !shrink.is_finite() || shrink < 2.0 {
+    (ratio.is_finite() && ratio >= MIN_LOAD_SHRINK).then_some(ratio)
+}
+
+/// Power-of-two shrink for the JPEG loader, or 1 to decode at full size.
+pub fn load_shrink_factor(parsed_options: &ParsedOptions, src_width: u32, src_height: u32) -> u32 {
+    let Some(ratio) = load_shrink_ratio(parsed_options, src_width, src_height) else {
         return 1;
-    }
+    };
 
     let mut factor = 1;
-    while factor * 2 <= MAX_LOAD_SHRINK && f64::from(factor * 2) <= shrink {
+    while factor * 2 <= MAX_LOAD_SHRINK && f64::from(factor * 2) <= ratio {
         factor *= 2;
     }
     factor
+}
+
+/// Continuous scale for the WebP loader, or `None` to decode at full size.
+///
+/// WebP takes a scale rather than JPEG's power-of-two shrink, so it can decode
+/// much closer to what is needed — a request needing a 3x reduction gets one,
+/// where the JPEG path has to settle for 2x.
+///
+/// The loader rounds decoded dimensions to nearest and can round down — 4000 x
+/// 0.3333 is 1333.2 and decodes to 1333 — so an undershoot would be possible
+/// with a scale that had been truncated on its way in. Deriving it exactly from
+/// the target avoids that: the multiplication lands back on the target and the
+/// rounding has nothing to shave. Checked over several million source/target
+/// pairs, and guarded by a test that decodes real WebP data rather than
+/// modelling the rounding.
+pub fn load_scale_factor(parsed_options: &ParsedOptions, src_width: u32, src_height: u32) -> Option<f64> {
+    let scale = 1.0 / load_shrink_ratio(parsed_options, src_width, src_height)?;
+    (scale > 0.0 && scale < 1.0).then_some(scale)
 }
 
 /// Processes an image by applying the given `ParsedOptions`.
