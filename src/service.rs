@@ -202,6 +202,30 @@ fn processed_cache_key<'a>(
     }
 }
 
+/// Rewrites a crop region to match a source that was decoded at a reduced size.
+///
+/// Rounds the region up: it is clamped to the image by `crop_image` anyway, and
+/// rounding down could leave it fractionally smaller than the resize target,
+/// which `enlarge:false` would then refuse to make up.
+fn rescale_crop(parsed_options: &mut ParsedOptions, original: (i32, i32), shrunk: (i32, i32)) {
+    let Some(crop) = parsed_options.crop.as_mut() else {
+        return;
+    };
+    let (ow, oh) = (f64::from(original.0), f64::from(original.1));
+    let (sw, sh) = (f64::from(shrunk.0), f64::from(shrunk.1));
+    if ow <= 0.0 || oh <= 0.0 || sw <= 0.0 || sh <= 0.0 {
+        return;
+    }
+
+    // A zero extent already means "all of it" and stays that way.
+    if crop.width > 0 {
+        crop.width = ((f64::from(crop.width) * (sw / ow)).ceil() as u32).max(1);
+    }
+    if crop.height > 0 {
+        crop.height = ((f64::from(crop.height) * (sh / oh)).ceil() as u32).max(1);
+    }
+}
+
 /// Whether EXIF orientation will transpose the image during processing.
 fn swaps_axes(parsed_options: &ParsedOptions, image_bytes: &Bytes) -> bool {
     parsed_options.auto_rotate
@@ -218,7 +242,11 @@ fn swaps_axes(parsed_options: &ParsedOptions, image_bytes: &Bytes) -> bool {
 /// work. Other loaders either have no equivalent or spell it differently, and
 /// naming a property a loader does not have makes libvips reject the whole
 /// call — the failure mode that broke AVIF and GIF encoding.
-fn shrink_source_on_load(source_image: VipsImage, image_bytes: &Bytes, parsed_options: &ParsedOptions) -> VipsImage {
+fn shrink_source_on_load(
+    source_image: VipsImage,
+    image_bytes: &Bytes,
+    parsed_options: &mut ParsedOptions,
+) -> VipsImage {
     let format = sniff_image_format(image_bytes);
     if !matches!(format, Some("jpeg") | Some("webp")) {
         return source_image;
@@ -261,6 +289,15 @@ fn shrink_source_on_load(source_image: VipsImage, image_bytes: &Bytes, parsed_op
                 height,
                 shrunk.get_width(),
                 shrunk.get_height()
+            );
+            // A crop names a region of the source in pixels, and the source
+            // just got smaller. Rewrite it against what was actually decoded
+            // rather than the requested factor, so rounding in the loader
+            // cannot leave the region pointing at the wrong pixels.
+            rescale_crop(
+                parsed_options,
+                (source_image.get_width(), source_image.get_height()),
+                (shrunk.get_width(), shrunk.get_height()),
             );
             shrunk
         }
@@ -444,7 +481,7 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
         // everything so far has read the header and nothing more. Reopening
         // with a shrink means the full-resolution pixels are never unpacked at
         // all. Same ordering imgproxy uses: load, check, then scale on load.
-        let source_image = shrink_source_on_load(source_image, &image_bytes, &parsed_options);
+        let source_image = shrink_source_on_load(source_image, &image_bytes, &mut parsed_options);
 
         let processed_image_bytes = process_image(source_image, parsed_options, &image_bytes, watermark.as_ref())?;
         Ok::<_, ServiceError>((processed_image_bytes, output_format))
@@ -948,6 +985,63 @@ mod tests {
         out.extend_from_slice(&app1);
         out.extend_from_slice(&base[2..]);
         out
+    }
+
+    #[test]
+    fn crop_regions_are_rewritten_for_a_reduced_decode() {
+        use crate::processing::options::Crop;
+
+        // A crop names source pixels, so a source decoded at a quarter size
+        // needs the region quartered with it. Exercised through the function
+        // the request path actually calls, not a hand-rolled equivalent.
+        let original = (2000, 1600);
+        let shrunk = (500, 400);
+
+        let mut options = ParsedOptions {
+            crop: Some(Crop {
+                x: 0,
+                y: 0,
+                width: 1000,
+                height: 800,
+                gravity: None,
+            }),
+            ..ParsedOptions::default()
+        };
+        rescale_crop(&mut options, original, shrunk);
+        let crop = options.crop.unwrap();
+        assert_eq!((crop.width, crop.height), (250, 200));
+
+        // A zero extent already means "all of it" and must stay that way,
+        // otherwise it would be pinned to one pixel.
+        let mut options = ParsedOptions {
+            crop: Some(Crop {
+                x: 0,
+                y: 0,
+                width: 0,
+                height: 800,
+                gravity: None,
+            }),
+            ..ParsedOptions::default()
+        };
+        rescale_crop(&mut options, original, shrunk);
+        let crop = options.crop.unwrap();
+        assert_eq!((crop.width, crop.height), (0, 200));
+
+        // Rounding up: a region that does not divide evenly must not come back
+        // smaller than the resize target needs.
+        let mut options = ParsedOptions {
+            crop: Some(Crop {
+                x: 0,
+                y: 0,
+                width: 999,
+                height: 3,
+                gravity: None,
+            }),
+            ..ParsedOptions::default()
+        };
+        rescale_crop(&mut options, original, shrunk);
+        let crop = options.crop.unwrap();
+        assert_eq!((crop.width, crop.height), (250, 1));
     }
 
     #[test]

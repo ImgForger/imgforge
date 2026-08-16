@@ -15,7 +15,7 @@ catching up wholesale.
 
 ## Performance
 
-### Scale-on-load — done for JPEG and WebP, open for cropped requests
+### Scale-on-load — done
 
 Both loaders now decode at a reduced scale when the plan allows, so a large source is no longer unpacked at full
 resolution to produce a small result. Measured through the real load path, downscaling a 9000×7000 source to 450px:
@@ -29,12 +29,11 @@ WebP gains far more because libwebp decodes the whole image at once rather than 
 WebP the worst case imgforge had. Its loader also takes a continuous `scale` rather than JPEG's power-of-two
 `shrink`, so it lands closer to what the request needs.
 
-Still open:
-
-- **Cropped requests decline it entirely.** A crop addresses source pixels by coordinate, so shrinking underneath it
-  would move the region. imgproxy instead scales the crop coordinates by the shrink factor, which lets cropped
-  requests benefit too — worth doing, and the reason to read their `processing/crop.go` alongside `scale_on_load.go`
-  when implementing.
+Cropped requests are included. A crop names a region of the source in pixels, so the region is rewritten against
+what was actually decoded — the same thing imgproxy does in `scaleOnLoad` (`c.CropWidth = max(1,
+imath.Shrink(c.CropWidth, wpreshrink))`). The reduction is measured against the crop region rather than the whole
+source, since the crop is what has to survive: an 8000×6000 source cropped to 2000×1500 for a 500-wide target can
+only lose a factor of 4, not 16.
 
 A note on estimating: this entry originally read "expect to restructure `process_path`". It was about 40 lines,
 because the processing plan is already parsed before the decode and libvips' loader already takes an option string.
