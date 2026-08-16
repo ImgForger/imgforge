@@ -175,6 +175,10 @@ everything after it sees the trimmed extent.
 
 An image that is entirely background is returned untouched rather than reduced to nothing.
 
+The background is matched to the image: libvips wants one value per non-alpha band, so greyscale sources reduce an
+explicit colour to its luminance, and a CMYK source refuses one outright — omit the colour there and let it be
+detected, since an sRGB value has no meaningful reading against four ink channels.
+
 Two costs worth knowing. Trimming has to examine the pixels, so it **disables scale-on-load**: the trimmed size is
 not knowable in advance, so there is no safe decode scale to choose, and the source is read at full resolution.
 Reach for it when you need it, not by default, and be wary of it on large sources.

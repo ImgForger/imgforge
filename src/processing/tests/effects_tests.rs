@@ -1,6 +1,6 @@
 use crate::processing::options::{Adjust, Crop, Flip, Gravity, Trim};
 use crate::processing::transform::{self, TransformError};
-use libvips::VipsImage;
+use libvips::{ops, VipsImage};
 
 use super::tests_support::*;
 
@@ -515,4 +515,50 @@ fn test_trim_leaves_an_entirely_blank_image_alone() {
     let img = image_from(create_test_image(80, 50));
     let trimmed = transform::apply_trim(img, &trim(10.0, Some([255, 0, 0, 255]), false, false)).unwrap();
     assert_eq!((trimmed.get_width(), trimmed.get_height()), (80, 50));
+}
+
+/// find_trim wants one component or one per non-alpha band, so the background
+/// has to be built against the image rather than assumed to be RGB. Three
+/// components against a CMYK image fails outright with "vector must have 1 or
+/// 4 elements".
+#[test]
+fn test_trim_matches_the_background_to_the_image_bands() {
+    init_vips();
+    let source = create_bordered_image((200, 140), WHITE, (30, 20, 100, 60), RED);
+
+    // Greyscale: detection reads one component and still finds the block.
+    let grey = ops::colourspace(&image_from(source.clone()), ops::Interpretation::BW).unwrap();
+    let trimmed = transform::apply_trim(grey, &trim(10.0, None, false, false)).unwrap();
+    assert_eq!((trimmed.get_width(), trimmed.get_height()), (100, 60));
+
+    // ...and an explicit colour is reduced to its luminance rather than being
+    // passed as three components.
+    let grey = ops::colourspace(&image_from(source.clone()), ops::Interpretation::BW).unwrap();
+    let trimmed = transform::apply_trim(grey, &trim(10.0, Some(WHITE), false, false)).unwrap();
+    assert_eq!((trimmed.get_width(), trimmed.get_height()), (100, 60));
+
+    // CMYK: four components. Detection has to supply four, not three.
+    let cmyk = ops::colourspace(&image_from(source.clone()), ops::Interpretation::Cmyk).unwrap();
+    let trimmed = transform::apply_trim(cmyk, &trim(10.0, None, false, false)).unwrap();
+    assert_eq!((trimmed.get_width(), trimmed.get_height()), (100, 60));
+
+    // An sRGB colour has no meaningful reading against CMYK, so it is refused
+    // rather than silently trimming the wrong thing.
+    let cmyk = ops::colourspace(&image_from(source), ops::Interpretation::Cmyk).unwrap();
+    let err = transform::apply_trim(cmyk, &trim(10.0, Some(WHITE), false, false)).expect_err("should refuse");
+    assert!(err.to_string().contains("omit it to detect"), "unhelpful error: {err}");
+}
+
+/// Background detection must work whatever the band format. Reading raw memory
+/// only worked for 8-bit, so a 16-bit source silently fell back to white and a
+/// dark border survived.
+#[test]
+fn test_trim_detects_the_background_on_a_16_bit_source() {
+    init_vips();
+    let dark = image_from(create_bordered_image((200, 140), BLACK, (30, 20, 100, 60), RED));
+    let deep = ops::cast(&dark, ops::BandFormat::Ushort).unwrap();
+    assert!(matches!(deep.get_format(), Ok(ops::BandFormat::Ushort)));
+
+    let trimmed = transform::apply_trim(deep, &trim(10.0, None, false, false)).unwrap();
+    assert_eq!((trimmed.get_width(), trimmed.get_height()), (100, 60));
 }

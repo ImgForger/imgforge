@@ -141,27 +141,34 @@ pub(crate) fn apply_exif_orientation(mut img: VipsImage, orientation: u32) -> Re
 }
 
 /// Crops an image to the specified dimensions.
+/// How many components `find_trim` expects in a background colour: one per
+/// band, less the alpha if there is one. libvips accepts a single value or
+/// exactly that many, and rejects anything else — three components against a
+/// CMYK image fails with "vector must have 1 or 4 elements".
+fn background_components(img: &VipsImage) -> usize {
+    let bands = usize::try_from(img.get_bands()).unwrap_or(1).max(1);
+    if img.image_hasalpha() {
+        bands.saturating_sub(1).max(1)
+    } else {
+        bands
+    }
+}
+
 /// Reads the top-left pixel, to use as the background when the request does not
 /// name one. imgproxy works this out from the image the same way; libvips on its
 /// own would assume white, which never trims a dark border.
 ///
-/// Returns `None` for anything but 8-bit data, where the raw bytes would not
-/// mean what this assumes.
-fn corner_pixel(img: &VipsImage) -> Option<Vec<f64>> {
-    if !matches!(img.get_format(), Ok(ops::BandFormat::Uchar)) {
-        return None;
-    }
+/// Averaging a one-pixel band reads its value whatever the band format, so this
+/// works on 16-bit sources as well as 8-bit — interpreting raw memory would
+/// have meant knowing the layout of each format.
+fn corner_pixel(img: &VipsImage, components: usize) -> Option<Vec<f64>> {
     let corner = ops::extract_area(img, 0, 0, 1, 1).ok()?;
-    let bands = usize::try_from(corner.get_bands()).ok()?;
-    let bytes = corner.image_write_to_memory();
-    if bands == 0 || bytes.len() < bands {
-        return None;
-    }
-
-    // find_trim takes one component or three; an alpha channel is not one of
-    // the options, so a 4-band pixel has to lose it.
-    let take = if bands >= 3 { 3 } else { 1 };
-    Some(bytes[..take].iter().map(|b| f64::from(*b)).collect())
+    (0..components)
+        .map(|band| {
+            let band = ops::extract_band(&corner, i32::try_from(band).ok()?).ok()?;
+            ops::avg(&band).ok()
+        })
+        .collect()
 }
 
 /// Trims a uniform border.
@@ -170,9 +177,25 @@ fn corner_pixel(img: &VipsImage) -> Option<Vec<f64>> {
 /// scale-on-load steps aside when this is in play — there is no way to choose a
 /// decode scale against an unknown result.
 pub fn apply_trim(img: VipsImage, trim: &Trim) -> Result<VipsImage, TransformError> {
+    let components = background_components(&img);
     let background = match trim.color {
-        Some(color) => vec![f64::from(color[0]), f64::from(color[1]), f64::from(color[2])],
-        None => corner_pixel(&img).unwrap_or_else(|| vec![255.0, 255.0, 255.0]),
+        // An explicit colour arrives as sRGB, which only lines up with a
+        // three-component image. Greyscale takes its luminance; anything else —
+        // CMYK, say — has no meaningful conversion, and guessing would trim the
+        // wrong thing silently.
+        Some(color) if components == 3 => vec![f64::from(color[0]), f64::from(color[1]), f64::from(color[2])],
+        Some(color) if components == 1 => {
+            vec![0.299 * f64::from(color[0]) + 0.587 * f64::from(color[1]) + 0.114 * f64::from(color[2])]
+        }
+        Some(_) => {
+            return Err(TransformError::invalid(
+                "trim",
+                format!(
+                    "trim colour cannot be applied to a {components}-component image; omit it to detect the background instead"
+                ),
+            ))
+        }
+        None => corner_pixel(&img, components).unwrap_or_else(|| vec![255.0; components]),
     };
 
     let options = ops::FindTrimOptions {
