@@ -1,4 +1,4 @@
-use crate::processing::options::{Adjust, Crop, Flip, Gravity};
+use crate::processing::options::{Adjust, Crop, Flip, Gravity, Trim};
 use crate::processing::transform::{self, TransformError};
 use libvips::VipsImage;
 
@@ -449,4 +449,70 @@ fn test_crop_zero_means_full_extent_and_oversized_clamps() {
     )
     .unwrap();
     assert_eq!((cropped.get_width(), cropped.get_height()), (100, 60));
+}
+
+const WHITE: [u8; 4] = [255, 255, 255, 255];
+const BLACK: [u8; 4] = [0, 0, 0, 255];
+const RED: [u8; 4] = [200, 0, 0, 255];
+
+fn trim(threshold: f64, color: Option<[u8; 4]>, equal_hor: bool, equal_ver: bool) -> Trim {
+    Trim {
+        threshold,
+        color,
+        equal_hor,
+        equal_ver,
+    }
+}
+
+#[test]
+fn test_trim_removes_a_uniform_border() {
+    init_vips();
+    // 100x60 red block at (30, 20) on a 200x140 white field.
+    let img = image_from(create_bordered_image((200, 140), WHITE, (30, 20, 100, 60), RED));
+    let trimmed = transform::apply_trim(img, &trim(10.0, None, false, false)).unwrap();
+    assert_eq!((trimmed.get_width(), trimmed.get_height()), (100, 60));
+}
+
+/// libvips assumes a white background on its own, which never trims a dark
+/// border. imgproxy works the colour out from the image, and so does this.
+#[test]
+fn test_trim_detects_a_dark_background_without_being_told() {
+    init_vips();
+    let img = image_from(create_bordered_image((200, 140), BLACK, (30, 20, 100, 60), RED));
+    let trimmed = transform::apply_trim(img, &trim(10.0, None, false, false)).unwrap();
+    assert_eq!((trimmed.get_width(), trimmed.get_height()), (100, 60));
+}
+
+#[test]
+fn test_trim_honours_an_explicit_colour() {
+    init_vips();
+    let img = image_from(create_bordered_image((200, 140), WHITE, (30, 20, 100, 60), RED));
+    // Naming red as the background inverts what counts as content: the white
+    // frame is now the subject, and it reaches every edge.
+    let trimmed = transform::apply_trim(img, &trim(10.0, Some(RED), false, false)).unwrap();
+    assert_eq!((trimmed.get_width(), trimmed.get_height()), (200, 140));
+}
+
+/// `equal_hor` / `equal_ver` cut the same amount from both sides, so the subject
+/// keeps its position instead of shifting toward the thicker border.
+#[test]
+fn test_trim_equal_sides_keeps_the_subject_centred() {
+    init_vips();
+    // Block at x=30 with 70 to its right: uneven. Equal trimming takes 30 from
+    // each side, leaving 140 wide rather than the 100 an uneven trim gives.
+    let img = image_from(create_bordered_image((200, 140), WHITE, (30, 20, 100, 60), RED));
+    let trimmed = transform::apply_trim(img, &trim(10.0, None, true, false)).unwrap();
+    assert_eq!(trimmed.get_width(), 140);
+    // Vertical is untouched, so it still trims tight.
+    assert_eq!(trimmed.get_height(), 60);
+}
+
+#[test]
+fn test_trim_leaves_an_entirely_blank_image_alone() {
+    init_vips();
+    // Nothing but background: returning an empty or one-pixel image would be
+    // worse than doing nothing.
+    let img = image_from(create_test_image(80, 50));
+    let trimmed = transform::apply_trim(img, &trim(10.0, Some([255, 0, 0, 255]), false, false)).unwrap();
+    assert_eq!((trimmed.get_width(), trimmed.get_height()), (80, 50));
 }

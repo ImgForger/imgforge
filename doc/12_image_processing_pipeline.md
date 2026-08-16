@@ -4,7 +4,8 @@ The transformation phase, which runs after imgforge has validated the request an
 
 ```
 plan ─▶ dpr ─▶ load ─▶ geometry ─▶ canvas ─▶ effects ─▶ encode
-                       crop        padding    blur       format
+                       trim        padding    blur       format
+                       crop
                        resize      extend     sharpen    quality
                                    background pixelate   metadata
                                               zoom
@@ -19,7 +20,7 @@ plan ─▶ dpr ─▶ load ─▶ geometry ─▶ canvas ─▶ effects ─▶ 
 3. **Image loading** – libvips reads the source buffer, converts the colour profile when needed, and applies EXIF orientation unless `auto_rotate:false`.
 
    JPEG and WebP sources are decoded at a reduced scale when the plan allows it, so a large source is never unpacked at full resolution to produce a small result. JPEG decodes at 1/2, 1/4 or 1/8; WebP takes a continuous scale and can land much closer to what is needed. Both genuinely skip the work rather than doing it and discarding the result. The reduction is chosen so the decoded image is still at least as large as the target on both axes, and it is skipped entirely for `raw`, for any request with a `crop` (whose coordinates address source pixels), and when `dpr`, `zoom`, or the minimum dimensions mean more pixels are needed later. Source limits are enforced against the original dimensions, before any of this.
-4. **Geometry** – Crop runs first, then resizing (`resize`, `size`, `width`, `height`) using the active `resizing_type`. Gravity positions the crop window and the fill canvas. Upscaling is refused unless `enlarge:true`.
+4. **Geometry** – `trim` runs first when present, removing a uniform border so everything after it works on the trimmed extent; it also disables the reduced-scale decode, since the trimmed size cannot be known in advance. Then crop, then resizing (`resize`, `size`, `width`, `height`) using the active `resizing_type`. Gravity positions the crop window and the fill canvas. Upscaling is refused unless `enlarge:true`.
 5. **Canvas** – Padding, `extend`, and `background` apply after resizing, so they operate on the final viewport. Output formats without an alpha channel are flattened against the background colour.
 6. **Effects and safeguards** – Blur, sharpen, pixelate, and zoom run after geometry. `min-width` and `min-height` can trigger one more upscale if the image is still too small, and do so whether or not `enlarge` is set. Watermarks load here, clamped to the canvas; a watermark that cannot be fetched or decoded fails the request.
 7. **Encoding** – The image is encoded to the requested format. An explicit `format` directive beats the format implied by `@extension`. Quality follows the `quality` directive, defaulting to `85` for lossy codecs.

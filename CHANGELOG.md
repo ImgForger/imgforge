@@ -33,6 +33,17 @@ Entries start at 0.10.0. For earlier history, see the
   only when capacity evicts them, so a frequently requested URL can serve the old output indefinitely. Change the
   `cachebuster` token or clear the cache if you need the new bytes.
 
+### Added
+
+- `trim` / `t`, matching imgproxy: `trim:threshold[:color[:equal_hor[:equal_ver]]]` removes a uniform border before
+  cropping and resizing. Omit the colour and imgforge reads the top-left pixel to work out what the border is, so a
+  border of any colour is trimmed — libvips on its own assumes white and would leave a dark border in place.
+  `equal_hor` and `equal_ver` cut the same amount from both sides, keeping an off-centre subject where it is.
+
+  Trimming has to examine the pixels, so it **disables the reduced-scale decode**: the trimmed size cannot be known
+  in advance, so there is no safe decode scale to choose and the source is read at full resolution. Worth reaching
+  for deliberately rather than by default on large sources.
+
 ### Internal
 
 - TIFF encoding has tests. It was the last save path with none, in the same position AVIF and GIF were in before

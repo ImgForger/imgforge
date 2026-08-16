@@ -46,6 +46,13 @@ fn load_shrink_ratio(parsed_options: &ParsedOptions, src_width: u32, src_height:
     if parsed_options.raw {
         return None;
     }
+    // Trim removes an unknown number of pixels, so there is no way to tell how
+    // many will be left for the resize. Choosing a decode scale against that is
+    // guesswork, and guessing low leaves the resize short. imgproxy stands
+    // aside here too.
+    if parsed_options.trim.is_some() {
+        return None;
+    }
     let resize = parsed_options.resize.as_ref()?;
     if src_width == 0 || src_height == 0 {
         return None;
@@ -201,6 +208,13 @@ pub fn process_image(
     if parsed_options.auto_rotate {
         debug!("Applying EXIF auto-rotation");
         img = transform::apply_exif_rotation(source_bytes.as_ref(), img)?;
+    }
+
+    // Trim before anything that depends on the image's extent: the borders it
+    // removes would otherwise skew the crop window and the resize target.
+    if let Some(ref trim) = parsed_options.trim {
+        debug!("Applying trim: {:?}", trim);
+        img = transform::apply_trim(img, trim)?;
     }
 
     // Apply crop if specified

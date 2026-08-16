@@ -1,4 +1,4 @@
-use crate::processing::options::{Adjust, Crop, Flip, Gravity, Resize};
+use crate::processing::options::{Adjust, Crop, Flip, Gravity, Resize, Trim};
 use crate::utils::read_exif_orientation;
 use libvips::{ops, VipsImage};
 use thiserror::Error;
@@ -141,6 +141,74 @@ pub(crate) fn apply_exif_orientation(mut img: VipsImage, orientation: u32) -> Re
 }
 
 /// Crops an image to the specified dimensions.
+/// Reads the top-left pixel, to use as the background when the request does not
+/// name one. imgproxy works this out from the image the same way; libvips on its
+/// own would assume white, which never trims a dark border.
+///
+/// Returns `None` for anything but 8-bit data, where the raw bytes would not
+/// mean what this assumes.
+fn corner_pixel(img: &VipsImage) -> Option<Vec<f64>> {
+    if !matches!(img.get_format(), Ok(ops::BandFormat::Uchar)) {
+        return None;
+    }
+    let corner = ops::extract_area(img, 0, 0, 1, 1).ok()?;
+    let bands = usize::try_from(corner.get_bands()).ok()?;
+    let bytes = corner.image_write_to_memory();
+    if bands == 0 || bytes.len() < bands {
+        return None;
+    }
+
+    // find_trim takes one component or three; an alpha channel is not one of
+    // the options, so a 4-band pixel has to lose it.
+    let take = if bands >= 3 { 3 } else { 1 };
+    Some(bytes[..take].iter().map(|b| f64::from(*b)).collect())
+}
+
+/// Trims a uniform border.
+///
+/// Note for callers: the trimmed size is not knowable in advance, which is why
+/// scale-on-load steps aside when this is in play — there is no way to choose a
+/// decode scale against an unknown result.
+pub fn apply_trim(img: VipsImage, trim: &Trim) -> Result<VipsImage, TransformError> {
+    let background = match trim.color {
+        Some(color) => vec![f64::from(color[0]), f64::from(color[1]), f64::from(color[2])],
+        None => corner_pixel(&img).unwrap_or_else(|| vec![255.0, 255.0, 255.0]),
+    };
+
+    let options = ops::FindTrimOptions {
+        threshold: trim.threshold,
+        background,
+        line_art: false,
+    };
+    let (left, top, width, height) = ops::find_trim_with_opts(&img, &options).map_err(vips("Error finding trim"))?;
+
+    // An image that is entirely background has nothing to keep. Returning it
+    // untouched beats handing back an empty or one-pixel image.
+    if width <= 0 || height <= 0 {
+        debug!("Trim found no content to keep; leaving the image alone");
+        return Ok(img);
+    }
+
+    let (src_width, src_height) = (img.get_width(), img.get_height());
+    let (mut left, mut top, mut width, mut height) = (left, top, width, height);
+
+    // "Equal" means the same amount comes off both sides, so the subject keeps
+    // its position rather than shifting toward whichever border was thicker.
+    if trim.equal_hor {
+        let margin = left.min(src_width - (left + width));
+        left = margin;
+        width = src_width - 2 * margin;
+    }
+    if trim.equal_ver {
+        let margin = top.min(src_height - (top + height));
+        top = margin;
+        height = src_height - 2 * margin;
+    }
+
+    debug!("Trimming to {}x{} at ({}, {})", width, height, left, top);
+    ops::extract_area(&img, left, top, width, height).map_err(vips("Error trimming image"))
+}
+
 pub fn crop_image(img: VipsImage, crop: Crop) -> Result<VipsImage, TransformError> {
     let src_width = img.get_width() as u32;
     let src_height = img.get_height() as u32;

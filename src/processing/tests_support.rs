@@ -144,3 +144,26 @@ pub fn create_transparent_edge_image(width: u32, height: u32) -> Vec<u8> {
         .unwrap();
     bytes
 }
+
+/// A `width` x `height` image of `border`, with a `inner_w` x `inner_h` block of
+/// `subject` inset at (`x`, `y`). Used to check that trimming removes exactly
+/// the border and nothing else.
+pub fn create_bordered_image(
+    size: (u32, u32),
+    border: [u8; 4],
+    inset: (u32, u32, u32, u32),
+    subject: [u8; 4],
+) -> Vec<u8> {
+    let (width, height) = size;
+    let (x, y, inner_w, inner_h) = inset;
+    let mut img: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::from_pixel(width, height, Rgba(border));
+    for py in y..(y + inner_h).min(height) {
+        for px in x..(x + inner_w).min(width) {
+            img.put_pixel(px, py, Rgba(subject));
+        }
+    }
+    let mut bytes: Vec<u8> = Vec::new();
+    img.write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
+        .unwrap();
+    bytes
+}

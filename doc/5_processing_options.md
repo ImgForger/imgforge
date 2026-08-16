@@ -24,6 +24,7 @@ Unrecognised directive *names* are ignored rather than rejected, so a typo silen
 | `min-height`            | `mh`       | `value`                                                     | Floor for result height. Upscales regardless of `enlarge`.                                                   |
 | `zoom`                  | `z`        | `factor`                                                    | Multiplies dimensions after resizing. Defaults to `1.0`.                                                     |
 | `crop`                  | `c`        | `width:height[:gravity]`                                    | Crops before resizing. Gravity positions the window. No crop by default.                                     |
+| `trim`                  | `t`        | `threshold[:color[:equal_hor[:equal_ver]]]`                 | Removes a uniform border before cropping and resizing.                                                       |
 | `rotate`                | `rot`      | `0\|90\|180\|270`                                           | Applies fixed rotation. Defaults to `0`.                                                                     |
 | `auto_rotate`           | `ar`       | `bool`                                                      | Honours EXIF orientation (`true` by default).                                                                |
 | `adjust`                | `a`        | `brightness[:contrast[:saturation]]`                        | Meta-option for brightness, contrast, and saturation. Saturation is applied; brightness/contrast are parsed. |
@@ -158,6 +159,25 @@ imgforge accepts imgproxy's gravity anchors: `ce`, `no`, `so`, `ea`, `we`, `noea
 `crop:width:height[:gravity]` executes before any resizing, isolating a region for the rest of the pipeline to work on.
 
 There are no x/y coordinates in the URL form: **gravity is what positions the crop window**. Without it the region is taken from the top-left. `crop:300:200:soea` takes a 300×200 region from the bottom-right corner. A width or height of `0` means "the full source extent in that direction", and both are clamped to the source, so asking for more than exists yields the whole image rather than an error.
+
+### `trim`
+
+`trim:threshold[:color[:equal_hor[:equal_ver]]]` removes a uniform border, running before crop and resize so
+everything after it sees the trimmed extent.
+
+- **`threshold`** — how far a pixel may differ from the background and still be treated as part of the border. `10`
+  is a reasonable starting point; larger values trim more aggressively.
+- **`color`** — hex colour to treat as background. Omit it, or leave it empty, and imgforge reads the top-left pixel
+  and uses that, which is what you want for a border of any colour. Naming a colour inverts what counts as content,
+  so `trim:10:ff0000` on a red-bordered image trims the red.
+- **`equal_hor` / `equal_ver`** — cut the same amount from both sides, so a subject that is off-centre keeps its
+  position instead of shifting toward the thicker border.
+
+An image that is entirely background is returned untouched rather than reduced to nothing.
+
+Two costs worth knowing. Trimming has to examine the pixels, so it **disables scale-on-load**: the trimmed size is
+not knowable in advance, so there is no safe decode scale to choose, and the source is read at full resolution.
+Reach for it when you need it, not by default, and be wary of it on large sources.
 
 ### `auto_rotate` and `rotate`
 
