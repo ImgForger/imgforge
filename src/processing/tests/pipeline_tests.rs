@@ -1,4 +1,4 @@
-use crate::processing::options::{Crop, ParsedOptions, Resize, Watermark};
+use crate::processing::options::{Crop, Gravity, ParsedOptions, Resize, Watermark};
 use crate::processing::process_image;
 use crate::processing::save;
 use crate::processing::transform;
@@ -526,4 +526,83 @@ fn webp_loader_takes_a_scale() -> bool {
         return false;
     };
     VipsImage::new_from_buffer(&encoded, "scale=0.5").is_ok()
+}
+
+/// With a crop, the pixels that have to survive the decode are the crop region,
+/// not the whole source. Measuring against the source would shrink past what
+/// the crop still needs.
+#[test]
+fn test_load_shrink_measures_the_crop_region_not_the_source() {
+    use crate::processing::load_shrink_factor;
+
+    // ParsedOptions is not Clone, so each case is built fresh.
+    let plan = |crop: Option<(u32, u32)>| ParsedOptions {
+        crop: crop.map(|(w, h)| Crop {
+            x: 0,
+            y: 0,
+            width: w,
+            height: h,
+            gravity: None,
+        }),
+        resize: Some(Resize {
+            resizing_type: "fit".to_string(),
+            width: 500,
+            height: 375,
+        }),
+        ..ParsedOptions::default()
+    };
+
+    // The crop leaves 2000x1500 for a 500-wide target: a factor of 4.
+    assert_eq!(load_shrink_factor(&plan(Some((2000, 1500))), 8000, 6000), 4);
+
+    // Without the crop the whole 8000-wide source feeds the same target, so
+    // there is far more to lose.
+    assert_eq!(load_shrink_factor(&plan(None), 8000, 6000), 8);
+
+    // A crop that already sits near the target leaves nothing to gain.
+    assert_eq!(load_shrink_factor(&plan(Some((600, 450))), 8000, 6000), 1);
+}
+
+/// End to end: a cropped request must produce the same result whether or not
+/// the source was decoded at a reduced scale.
+#[test]
+fn test_cropped_request_survives_a_reduced_decode() {
+    init_vips();
+    let source_bytes = Bytes::from(create_test_image_jpeg(2000, 1600));
+    let options = || ParsedOptions {
+        crop: Some(Crop {
+            x: 0,
+            y: 0,
+            width: 1000,
+            height: 800,
+            gravity: Some(Gravity::SouthEast),
+        }),
+        resize: Some(Resize {
+            resizing_type: "fit".to_string(),
+            width: 250,
+            height: 200,
+        }),
+        format: Some("png".to_string()),
+        ..ParsedOptions::default()
+    };
+
+    let full = process_image(image_from(source_bytes.to_vec()), options(), &source_bytes, None).unwrap();
+
+    let factor = crate::processing::load_shrink_factor(&options(), 2000, 1600);
+    assert!(factor > 1, "a cropped request should now qualify for shrink-on-load");
+
+    // Reproduce what the service does: decode smaller, then rescale the crop.
+    let shrunk = VipsImage::new_from_buffer(&source_bytes, &format!("shrink={factor}")).unwrap();
+    let mut scaled_options = options();
+    if let Some(crop) = scaled_options.crop.as_mut() {
+        crop.width /= factor;
+        crop.height /= factor;
+    }
+    let reduced = process_image(shrunk, scaled_options, &source_bytes, None).unwrap();
+
+    assert_eq!(
+        image::load_from_memory(&full).unwrap().dimensions(),
+        image::load_from_memory(&reduced).unwrap().dimensions(),
+        "the cropped result changed size when the source was decoded smaller"
+    );
 }

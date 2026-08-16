@@ -43,13 +43,33 @@ const MIN_LOAD_SHRINK: f64 = 1.5;
 /// addresses source pixels by coordinate, so shrinking underneath it would move
 /// the region being cut.
 fn load_shrink_ratio(parsed_options: &ParsedOptions, src_width: u32, src_height: u32) -> Option<f64> {
-    if parsed_options.raw || parsed_options.crop.is_some() {
+    if parsed_options.raw {
         return None;
     }
     let resize = parsed_options.resize.as_ref()?;
     if src_width == 0 || src_height == 0 {
         return None;
     }
+
+    // A crop runs before the resize, so the pixels that have to survive are the
+    // crop region, not the whole source. Measuring against the source would
+    // shrink past what the crop still needs: an 8000x6000 source cropped to
+    // 2000x1500 and resized to 500 wide can only lose a factor of 4, not 16.
+    let (available_width, available_height) = match parsed_options.crop.as_ref() {
+        Some(crop) => (
+            if crop.width == 0 {
+                src_width
+            } else {
+                crop.width.min(src_width)
+            },
+            if crop.height == 0 {
+                src_height
+            } else {
+                crop.height.min(src_height)
+            },
+        ),
+        None => (src_width, src_height),
+    };
 
     // Anything that can grow the target after this point has to be folded in,
     // or the shrink could drop the source below what the pipeline still needs.
@@ -61,12 +81,12 @@ fn load_shrink_ratio(parsed_options: &ParsedOptions, src_width: u32, src_height:
     // aspect ratio, which survives a shrink unchanged.
     let forced = resize.resizing_type == "force";
     let target_width = if forced && resize.width == 0 {
-        f64::from(src_width)
+        f64::from(available_width)
     } else {
         (f64::from(resize.width) * grow).max(f64::from(parsed_options.min_width.unwrap_or(0)))
     };
     let target_height = if forced && resize.height == 0 {
-        f64::from(src_height)
+        f64::from(available_height)
     } else {
         (f64::from(resize.height) * grow).max(f64::from(parsed_options.min_height.unwrap_or(0)))
     };
@@ -77,10 +97,10 @@ fn load_shrink_ratio(parsed_options: &ParsedOptions, src_width: u32, src_height:
     // scale back up.
     let mut ratio = f64::INFINITY;
     if target_width >= 1.0 {
-        ratio = ratio.min(f64::from(src_width) / target_width);
+        ratio = ratio.min(f64::from(available_width) / target_width);
     }
     if target_height >= 1.0 {
-        ratio = ratio.min(f64::from(src_height) / target_height);
+        ratio = ratio.min(f64::from(available_height) / target_height);
     }
     (ratio.is_finite() && ratio >= MIN_LOAD_SHRINK).then_some(ratio)
 }

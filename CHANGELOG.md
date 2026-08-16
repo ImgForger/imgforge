@@ -21,8 +21,10 @@ Entries start at 0.10.0. For earlier history, see the
   Since `IMGFORGE_WORKERS` is sized from measured peak memory, this converts fairly directly into concurrency at the
   same memory ceiling.
 
-  The reduction never takes the source below what the request needs, is skipped for `raw` and for any request with a
-  `crop`, and accounts for `dpr`, `zoom`, the minimum dimensions, and EXIF orientations that transpose the image.
+  The reduction never takes the source below what the request needs, is skipped for `raw`, and accounts for `dpr`,
+  `zoom`, the minimum dimensions, and EXIF orientations that transpose the image. Cropped requests are included: the
+  reduction is measured against the crop region rather than the whole source, and the region is rewritten to match
+  what was decoded. Rounding can move a crop edge by up to a pixel, which the following resize absorbs.
   Source limits are still enforced against the original dimensions, before any of this.
 
   **Operational note:** output is visually identical but not bit-identical — DCT scaling and a lanczos downscale do
