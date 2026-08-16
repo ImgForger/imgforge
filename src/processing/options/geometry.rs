@@ -115,6 +115,62 @@ impl GravityType {
         matches!(self, Self::Smart)
     }
 
+    /// The anchor that ends up where this one was, after a horizontal flip.
+    const fn mirrored_horizontally(self) -> Self {
+        match self {
+            Self::East => Self::West,
+            Self::West => Self::East,
+            Self::NorthWest => Self::NorthEast,
+            Self::NorthEast => Self::NorthWest,
+            Self::SouthWest => Self::SouthEast,
+            Self::SouthEast => Self::SouthWest,
+            other => other,
+        }
+    }
+
+    /// The anchor that ends up where this one was, after a vertical flip.
+    const fn mirrored_vertically(self) -> Self {
+        match self {
+            Self::North => Self::South,
+            Self::South => Self::North,
+            Self::NorthWest => Self::SouthWest,
+            Self::NorthEast => Self::SouthEast,
+            Self::SouthWest => Self::NorthWest,
+            Self::SouthEast => Self::NorthEast,
+            other => other,
+        }
+    }
+
+    /// The anchor that ends up where this one was, after a clockwise rotation.
+    const fn rotated(self, angle: u16) -> Self {
+        match angle {
+            90 => match self {
+                Self::North => Self::West,
+                Self::East => Self::North,
+                Self::South => Self::East,
+                Self::West => Self::South,
+                Self::NorthWest => Self::SouthWest,
+                Self::NorthEast => Self::NorthWest,
+                Self::SouthWest => Self::SouthEast,
+                Self::SouthEast => Self::NorthEast,
+                other => other,
+            },
+            180 => self.mirrored_horizontally().mirrored_vertically(),
+            270 => match self {
+                Self::North => Self::East,
+                Self::East => Self::South,
+                Self::South => Self::West,
+                Self::West => Self::North,
+                Self::NorthWest => Self::NorthEast,
+                Self::NorthEast => Self::SouthEast,
+                Self::SouthWest => Self::NorthWest,
+                Self::SouthEast => Self::SouthWest,
+                other => other,
+            },
+            _ => self,
+        }
+    }
+
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Center => "ce",
@@ -192,6 +248,65 @@ impl Gravity {
 
         Ok(Self { kind, x, y })
     }
+
+    /// Rewrites this gravity so that using it *before* a rotation and flip
+    /// gives what using it *after* them would have given.
+    ///
+    /// Cropping happens before rotating — it is cheaper to cut pixels than to
+    /// turn them and then cut — but a caller naming `soea` means the bottom
+    /// right of the image they get back, not of the one that happened to be
+    /// stored. Compensating here is what lets the cheap order produce the
+    /// expected result. Ported from imgproxy's `GravityOptions.RotateAndFlip`.
+    pub fn rotate_and_flip(&mut self, angle: u16, flip_x: bool, flip_y: bool) {
+        if flip_x {
+            self.kind = self.kind.mirrored_horizontally();
+            match self.kind {
+                GravityType::Center | GravityType::North | GravityType::South => self.x = -self.x,
+                GravityType::FocusPoint => self.x = 1.0 - self.x,
+                _ => {}
+            }
+        }
+
+        if flip_y {
+            self.kind = self.kind.mirrored_vertically();
+            match self.kind {
+                GravityType::Center | GravityType::East | GravityType::West => self.y = -self.y,
+                GravityType::FocusPoint => self.y = 1.0 - self.y,
+                _ => {}
+            }
+        }
+
+        let angle = angle % 360;
+        if angle == 0 {
+            return;
+        }
+
+        self.kind = self.kind.rotated(angle);
+        match angle {
+            90 => match self.kind {
+                GravityType::Center | GravityType::East | GravityType::West => {
+                    (self.x, self.y) = (self.y, -self.x);
+                }
+                GravityType::FocusPoint => (self.x, self.y) = (self.y, 1.0 - self.x),
+                _ => (self.x, self.y) = (self.y, self.x),
+            },
+            180 => match self.kind {
+                GravityType::Center => (self.x, self.y) = (-self.x, -self.y),
+                GravityType::North | GravityType::South => self.x = -self.x,
+                GravityType::East | GravityType::West => self.y = -self.y,
+                GravityType::FocusPoint => (self.x, self.y) = (1.0 - self.x, 1.0 - self.y),
+                _ => {}
+            },
+            270 => match self.kind {
+                GravityType::Center | GravityType::North | GravityType::South => {
+                    (self.x, self.y) = (-self.y, self.x);
+                }
+                GravityType::FocusPoint => (self.x, self.y) = (1.0 - self.y, self.x),
+                _ => (self.x, self.y) = (self.y, self.x),
+            },
+            _ => {}
+        }
+    }
 }
 
 /// Represents the parameters for a crop operation.
@@ -234,6 +349,21 @@ impl CropAspectRatio {
             ratio,
             enlarge: arg(args, 1).map(parse_boolean).unwrap_or(false),
         })
+    }
+
+    /// The same correction expressed for a transposed image.
+    ///
+    /// The ratio names the shape the caller wants back; when a right-angle
+    /// rotation is still to come, the crop that produces it has the reciprocal
+    /// shape.
+    pub fn transposed(self, transposes: bool) -> Self {
+        if !transposes || self.ratio <= 0.0 {
+            return self;
+        }
+        Self {
+            ratio: 1.0 / self.ratio,
+            enlarge: self.enlarge,
+        }
     }
 
     /// Reshapes a crop window to the requested ratio.

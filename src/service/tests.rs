@@ -442,6 +442,34 @@ fn thumbnail_substitution_is_gated_and_keeps_the_source_in_view() {
     assert!(opened.original.is_none(), "the stored axes no longer pass the gate");
 }
 
+/// An explicit right-angle `rotate` transposes the result just as an EXIF
+/// orientation does, so the decode plan has to count both — and count two of
+/// them as cancelling. Counting only the EXIF one left `rotate:90` planning
+/// against the untransposed shape and over-shrinking the source.
+#[test]
+fn explicit_rotation_counts_toward_the_axis_swap() {
+    let plain = Bytes::from_static(b"not an image");
+    let transposing_exif = Bytes::from(exif_orientation_jpeg(6));
+
+    let with_rotation = |rotation: Option<u16>| ParsedOptions {
+        rotation,
+        ..ParsedOptions::default()
+    };
+
+    assert!(swaps_axes(&with_rotation(Some(90)), &plain));
+    assert!(swaps_axes(&with_rotation(Some(270)), &plain));
+    assert!(!swaps_axes(&with_rotation(Some(180)), &plain));
+    assert!(!swaps_axes(&with_rotation(None), &plain));
+
+    // A transposing EXIF orientation and a transposing rotation cancel: the
+    // result is back in the source's own shape.
+    assert!(
+        !swaps_axes(&with_rotation(Some(90)), &transposing_exif),
+        "two right-angle turns cancel"
+    );
+    assert!(swaps_axes(&with_rotation(Some(180)), &transposing_exif));
+}
+
 /// A release that changes what a URL renders has to retire the entries the
 /// previous one left behind. imgforge has no cache TTL, so a frequently
 /// requested URL would otherwise serve its pre-upgrade bytes indefinitely.

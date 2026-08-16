@@ -20,7 +20,10 @@ pub use effects::{
 };
 pub use geometry::{apply_padding, calc_position, crop_image, extend_image, extend_to_aspect_ratio, smart_crop};
 pub use orientation::{apply_exif_orientation, apply_exif_rotation, apply_flip, apply_rotation};
-pub use resize::{apply_min_dimensions, apply_resize, apply_zoom, resolve_resize_dimensions};
+pub use resize::{
+    apply_min_dimensions, apply_resize, apply_scale, apply_zoom, crop_to_result, plan_resize,
+    resolve_resize_dimensions, ResizePlan,
+};
 pub use tone::{apply_colorize, apply_duotone, apply_monochrome};
 pub use trim::apply_trim;
 

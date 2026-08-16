@@ -27,6 +27,10 @@ mod effects_tests;
 mod animation_tests;
 
 #[cfg(test)]
+#[path = "tests/pipeline_order_tests.rs"]
+mod pipeline_order_tests;
+
+#[cfg(test)]
 #[path = "tests/watermark_tests.rs"]
 mod watermark_tests;
 
