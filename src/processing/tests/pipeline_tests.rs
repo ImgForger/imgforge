@@ -448,8 +448,12 @@ fn test_webp_load_scale_never_undershoots_the_target() {
     use crate::processing::load_scale_factor;
 
     init_vips();
-    if !crate::processing::save::is_format_supported("webp") {
-        eprintln!("skipping: this libvips build cannot encode WebP");
+    // Probe the capability under test rather than a proxy for it: whether this
+    // build can *encode* WebP says nothing about whether its loader takes a
+    // `scale`. They happen to travel together in every libvips back to 8.12,
+    // the documented minimum, but the test should not depend on that holding.
+    if !webp_loader_takes_a_scale() {
+        eprintln!("skipping: this libvips build cannot decode WebP at a scale");
         return;
     }
 
@@ -510,4 +514,16 @@ fn test_webp_scale_is_finer_than_the_jpeg_shrink() {
     // And a reduction JPEG declines entirely still pays off for WebP.
     assert_eq!(load_shrink_factor(&options, 1800, 1800), 1);
     assert!(load_scale_factor(&options, 1800, 1800).is_some());
+}
+
+/// Whether this build can both produce WebP and decode it at a reduced scale,
+/// which is what the scale-on-load path actually needs.
+fn webp_loader_takes_a_scale() -> bool {
+    if !crate::processing::save::is_format_supported("webp") {
+        return false;
+    }
+    let Ok(encoded) = save::save_image(image_from(create_test_image(32, 32)), "webp", 80) else {
+        return false;
+    };
+    VipsImage::new_from_buffer(&encoded, "scale=0.5").is_ok()
 }
