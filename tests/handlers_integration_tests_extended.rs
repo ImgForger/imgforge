@@ -598,3 +598,213 @@ async fn test_trim_removes_the_border_through_the_handler() {
         "the white border should be gone, leaving just the red block"
     );
 }
+
+/// A format alias picks the right encoder, so it has to pick the right media
+/// type too. `format:tif` selected the TIFF encoder and then fell through
+/// `format_to_content_type`'s catch-all, so clients received TIFF bytes
+/// labelled `image/jpeg`.
+#[tokio::test]
+async fn format_aliases_are_described_by_their_own_media_type() {
+    let mock_server = MockServer::start().await;
+    let test_image = create_test_image(64, 64, [90, 140, 200, 255]);
+
+    Mock::given(method("GET"))
+        .and(path("/alias.jpg"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_bytes(test_image.clone())
+                .insert_header("Content-Type", "image/jpeg"),
+        )
+        .expect(1..)
+        .mount(&mock_server)
+        .await;
+
+    let source_url = format!("{}/alias.jpg", mock_server.uri());
+    let encoded_url = URL_SAFE_NO_PAD.encode(source_url.as_bytes());
+
+    for (requested, expected) in [("tif", "image/tiff"), ("tiff", "image/tiff"), ("jpg", "image/jpeg")] {
+        let state = create_test_state_with_cache(create_test_config(vec![], vec![], true), ImgforgeCache::None).await;
+        let app = axum::Router::new()
+            .route("/{*path}", axum::routing::get(image_forge_handler))
+            .with_state(state);
+
+        let request = Request::builder()
+            .uri(format!("/unsafe/format:{requested}/{encoded_url}"))
+            .body(Body::empty())
+            .unwrap();
+        let response = app.oneshot(request).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK, "format:{requested} should succeed");
+        let content_type = response
+            .headers()
+            .get("content-type")
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default()
+            .to_string();
+        assert_eq!(
+            content_type, expected,
+            "format:{requested} produced {expected} bytes but announced {content_type}"
+        );
+    }
+}
+
+/// A `raw` response returns origin bytes with nothing between them and the
+/// client, and every source limit is checked after the cache lookup. Without the
+/// limits in the cache identity, an entry stored under a loose policy kept being
+/// served once the policy was tightened — the request was answered before the
+/// check it should have failed.
+#[tokio::test]
+async fn a_cached_passthrough_does_not_outlive_the_source_limits() {
+    let mock_server = MockServer::start().await;
+    let test_image = create_test_image(400, 400, [10, 20, 30, 255]);
+
+    Mock::given(method("GET"))
+        .and(path("/passthrough.png"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_bytes(test_image)
+                .insert_header("Content-Type", "image/png"),
+        )
+        .mount(&mock_server)
+        .await;
+
+    let source_url = format!("{}/passthrough.png", mock_server.uri());
+    let encoded = URL_SAFE_NO_PAD.encode(source_url.as_bytes());
+    let uri = format!("/unsafe/raw:1/{encoded}");
+
+    let cache = ImgforgeCache::new(Some(CacheConfig::Memory { capacity: 1024 * 1024 }))
+        .await
+        .unwrap();
+
+    // Warm the cache while nothing restricts the source.
+    let permissive = create_test_config(vec![], vec![], true);
+    let state = create_test_state_with_cache(permissive, cache.clone()).await;
+    let app = axum::Router::new()
+        .route("/{*path}", axum::routing::get(image_forge_handler))
+        .with_state(state);
+    let (warm, _) = make_request(app, &uri).await;
+    assert_eq!(warm, StatusCode::OK, "the passthrough should succeed while permitted");
+
+    // Now forbid the source's resolution, over the same cache. 400x400 is
+    // 160,000 pixels, well over a 0.05 MP ceiling.
+    let mut restrictive = create_test_config(vec![], vec![], true);
+    restrictive.max_src_resolution = Some("0.05".parse().unwrap());
+    let state = create_test_state_with_cache(restrictive, cache.clone()).await;
+    let app = axum::Router::new()
+        .route("/{*path}", axum::routing::get(image_forge_handler))
+        .with_state(state);
+    let (status, _) = make_request(app, &uri).await;
+    assert_eq!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "a cached passthrough must not survive the limit that now forbids it"
+    );
+
+    // The same for a MIME restriction that the source does not satisfy.
+    let mut mime_restricted = create_test_config(vec![], vec![], true);
+    mime_restricted.allowed_mime_types = Some(vec!["image/jpeg".to_string()]);
+    let state = create_test_state_with_cache(mime_restricted, cache).await;
+    let app = axum::Router::new()
+        .route("/{*path}", axum::routing::get(image_forge_handler))
+        .with_state(state);
+    let (status, _) = make_request(app, &uri).await;
+    assert_eq!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "a cached passthrough must not survive a MIME policy that now forbids it"
+    );
+}
+
+/// Both of these settings change the bytes of a response whose URL never
+/// changes, and neither carries a version bump to retire what it invalidates.
+/// The cache key has to carry them, and the request path has to actually pass
+/// them — a key that accepts the input is no use if nothing supplies it.
+#[tokio::test]
+async fn cached_bytes_do_not_outlive_the_config_that_produced_them() {
+    let server = MockServer::start().await;
+    let source = create_test_image(80, 80, [200, 120, 40, 255]);
+
+    Mock::given(method("GET"))
+        .and(path("/subject.png"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_bytes(source)
+                .insert_header("Content-Type", "image/png"),
+        )
+        .mount(&server)
+        .await;
+
+    let encoded = URL_SAFE_NO_PAD.encode(format!("{}/subject.png", server.uri()).as_bytes());
+
+    let respond = |config: Config, cache: ImgforgeCache, uri: String| async move {
+        let state = create_test_state_with_cache(config, cache).await;
+        let app = axum::Router::new()
+            .route("/{*path}", axum::routing::get(image_forge_handler))
+            .with_state(state);
+        make_request(app, &uri).await.1
+    };
+
+    // A configured default quality: lowering it must change what clients get,
+    // not be masked by an entry stored under the old one.
+    {
+        let uri = format!("/unsafe/rs:fit:60:60/format:jpeg/{encoded}");
+        let cache = ImgforgeCache::new(Some(CacheConfig::Memory { capacity: 1024 * 1024 }))
+            .await
+            .unwrap();
+
+        let quality_config = |quality: u8| {
+            let mut config = create_test_config(vec![], vec![], true);
+            config.option_defaults.quality = Some(quality);
+            config
+        };
+
+        // Compared by size rather than by bytes: a lower quality is a smaller
+        // JPEG, and a failure then prints two numbers instead of two images.
+        let high = respond(quality_config(95), cache.clone(), uri.clone()).await.len();
+        let low = respond(quality_config(20), cache, uri).await.len();
+        assert!(
+            low < high,
+            "lowering IMGFORGE_QUALITY must not be outrun by the entry stored under the old value \
+             (q20 gave {low} bytes, q95 gave {high})"
+        );
+    }
+
+    // A server-side watermark: repointing it must change every watermarked
+    // response, and `watermark:1` names no image of its own.
+    {
+        let dir = tempfile::tempdir().expect("a temp dir");
+        let red = dir.path().join("red.png");
+        let blue = dir.path().join("blue.png");
+        std::fs::write(&red, create_test_image(20, 20, [255, 0, 0, 255])).unwrap();
+        std::fs::write(&blue, create_test_image(20, 20, [0, 0, 255, 255])).unwrap();
+
+        let uri = format!("/unsafe/rs:fit:60:60/wm:1/format:png/{encoded}");
+        let cache = ImgforgeCache::new(Some(CacheConfig::Memory { capacity: 1024 * 1024 }))
+            .await
+            .unwrap();
+
+        let watermark_config = |path: &std::path::Path| {
+            let mut config = create_test_config(vec![], vec![], true);
+            config.watermark_path = Some(path.to_string_lossy().into_owned());
+            config
+        };
+
+        // Compared as mean channel values: a red overlay and a blue one differ
+        // in a way two byte vectors cannot report readably.
+        let channel_means = |body: &[u8]| {
+            let image = image::load_from_memory(body).expect("a decodable image").to_rgb8();
+            let count = image.pixels().len() as f64;
+            (
+                image.pixels().map(|p| f64::from(p[0])).sum::<f64>() / count,
+                image.pixels().map(|p| f64::from(p[2])).sum::<f64>() / count,
+            )
+        };
+        let (red_r, red_b) = channel_means(&respond(watermark_config(&red), cache.clone(), uri.clone()).await);
+        let (blue_r, blue_b) = channel_means(&respond(watermark_config(&blue), cache, uri).await);
+        assert!(
+            blue_b > red_b && red_r > blue_r,
+            "repointing IMGFORGE_WATERMARK_PATH must retire the entries composited with the old logo \
+             (red logo gave r={red_r:.1} b={red_b:.1}, blue logo gave r={blue_r:.1} b={blue_b:.1})"
+        );
+    }
+}

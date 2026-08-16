@@ -1,7 +1,15 @@
+//! Server configuration, assembled from the environment at startup.
+
+mod env_vars;
+
 use crate::constants::*;
-use crate::limits::{MaxResultDimension, MaxSourceFileSize, MaxSourceResolution, SecurityLimitError};
-use crate::processing::options::ProcessingOption;
+use crate::limits::{
+    MaxAnimationFrameResolution, MaxAnimationFrames, MaxResultDimension, MaxSourceFileSize, MaxSourceResolution,
+    SecurityLimitError,
+};
+use crate::processing::options::{OptionDefaults, ProcessingOption};
 use crate::processing::presets::{parse_options_string, PresetError};
+use env_vars::{bool_var, optional_var, parsed_var, security_limit_var};
 use std::collections::HashMap;
 use std::env;
 use std::str::FromStr;
@@ -46,6 +54,12 @@ pub enum ConfigError {
     ZeroWorkers,
     #[error("image-processing worker count {value} exceeds the supported maximum of {max}")]
     WorkerCountTooLarge { value: usize, max: usize },
+    #[error("invalid value for {name} ({value:?}): {reason}")]
+    InvalidValue {
+        name: &'static str,
+        value: String,
+        reason: String,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -139,6 +153,49 @@ pub struct Config {
     pub watermark_path: Option<String>,
     pub default_format: DefaultOutputFormat,
     pub rate_limit_per_minute: Option<u32>,
+    /// Ceiling on how many frames of an animated source are decoded.
+    pub max_animation_frames: Option<MaxAnimationFrames>,
+    /// Ceiling on the pixel count of a single animation frame.
+    pub max_animation_frame_resolution: Option<MaxAnimationFrameResolution>,
+    /// Starting values for the processing options a URL may override.
+    pub option_defaults: OptionDefaults,
+
+    /// `max-age` for the `Cache-Control` header, in seconds.
+    pub ttl: Option<u64>,
+    /// Send the source's own `Cache-Control` instead of the configured TTL.
+    pub cache_control_passthrough: bool,
+    /// Emit an `ETag` and honour `If-None-Match`.
+    pub use_etag: bool,
+    /// Pass the source's `Last-Modified` through and honour `If-Modified-Since`.
+    pub last_modified_enabled: bool,
+    /// Emit a `Link: <source>; rel="canonical"` header.
+    pub set_canonical_header: bool,
+    /// Value for `Access-Control-Allow-Origin`, when cross-origin use is wanted.
+    pub allow_origin: Option<String>,
+    /// Path segment every route is mounted under.
+    pub path_prefix: String,
+    /// Path the liveness endpoint answers on.
+    pub health_check_path: String,
+    /// Return the underlying error text to the client.
+    pub development_errors_mode: bool,
+    /// Emit `X-Origin-*` headers describing the source image.
+    pub enable_debug_headers: bool,
+
+    /// `User-Agent` sent when fetching a source image.
+    pub user_agent: String,
+    /// How many redirects a source fetch may follow.
+    pub max_redirects: usize,
+
+    /// Serve WebP when the client's `Accept` says it can read it.
+    pub enable_webp_detection: bool,
+    /// Serve WebP to a client that accepts it even when the URL asks otherwise.
+    pub enforce_webp: bool,
+    /// Serve AVIF when the client's `Accept` says it can read it.
+    pub enable_avif_detection: bool,
+    /// Serve AVIF to a client that accepts it even when the URL asks otherwise.
+    pub enforce_avif: bool,
+    /// Honour the `Width` and `DPR` client hints.
+    pub enable_client_hints: bool,
 }
 
 fn normalize_bind_address(raw: &str) -> String {
@@ -252,7 +309,32 @@ impl Config {
             watermark_path: None,
             default_format: DefaultOutputFormat::default(),
             rate_limit_per_minute: None,
+            max_animation_frames: None,
+            max_animation_frame_resolution: None,
+            option_defaults: OptionDefaults::default(),
+            ttl: None,
+            cache_control_passthrough: false,
+            use_etag: false,
+            last_modified_enabled: false,
+            set_canonical_header: false,
+            allow_origin: None,
+            path_prefix: String::new(),
+            health_check_path: "/health".to_string(),
+            development_errors_mode: false,
+            enable_debug_headers: false,
+            user_agent: DEFAULT_USER_AGENT.to_string(),
+            max_redirects: 10,
+            enable_webp_detection: false,
+            enforce_webp: false,
+            enable_avif_detection: false,
+            enforce_avif: false,
+            enable_client_hints: false,
         }
+    }
+
+    /// The processing-option defaults a request starts from.
+    pub fn option_defaults(&self) -> OptionDefaults {
+        self.option_defaults
     }
 
     /// Create a configuration from hexadecimal key and salt strings.
@@ -320,309 +402,71 @@ impl Config {
             .ok()
             .and_then(|s| s.parse::<u32>().ok());
 
+        config.max_animation_frames = security_limit_var(ENV_MAX_ANIMATION_FRAMES)?;
+        config.max_animation_frame_resolution = security_limit_var(ENV_MAX_ANIMATION_FRAME_RESOLUTION)?;
+
+        config.option_defaults = OptionDefaults {
+            auto_rotate: bool_var(ENV_AUTO_ROTATE, true)?,
+            strip_metadata: bool_var(ENV_STRIP_METADATA, false)?,
+            keep_copyright: bool_var(ENV_KEEP_COPYRIGHT, false)?,
+            strip_color_profile: bool_var(ENV_STRIP_COLOR_PROFILE, false)?,
+            preserve_hdr: bool_var(ENV_PRESERVE_HDR, false)?,
+            enforce_thumbnail: bool_var(ENV_ENFORCE_THUMBNAIL, false)?,
+            return_attachment: bool_var(ENV_RETURN_ATTACHMENT, false)?,
+            quality: parsed_var::<u8>(ENV_QUALITY)?.map(|quality| quality.clamp(1, 100)),
+        };
+
+        config.ttl = parsed_var::<u64>(ENV_TTL)?;
+        config.cache_control_passthrough = bool_var(ENV_CACHE_CONTROL_PASSTHROUGH, false)?;
+        config.use_etag = bool_var(ENV_USE_ETAG, false)?;
+        config.last_modified_enabled = bool_var(ENV_LAST_MODIFIED_ENABLED, false)?;
+        config.set_canonical_header = bool_var(ENV_SET_CANONICAL_HEADER, false)?;
+        config.allow_origin = optional_var(ENV_ALLOW_ORIGIN)?.filter(|value| !value.trim().is_empty());
+        config.path_prefix = normalize_path_prefix(optional_var(ENV_PATH_PREFIX)?.as_deref());
+        config.health_check_path = normalize_health_check_path(optional_var(ENV_HEALTH_CHECK_PATH)?.as_deref());
+        config.development_errors_mode = bool_var(ENV_DEVELOPMENT_ERRORS_MODE, false)?;
+        config.enable_debug_headers = bool_var(ENV_ENABLE_DEBUG_HEADERS, false)?;
+
+        config.user_agent = optional_var(ENV_USER_AGENT)?
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| DEFAULT_USER_AGENT.to_string());
+        config.max_redirects = parsed_var::<usize>(ENV_MAX_REDIRECTS)?.unwrap_or(10);
+
+        config.enable_webp_detection = bool_var(ENV_ENABLE_WEBP_DETECTION, false)?;
+        config.enforce_webp = bool_var(ENV_ENFORCE_WEBP, false)?;
+        config.enable_avif_detection = bool_var(ENV_ENABLE_AVIF_DETECTION, false)?;
+        config.enforce_avif = bool_var(ENV_ENFORCE_AVIF, false)?;
+        config.enable_client_hints = bool_var(ENV_ENABLE_CLIENT_HINTS, false)?;
+
         Ok(config)
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::env;
-    use std::sync::Mutex;
-
-    lazy_static::lazy_static! {
-        static ref ENV_LOCK: Mutex<()> = Mutex::new(());
-    }
-
-    fn restore_env_var(key: &str, original: Option<String>) {
-        if let Some(value) = original {
-            env::set_var(key, value);
-        } else {
-            env::remove_var(key);
-        }
-    }
-
-    #[test]
-    fn prometheus_numeric_port_maps_to_default_host() {
-        let _guard = ENV_LOCK.lock().unwrap();
-        let original_prometheus = env::var(ENV_PROMETHEUS_BIND).ok();
-
-        env::set_var(ENV_PROMETHEUS_BIND, "3005");
-        let config = Config::from_env().expect("config loads");
-
-        assert_eq!(config.prometheus_bind_address.as_deref(), Some("0.0.0.0:3005"));
-
-        restore_env_var(ENV_PROMETHEUS_BIND, original_prometheus);
-    }
-
-    #[test]
-    fn bind_numeric_port_maps_to_default_host() {
-        let _guard = ENV_LOCK.lock().unwrap();
-        let original_bind = env::var(ENV_BIND).ok();
-        let original_prometheus = env::var(ENV_PROMETHEUS_BIND).ok();
-
-        env::set_var(ENV_BIND, "3456");
-        env::remove_var(ENV_PROMETHEUS_BIND);
-
-        let config = Config::from_env().expect("config loads");
-
-        assert_eq!(config.bind_address, "0.0.0.0:3456");
-        assert_eq!(config.prometheus_bind_address, None);
-
-        restore_env_var(ENV_BIND, original_bind);
-        restore_env_var(ENV_PROMETHEUS_BIND, original_prometheus);
-    }
-
-    #[test]
-    fn invalid_worker_count_fails_configuration() {
-        let _guard = ENV_LOCK.lock().unwrap();
-        let original = env::var(ENV_WORKERS).ok();
-
-        env::set_var(ENV_WORKERS, "invalid");
-        let result = Config::from_env();
-
-        assert!(matches!(
-            result,
-            Err(ConfigError::InvalidWorkerCount {
-                name: ENV_WORKERS,
-                value,
-                ..
-            }) if value == "invalid"
-        ));
-        restore_env_var(ENV_WORKERS, original);
-    }
-
-    #[test]
-    fn zero_worker_count_selects_the_automatic_default() {
-        let _guard = ENV_LOCK.lock().unwrap();
-        let original = env::var(ENV_WORKERS).ok();
-
-        env::set_var(ENV_WORKERS, "0");
-        let config = Config::from_env().expect("config loads");
-
-        assert_eq!(config.workers, default_worker_count());
-        restore_env_var(ENV_WORKERS, original);
-    }
-
-    #[test]
-    fn explicit_worker_count_is_preserved() {
-        let _guard = ENV_LOCK.lock().unwrap();
-        let original = env::var(ENV_WORKERS).ok();
-
-        env::set_var(ENV_WORKERS, "3");
-        let config = Config::from_env().expect("config loads");
-
-        assert_eq!(config.workers, 3);
-        restore_env_var(ENV_WORKERS, original);
-    }
-
-    #[test]
-    fn test_parse_presets_single() {
-        let presets_str = "thumbnail=resize:fit:150:150/quality:80";
-        let presets = parse_presets(presets_str).expect("parses");
-        assert_eq!(presets.len(), 1);
-        assert_eq!(presets.get("thumbnail").map(|opts| opts.len()), Some(2));
-    }
-
-    #[test]
-    fn test_parse_presets_multiple() {
-        let presets_str = "thumbnail=resize:fit:150:150/quality:80,small=resize:fit:300:300/quality:85";
-        let presets = parse_presets(presets_str).expect("parses");
-        assert_eq!(presets.len(), 2);
-        assert_eq!(presets.get("thumbnail").map(|opts| opts.len()), Some(2));
-        assert_eq!(presets.get("small").map(|opts| opts.len()), Some(2));
-    }
-
-    #[test]
-    fn test_parse_presets_empty() {
-        let presets_str = "";
-        let presets = parse_presets(presets_str).expect("parses");
-        assert_eq!(presets.len(), 0);
-    }
-
-    #[test]
-    fn test_parse_presets_with_spaces() {
-        let presets_str = "thumbnail = resize:fit:150:150/quality:80 , small = resize:fit:300:300";
-        let presets = parse_presets(presets_str).expect("parses");
-        assert_eq!(presets.len(), 2);
-        assert_eq!(presets.get("thumbnail").map(|opts| opts.len()), Some(2));
-        assert_eq!(presets.get("small").map(|opts| opts.len()), Some(1));
-    }
-
-    #[test]
-    fn test_parse_presets_default() {
-        let presets_str = "default=quality:90/dpr:2";
-        let presets = parse_presets(presets_str).expect("parses");
-        assert_eq!(presets.len(), 1);
-        assert_eq!(presets.get("default").map(|opts| opts.len()), Some(2));
-    }
-
-    #[test]
-    fn test_parse_presets_invalid_format() {
-        let presets_str = "thumbnail:resize:fit:150:150";
-        assert!(parse_presets(presets_str).is_err());
-    }
-
-    #[test]
-    fn test_parse_presets_missing_name() {
-        let presets_str = "=resize:fit:150:150";
-        assert!(parse_presets(presets_str).is_err());
-    }
-
-    #[test]
-    fn test_parse_presets_missing_options() {
-        let presets_str = "thumbnail=";
-        assert!(parse_presets(presets_str).is_err());
-    }
-
-    #[test]
-    fn test_config_default_format_from_env() {
-        let _guard = ENV_LOCK.lock().unwrap();
-        let original = env::var(ENV_DEFAULT_FORMAT).ok();
-
-        env::remove_var(ENV_DEFAULT_FORMAT);
-        let config = Config::from_env().expect("config loads");
-        assert_eq!(config.default_format, DefaultOutputFormat::Source);
-
-        env::set_var(ENV_DEFAULT_FORMAT, "JPEG");
-        let config = Config::from_env().expect("config loads");
-        assert_eq!(config.default_format, DefaultOutputFormat::Jpeg);
-
-        env::set_var(ENV_DEFAULT_FORMAT, "heic");
-        let config = Config::from_env().expect("config loads");
-        assert_eq!(config.default_format, DefaultOutputFormat::Heif);
-
-        env::set_var(ENV_DEFAULT_FORMAT, "bmp");
-        assert!(matches!(
-            Config::from_env(),
-            Err(ConfigError::InvalidDefaultFormat { value, .. }) if value == "bmp"
-        ));
-
-        restore_env_var(ENV_DEFAULT_FORMAT, original);
-    }
-
-    #[test]
-    fn default_output_format_normalizes_aliases() {
-        assert_eq!("jpg".parse(), Ok(DefaultOutputFormat::Jpeg));
-        assert_eq!(" HEIC ".parse(), Ok(DefaultOutputFormat::Heif));
-        assert_eq!(DefaultOutputFormat::Heif.as_str(), "heif");
-        assert!("bmp".parse::<DefaultOutputFormat>().is_err());
-    }
-
-    #[test]
-    fn test_config_presets_from_env() {
-        let _guard = ENV_LOCK.lock().unwrap();
-        let original_presets = env::var(ENV_PRESETS).ok();
-        let original_only_presets = env::var(ENV_ONLY_PRESETS).ok();
-
-        env::set_var(ENV_PRESETS, "thumbnail=resize:fit:150:150,default=quality:90");
-        env::set_var(ENV_ONLY_PRESETS, "true");
-
-        let config = Config::from_env().expect("config loads");
-
-        assert_eq!(config.presets.len(), 2);
-        assert_eq!(config.presets.get("thumbnail").map(|opts| opts.len()), Some(1));
-        assert_eq!(config.presets.get("default").map(|opts| opts.len()), Some(1));
-        assert!(config.only_presets);
-
-        restore_env_var(ENV_PRESETS, original_presets);
-        restore_env_var(ENV_ONLY_PRESETS, original_only_presets);
-    }
-
-    #[test]
-    fn test_config_only_presets_false_by_default() {
-        let _guard = ENV_LOCK.lock().unwrap();
-        let original_only_presets = env::var(ENV_ONLY_PRESETS).ok();
-
-        env::remove_var(ENV_ONLY_PRESETS);
-
-        let config = Config::from_env().expect("config loads");
-
-        assert!(!config.only_presets);
-
-        restore_env_var(ENV_ONLY_PRESETS, original_only_presets);
-    }
-
-    #[test]
-    fn invalid_max_source_file_size_fails_configuration() {
-        let _guard = ENV_LOCK.lock().unwrap();
-        let original = env::var(ENV_MAX_SRC_FILE_SIZE).ok();
-
-        env::set_var(ENV_MAX_SRC_FILE_SIZE, "invalid");
-        let result = Config::from_env();
-
-        assert!(matches!(
-            result,
-            Err(ConfigError::InvalidSecurityLimit {
-                name: ENV_MAX_SRC_FILE_SIZE,
-                ..
-            })
-        ));
-        restore_env_var(ENV_MAX_SRC_FILE_SIZE, original);
-    }
-
-    #[test]
-    fn non_finite_max_source_resolution_fails_configuration() {
-        let _guard = ENV_LOCK.lock().unwrap();
-        let original = env::var(ENV_MAX_SRC_RESOLUTION).ok();
-
-        for value in ["NaN", "inf", "-inf"] {
-            env::set_var(ENV_MAX_SRC_RESOLUTION, value);
-            let result = Config::from_env();
-            assert!(matches!(
-                result,
-                Err(ConfigError::InvalidSecurityLimit {
-                    name: ENV_MAX_SRC_RESOLUTION,
-                    ..
-                })
-            ));
-        }
-
-        restore_env_var(ENV_MAX_SRC_RESOLUTION, original);
-    }
-
-    #[test]
-    fn max_result_dimension_is_validated_at_startup() {
-        let _guard = ENV_LOCK.lock().unwrap();
-        let original = env::var(ENV_MAX_RESULT_DIMENSION).ok();
-
-        env::set_var(ENV_MAX_RESULT_DIMENSION, "8192");
-        let config = Config::from_env().expect("valid dimension");
-        assert_eq!(config.max_result_dimension.map(MaxResultDimension::get), Some(8192));
-
-        // A malformed ceiling stops startup rather than silently leaving the
-        // result size unbounded.
-        for value in ["0", "-1", "huge"] {
-            env::set_var(ENV_MAX_RESULT_DIMENSION, value);
-            assert!(matches!(
-                Config::from_env(),
-                Err(ConfigError::InvalidSecurityLimit {
-                    name: ENV_MAX_RESULT_DIMENSION,
-                    ..
-                })
-            ));
-        }
-
-        restore_env_var(ENV_MAX_RESULT_DIMENSION, original);
-    }
-
-    #[test]
-    fn valid_security_limits_are_stored_as_validated_types() {
-        let _guard = ENV_LOCK.lock().unwrap();
-        let original_file_size = env::var(ENV_MAX_SRC_FILE_SIZE).ok();
-        let original_resolution = env::var(ENV_MAX_SRC_RESOLUTION).ok();
-
-        env::set_var(ENV_MAX_SRC_FILE_SIZE, "4096");
-        env::set_var(ENV_MAX_SRC_RESOLUTION, "2.5");
-        let config = Config::from_env().expect("security limits are valid");
-
-        assert_eq!(config.max_src_file_size.map(MaxSourceFileSize::get), Some(4096));
-        assert_eq!(
-            config.max_src_resolution.map(MaxSourceResolution::pixels),
-            Some(2_500_000)
-        );
-
-        restore_env_var(ENV_MAX_SRC_FILE_SIZE, original_file_size);
-        restore_env_var(ENV_MAX_SRC_RESOLUTION, original_resolution);
+/// Normalises a mount prefix to either empty or `/segment` with no trailing
+/// slash, so routes can be built by concatenation without doubling separators.
+fn normalize_path_prefix(prefix: Option<&str>) -> String {
+    let Some(prefix) = prefix else {
+        return String::new();
+    };
+    let trimmed = prefix.trim().trim_matches('/');
+    if trimmed.is_empty() {
+        String::new()
+    } else {
+        format!("/{trimmed}")
     }
 }
+
+fn normalize_health_check_path(path: Option<&str>) -> String {
+    let Some(path) = path else {
+        return "/health".to_string();
+    };
+    let trimmed = path.trim().trim_matches('/');
+    if trimmed.is_empty() {
+        "/health".to_string()
+    } else {
+        format!("/{trimmed}")
+    }
+}
+
+#[cfg(test)]
+mod tests;

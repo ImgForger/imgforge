@@ -33,3 +33,7 @@ mod pipeline_tests;
 #[cfg(test)]
 #[path = "tests/save_tests.rs"]
 mod save_tests;
+
+#[cfg(test)]
+#[path = "tests/animation_limit_tests.rs"]
+mod animation_limit_tests;

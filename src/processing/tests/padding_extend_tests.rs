@@ -1,4 +1,4 @@
-use crate::processing::options::Gravity;
+use crate::processing::options::{Gravity, GravityType};
 use crate::processing::transform::{self, TransformError};
 use libvips::VipsImage;
 
@@ -8,7 +8,15 @@ use super::tests_support::*;
 fn test_extend_image() {
     init_vips();
     let img = image_from(create_test_image(100, 100));
-    let extended_img = transform::extend_image(img, 200, 200, &Some(Gravity::Center), &Some([0, 0, 0, 0])).unwrap();
+    let extended_img = transform::extend_image(
+        img,
+        200,
+        200,
+        &Gravity::new(GravityType::Center),
+        &Some([0, 0, 0, 0]),
+        1.0,
+    )
+    .unwrap();
     assert_eq!(extended_img.get_width(), 200);
     assert_eq!(extended_img.get_height(), 200);
 }
@@ -44,17 +52,18 @@ fn test_apply_padding_position_and_background_color() {
 fn test_extend_image_background_and_gravity_positions() {
     init_vips();
     let cases = [
-        (Gravity::Center, 2, 2),
-        (Gravity::North, 2, 0),
-        (Gravity::South, 2, 4),
-        (Gravity::East, 4, 2),
-        (Gravity::West, 0, 2),
+        (GravityType::Center, 2, 2),
+        (GravityType::North, 2, 0),
+        (GravityType::South, 2, 4),
+        (GravityType::East, 4, 2),
+        (GravityType::West, 0, 2),
     ];
 
     for (gravity, origin_x, origin_y) in cases {
         let source_bytes = create_quadrant_test_image(4, 4);
         let img = VipsImage::new_from_buffer(&source_bytes, "").unwrap();
-        let extended = transform::extend_image(img, 8, 8, &Some(gravity), &Some([10, 20, 30, 255])).unwrap();
+        let extended =
+            transform::extend_image(img, 8, 8, &Gravity::new(gravity), &Some([10, 20, 30, 255]), 1.0).unwrap();
         assert_eq!(extended.get_width(), 8);
         assert_eq!(extended.get_height(), 8);
 
@@ -62,10 +71,10 @@ fn test_extend_image_background_and_gravity_positions() {
         assert_eq!(rgba_pixel(&decoded, origin_x, origin_y), [255, 0, 0, 255]);
 
         let bg_probe = match gravity {
-            Gravity::North => (0, 7),
-            Gravity::South => (0, 0),
-            Gravity::East => (0, 0),
-            Gravity::West => (7, 0),
+            GravityType::North => (0, 7),
+            GravityType::South => (0, 0),
+            GravityType::East => (0, 0),
+            GravityType::West => (7, 0),
             _ => (0, 0),
         };
         assert_eq!(rgba_pixel(&decoded, bg_probe.0, bg_probe.1), [10, 20, 30, 255]);
@@ -73,17 +82,54 @@ fn test_extend_image_background_and_gravity_positions() {
 }
 
 #[test]
-fn test_extend_image_returns_error_when_target_smaller_than_source() {
+fn test_extend_grows_only_the_axes_that_are_short() {
+    init_vips();
+    // A target smaller on one axis and larger on the other extends only the
+    // larger one. Refusing the whole operation — which is what imgforge used to
+    // do — dropped the padding a caller had legitimately asked for.
+    let img = image_from(create_test_image(100, 80));
+    let extended = transform::extend_image(
+        img,
+        90,
+        120,
+        &Gravity::new(GravityType::Center),
+        &Some([0, 0, 0, 0]),
+        1.0,
+    )
+    .expect("a partially smaller target extends the axis that is short");
+    assert_eq!(extended.get_width(), 100);
+    assert_eq!(extended.get_height(), 120);
+}
+
+#[test]
+fn test_extend_leaves_an_image_alone_when_nothing_is_short() {
     init_vips();
     let img = image_from(create_test_image(100, 80));
-    let result = transform::extend_image(img, 90, 120, &Some(Gravity::Center), &Some([0, 0, 0, 0]));
+    let extended = transform::extend_image(img, 50, 40, &Gravity::new(GravityType::Center), &None, 1.0).unwrap();
+    assert_eq!((extended.get_width(), extended.get_height()), (100, 80));
+}
+
+#[test]
+fn test_extend_rejects_a_canvas_beyond_vips_limits() {
+    init_vips();
+    // extend carried the same u32-to-i32 cast that made padding wrap negative.
+    // It was not reachable the same way, but an unbounded target is still an
+    // unbounded allocation request, and it must be refused rather than cast.
+    let img = image_from(create_test_image(64, 64));
+    let err = transform::extend_image(img, 4_000_000_000, 64, &Gravity::default(), &None, 1.0)
+        .expect_err("a canvas this size must be refused, not silently wrapped");
+
     assert!(matches!(
-        result,
-        Err(TransformError::InvalidArgument {
+        err,
+        TransformError::InvalidArgument {
             operation: "extend",
-            ref message,
-        }) if message.contains("must be at least source")
+            ..
+        }
     ));
+    assert!(
+        err.to_string().contains("exceeds the maximum"),
+        "error should name the limit, got: {err}"
+    );
 }
 
 #[test]
@@ -99,14 +145,15 @@ fn test_padding_with_background_color() {
 fn test_extend_with_different_gravities() {
     init_vips();
     for gravity in [
-        Gravity::North,
-        Gravity::South,
-        Gravity::East,
-        Gravity::West,
-        Gravity::Center,
+        GravityType::North,
+        GravityType::South,
+        GravityType::East,
+        GravityType::West,
+        GravityType::Center,
     ] {
         let img = image_from(create_test_image(100, 100));
-        let extended = transform::extend_image(img, 200, 200, &Some(gravity), &Some([0, 0, 0, 0])).unwrap();
+        let extended =
+            transform::extend_image(img, 200, 200, &Gravity::new(gravity), &Some([0, 0, 0, 0]), 1.0).unwrap();
         assert_eq!(extended.get_width(), 200);
         assert_eq!(extended.get_height(), 200);
     }

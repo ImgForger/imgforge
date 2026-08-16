@@ -1,4 +1,5 @@
-use crate::processing::options::{Adjust, Crop, Flip, Gravity, Trim};
+use crate::processing::colorspace;
+use crate::processing::options::{Adjust, Crop, Flip, Gravity, GravityType, Trim, Zoom};
 use crate::processing::transform::{self, TransformError};
 use libvips::{ops, VipsImage};
 
@@ -9,13 +10,11 @@ fn test_crop_image() {
     init_vips();
     let img = image_from(create_test_image(400, 300));
     let crop = Crop {
-        x: 10,
-        y: 20,
-        width: 100,
-        height: 150,
+        width: 100.0,
+        height: 150.0,
         gravity: None,
     };
-    let cropped_img = transform::crop_image(img, crop).unwrap();
+    let cropped_img = transform::crop_image(img, &crop, &Gravity::default()).unwrap();
     assert_eq!(cropped_img.get_width(), 100);
     assert_eq!(cropped_img.get_height(), 150);
 }
@@ -100,7 +99,7 @@ fn test_apply_min_dimensions() {
 fn test_apply_zoom() {
     init_vips();
     let img = image_from(create_test_image(100, 100));
-    let zoomed_img = transform::apply_zoom(img, 2.0, None).unwrap();
+    let zoomed_img = transform::apply_zoom(img, Zoom { x: 2.0, y: 2.0 }, None).unwrap();
     assert_eq!(zoomed_img.get_width(), 200);
     assert_eq!(zoomed_img.get_height(), 200);
 }
@@ -118,7 +117,7 @@ fn test_apply_sharpen() {
 fn test_apply_pixelate() {
     init_vips();
     let img = image_from(create_test_image(100, 100));
-    let pixelated_img = transform::apply_pixelate(img, 10, None).unwrap();
+    let pixelated_img = transform::apply_pixelate(img, 10).unwrap();
     assert_eq!(pixelated_img.get_width(), 100);
     assert_eq!(pixelated_img.get_height(), 100);
 }
@@ -127,7 +126,7 @@ fn test_apply_pixelate() {
 fn test_apply_pixelate_ignores_requested_resizing_kernel() {
     init_vips();
     let img = image_from(create_quadrant_test_image(40, 40));
-    let pixelated_img = transform::apply_pixelate(img, 10, Some("lanczos3")).unwrap();
+    let pixelated_img = transform::apply_pixelate(img, 10).unwrap();
     assert_eq!(pixelated_img.get_width(), 40);
     assert_eq!(pixelated_img.get_height(), 40);
 }
@@ -136,7 +135,7 @@ fn test_apply_pixelate_ignores_requested_resizing_kernel() {
 fn test_apply_pixelate_with_extreme_amount_keeps_dimensions() {
     init_vips();
     let img = image_from(create_test_image(10, 10));
-    let pixelated_img = transform::apply_pixelate(img, 1_000, None).unwrap();
+    let pixelated_img = transform::apply_pixelate(img, 1_000).unwrap();
     assert_eq!(pixelated_img.get_width(), 10);
     assert_eq!(pixelated_img.get_height(), 10);
 }
@@ -146,13 +145,11 @@ fn test_crop_at_edge() {
     init_vips();
     let img = image_from(create_test_image(100, 100));
     let crop = Crop {
-        x: 0,
-        y: 0,
-        width: 50,
-        height: 50,
+        width: 50.0,
+        height: 50.0,
         gravity: None,
     };
-    let cropped_img = transform::crop_image(img, crop).unwrap();
+    let cropped_img = transform::crop_image(img, &crop, &crop.gravity.unwrap_or_default()).unwrap();
     assert_eq!(cropped_img.get_width(), 50);
     assert_eq!(cropped_img.get_height(), 50);
 }
@@ -162,13 +159,11 @@ fn test_crop_bottom_right_corner() {
     init_vips();
     let img = image_from(create_test_image(100, 100));
     let crop = Crop {
-        x: 50,
-        y: 50,
-        width: 50,
-        height: 50,
+        width: 50.0,
+        height: 50.0,
         gravity: None,
     };
-    let cropped_img = transform::crop_image(img, crop).unwrap();
+    let cropped_img = transform::crop_image(img, &crop, &crop.gravity.unwrap_or_default()).unwrap();
     assert_eq!(cropped_img.get_width(), 50);
     assert_eq!(cropped_img.get_height(), 50);
 }
@@ -218,7 +213,7 @@ fn test_pixelate_zero() {
     init_vips();
     let img = image_from(create_test_image(100, 100));
     let original_width = img.get_width();
-    let pixelated_img = transform::apply_pixelate(img, 0, None).unwrap();
+    let pixelated_img = transform::apply_pixelate(img, 0).unwrap();
     assert_eq!(pixelated_img.get_width(), original_width);
 }
 
@@ -226,7 +221,7 @@ fn test_pixelate_zero() {
 fn test_pixelate_small_amount() {
     init_vips();
     let img = image_from(create_test_image(100, 100));
-    let pixelated_img = transform::apply_pixelate(img, 1, None).unwrap();
+    let pixelated_img = transform::apply_pixelate(img, 1).unwrap();
     assert_eq!(pixelated_img.get_width(), 100);
 }
 
@@ -234,7 +229,7 @@ fn test_pixelate_small_amount() {
 fn test_pixelate_large_amount() {
     init_vips();
     let img = image_from(create_test_image(200, 200));
-    let pixelated_img = transform::apply_pixelate(img, 50, None).unwrap();
+    let pixelated_img = transform::apply_pixelate(img, 50).unwrap();
     assert_eq!(pixelated_img.get_width(), 200);
     assert_eq!(pixelated_img.get_height(), 200);
 }
@@ -271,7 +266,7 @@ fn test_apply_min_dimensions_already_larger() {
 fn test_apply_zoom_scale_down() {
     init_vips();
     let img = image_from(create_test_image(200, 200));
-    let zoomed = transform::apply_zoom(img, 0.5, None).unwrap();
+    let zoomed = transform::apply_zoom(img, Zoom { x: 0.5, y: 0.5 }, None).unwrap();
     assert_eq!(zoomed.get_width(), 100);
     assert_eq!(zoomed.get_height(), 100);
 }
@@ -280,7 +275,7 @@ fn test_apply_zoom_scale_down() {
 fn test_apply_zoom_scale_up() {
     init_vips();
     let img = image_from(create_test_image(100, 100));
-    let zoomed = transform::apply_zoom(img, 3.0, None).unwrap();
+    let zoomed = transform::apply_zoom(img, Zoom { x: 3.0, y: 3.0 }, None).unwrap();
     assert_eq!(zoomed.get_width(), 300);
     assert_eq!(zoomed.get_height(), 300);
 }
@@ -290,7 +285,7 @@ fn test_apply_zoom_rejects_non_positive_values() {
     init_vips();
     let img = image_from(create_test_image(100, 100));
     assert!(matches!(
-        transform::apply_zoom(img, 0.0, None),
+        transform::apply_zoom(img, Zoom { x: 0.0, y: 0.0 }, None),
         Err(TransformError::InvalidArgument { operation: "zoom", .. })
     ));
 }
@@ -385,24 +380,23 @@ fn test_crop_window_is_positioned_by_gravity() {
     let source = create_quadrant_test_image(100, 100);
 
     let cases = [
-        (None, [255, 0, 0, 255]), // no gravity -> top-left
-        (Some(Gravity::NorthWest), [255, 0, 0, 255]),
-        (Some(Gravity::NorthEast), [0, 255, 0, 255]),
-        (Some(Gravity::SouthWest), [0, 0, 255, 255]),
-        (Some(Gravity::SouthEast), [255, 255, 0, 255]),
+        (GravityType::NorthWest, [255, 0, 0, 255]),
+        (GravityType::NorthEast, [0, 255, 0, 255]),
+        (GravityType::SouthWest, [0, 0, 255, 255]),
+        (GravityType::SouthEast, [255, 255, 0, 255]),
     ];
 
-    for (gravity, expected) in cases {
+    for (kind, expected) in cases {
         let img = VipsImage::new_from_buffer(&source, "").unwrap();
+        let gravity = Gravity::new(kind);
         let cropped = transform::crop_image(
             img,
-            Crop {
-                x: 0,
-                y: 0,
-                width: 40,
-                height: 40,
-                gravity,
+            &Crop {
+                width: 40.0,
+                height: 40.0,
+                gravity: Some(gravity),
             },
+            &gravity,
         )
         .unwrap();
         assert_eq!((cropped.get_width(), cropped.get_height()), (40, 40));
@@ -410,7 +404,60 @@ fn test_crop_window_is_positioned_by_gravity() {
         assert_eq!(
             rgba_pixel(&decoded, 20, 20),
             expected,
-            "gravity {gravity:?} selected the wrong quadrant"
+            "gravity {kind:?} selected the wrong quadrant"
+        );
+    }
+}
+
+/// A crop with no gravity of its own falls back to the request's, which
+/// defaults to centre. imgforge used to pin it to the top-left corner instead,
+/// so the same URL cut a different part of the image than imgproxy did.
+#[test]
+fn test_crop_defaults_to_the_centre() {
+    init_vips();
+    let source = create_quadrant_test_image(100, 100);
+    let img = VipsImage::new_from_buffer(&source, "").unwrap();
+
+    let cropped = transform::crop_image(
+        img,
+        &Crop {
+            width: 40.0,
+            height: 40.0,
+            gravity: None,
+        },
+        &Gravity::default(),
+    )
+    .unwrap();
+
+    // A centred 40x40 window straddles the quadrant boundary, so its own
+    // corners land one in each quadrant.
+    let decoded = decode_rgba(&cropped);
+    assert_eq!(rgba_pixel(&decoded, 0, 0), [255, 0, 0, 255]);
+    assert_eq!(rgba_pixel(&decoded, 39, 0), [0, 255, 0, 255]);
+    assert_eq!(rgba_pixel(&decoded, 0, 39), [0, 0, 255, 255]);
+    assert_eq!(rgba_pixel(&decoded, 39, 39), [255, 255, 0, 255]);
+}
+
+/// Crop extents below 1 are a fraction of the source, which is what lets one
+/// URL cut the same proportion out of sources of different sizes.
+#[test]
+fn test_fractional_crop_extents_scale_with_the_source() {
+    init_vips();
+    for (width, height) in [(100u32, 60u32), (400, 240)] {
+        let img = image_from(create_test_image(width, height));
+        let cropped = transform::crop_image(
+            img,
+            &Crop {
+                width: 0.5,
+                height: 0.25,
+                gravity: None,
+            },
+            &Gravity::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            (cropped.get_width() as u32, cropped.get_height() as u32),
+            (width / 2, height / 4)
         );
     }
 }
@@ -424,13 +471,12 @@ fn test_crop_zero_means_full_extent_and_oversized_clamps() {
     let img = VipsImage::new_from_buffer(&source, "").unwrap();
     let cropped = transform::crop_image(
         img,
-        Crop {
-            x: 0,
-            y: 0,
-            width: 0,
-            height: 30,
+        &Crop {
+            width: 0.0,
+            height: 30.0,
             gravity: None,
         },
+        &Gravity::default(),
     )
     .unwrap();
     assert_eq!((cropped.get_width(), cropped.get_height()), (100, 30));
@@ -439,13 +485,12 @@ fn test_crop_zero_means_full_extent_and_oversized_clamps() {
     let img = VipsImage::new_from_buffer(&source, "").unwrap();
     let cropped = transform::crop_image(
         img,
-        Crop {
-            x: 0,
-            y: 0,
-            width: 5000,
-            height: 5000,
+        &Crop {
+            width: 5000.0,
+            height: 5000.0,
             gravity: None,
         },
+        &Gravity::default(),
     )
     .unwrap();
     assert_eq!((cropped.get_width(), cropped.get_height()), (100, 60));
@@ -561,4 +606,68 @@ fn test_trim_detects_the_background_on_a_16_bit_source() {
 
     let trimmed = transform::apply_trim(deep, &trim(10.0, None, false, false)).unwrap();
     assert_eq!((trimmed.get_width(), trimmed.get_height()), (100, 60));
+}
+
+/// libvips reports every 8-bit three-band image as `Srgb`, whatever its actual
+/// primaries — the real space lives in the embedded profile. Deciding on the
+/// interpretation alone let a wide-gamut source through untransformed, so its
+/// numbers were read as sRGB and came out oversaturated.
+#[test]
+fn a_wide_gamut_source_is_converted_through_its_profile() {
+    init_vips();
+
+    let plain = image_from(create_test_image_jpeg(16, 16));
+    assert!(
+        matches!(plain.get_interpretation(), Ok(ops::Interpretation::Srgb)),
+        "the premise: an ordinary JPEG already reports as sRGB"
+    );
+
+    // Tag the same pixels as Display P3. The interpretation does not change —
+    // that is exactly the trap — but the numbers now mean something different.
+    let p3 = ops::icc_transform_with_opts(
+        &plain,
+        "p3",
+        &ops::IccTransformOptions {
+            input_profile: "srgb".to_string(),
+            intent: ops::Intent::Relative,
+            ..Default::default()
+        },
+    );
+    let Ok(p3) = p3 else {
+        // A libvips build without the P3 profile cannot exercise this.
+        eprintln!("skipping: no P3 profile available in this libvips build");
+        return;
+    };
+    assert!(
+        matches!(p3.get_interpretation(), Ok(ops::Interpretation::Srgb)),
+        "a P3 image still reports as sRGB, which is why the enum cannot decide"
+    );
+
+    let converted = colorspace::to_processing(ops::copy(&p3).unwrap(), false).unwrap();
+
+    // Round-tripping P3 back to sRGB has to restore the original pixels. Left
+    // untransformed, the P3 numbers would survive unchanged and read as sRGB.
+    let original = decode_rgba(&plain);
+    let round_tripped = decode_rgba(&converted);
+    let untransformed = decode_rgba(&p3);
+
+    let delta = |a: &image::RgbaImage, b: &image::RgbaImage| -> f64 {
+        a.pixels()
+            .zip(b.pixels())
+            .map(|(x, y)| (f64::from(x[0]) - f64::from(y[0])).abs())
+            .sum::<f64>()
+            / a.pixels().len() as f64
+    };
+
+    let recovered = delta(&original, &round_tripped);
+    let skipped = delta(&original, &untransformed);
+    assert!(
+        recovered < skipped,
+        "converting through the profile must move the pixels back toward the original \
+         (recovered delta {recovered:.2} should beat untransformed {skipped:.2})"
+    );
+    assert!(
+        recovered < 4.0,
+        "the round trip should land close to the original, got {recovered:.2}"
+    );
 }

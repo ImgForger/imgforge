@@ -8,6 +8,10 @@ pub const ENV_ALLOWED_MIME_TYPES: &str = "IMGFORGE_ALLOWED_MIME_TYPES";
 pub const ENV_MAX_SRC_RESOLUTION: &str = "IMGFORGE_MAX_SRC_RESOLUTION";
 /// Ceiling for either dimension of the processed image.
 pub const ENV_MAX_RESULT_DIMENSION: &str = "IMGFORGE_MAX_RESULT_DIMENSION";
+/// Ceiling on how many frames of an animated source are decoded.
+pub const ENV_MAX_ANIMATION_FRAMES: &str = "IMGFORGE_MAX_ANIMATION_FRAMES";
+/// Ceiling on the pixel count of a single animation frame, in megapixels.
+pub const ENV_MAX_ANIMATION_FRAME_RESOLUTION: &str = "IMGFORGE_MAX_ANIMATION_FRAME_RESOLUTION";
 pub const ENV_ALLOW_SECURITY_OPTIONS: &str = "IMGFORGE_ALLOW_SECURITY_OPTIONS";
 pub const ENV_WORKERS: &str = "IMGFORGE_WORKERS";
 
@@ -24,3 +28,39 @@ pub const ENV_DOWNLOAD_TIMEOUT: &str = "IMGFORGE_DOWNLOAD_TIMEOUT";
 pub const ENV_RATE_LIMIT_PER_MINUTE: &str = "IMGFORGE_RATE_LIMIT_PER_MINUTE";
 pub const ENV_PRESETS: &str = "IMGFORGE_PRESETS";
 pub const ENV_ONLY_PRESETS: &str = "IMGFORGE_ONLY_PRESETS";
+
+// Processing defaults a URL may override.
+pub const ENV_AUTO_ROTATE: &str = "IMGFORGE_AUTO_ROTATE";
+pub const ENV_STRIP_METADATA: &str = "IMGFORGE_STRIP_METADATA";
+pub const ENV_KEEP_COPYRIGHT: &str = "IMGFORGE_KEEP_COPYRIGHT";
+pub const ENV_STRIP_COLOR_PROFILE: &str = "IMGFORGE_STRIP_COLOR_PROFILE";
+pub const ENV_PRESERVE_HDR: &str = "IMGFORGE_PRESERVE_HDR";
+pub const ENV_ENFORCE_THUMBNAIL: &str = "IMGFORGE_ENFORCE_THUMBNAIL";
+pub const ENV_RETURN_ATTACHMENT: &str = "IMGFORGE_RETURN_ATTACHMENT";
+pub const ENV_QUALITY: &str = "IMGFORGE_QUALITY";
+
+// Response delivery.
+pub const ENV_TTL: &str = "IMGFORGE_TTL";
+pub const ENV_CACHE_CONTROL_PASSTHROUGH: &str = "IMGFORGE_CACHE_CONTROL_PASSTHROUGH";
+pub const ENV_USE_ETAG: &str = "IMGFORGE_USE_ETAG";
+pub const ENV_LAST_MODIFIED_ENABLED: &str = "IMGFORGE_LAST_MODIFIED_ENABLED";
+pub const ENV_SET_CANONICAL_HEADER: &str = "IMGFORGE_SET_CANONICAL_HEADER";
+pub const ENV_ALLOW_ORIGIN: &str = "IMGFORGE_ALLOW_ORIGIN";
+pub const ENV_PATH_PREFIX: &str = "IMGFORGE_PATH_PREFIX";
+pub const ENV_HEALTH_CHECK_PATH: &str = "IMGFORGE_HEALTH_CHECK_PATH";
+pub const ENV_DEVELOPMENT_ERRORS_MODE: &str = "IMGFORGE_DEVELOPMENT_ERRORS_MODE";
+pub const ENV_ENABLE_DEBUG_HEADERS: &str = "IMGFORGE_ENABLE_DEBUG_HEADERS";
+
+// Source resolution.
+pub const ENV_USER_AGENT: &str = "IMGFORGE_USER_AGENT";
+pub const ENV_MAX_REDIRECTS: &str = "IMGFORGE_MAX_REDIRECTS";
+
+// Content negotiation.
+pub const ENV_ENABLE_WEBP_DETECTION: &str = "IMGFORGE_ENABLE_WEBP_DETECTION";
+pub const ENV_ENFORCE_WEBP: &str = "IMGFORGE_ENFORCE_WEBP";
+pub const ENV_ENABLE_AVIF_DETECTION: &str = "IMGFORGE_ENABLE_AVIF_DETECTION";
+pub const ENV_ENFORCE_AVIF: &str = "IMGFORGE_ENFORCE_AVIF";
+pub const ENV_ENABLE_CLIENT_HINTS: &str = "IMGFORGE_ENABLE_CLIENT_HINTS";
+
+/// Default `User-Agent` sent when fetching a source image.
+pub const DEFAULT_USER_AGENT: &str = concat!("imgforge/", env!("CARGO_PKG_VERSION"));

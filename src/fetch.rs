@@ -15,6 +15,24 @@ pub enum FetchError {
     ResponseBody(#[source] reqwest::Error),
     #[error("source image exceeds the maximum allowed size of {limit} bytes")]
     SourceTooLarge { limit: usize, actual: Option<u64> },
+    #[error("source URL is not allowed")]
+    SourceNotAllowed,
+    #[error("source responded with status {status}")]
+    UpstreamStatus { status: u16 },
+}
+
+/// A source image and the response headers worth carrying forward.
+///
+/// The caching headers are kept so the proxy can pass an upstream `Cache-Control`
+/// or `Last-Modified` through to its own clients, which is the difference
+/// between a CDN honouring the origin's policy and inventing one.
+#[derive(Debug, Clone, Default)]
+pub struct FetchedImage {
+    pub bytes: Bytes,
+    pub content_type: Option<String>,
+    pub cache_control: Option<String>,
+    pub last_modified: Option<String>,
+    pub etag: Option<String>,
 }
 
 fn record_fetch_metrics(fetch_start: std::time::Instant, status: &str) {
@@ -33,29 +51,41 @@ fn initial_buffer_capacity(content_length: Option<usize>, max_bytes: Option<usiz
     }
 }
 
+fn header_string(headers: &header::HeaderMap, name: header::HeaderName) -> Option<String> {
+    headers
+        .get(name)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.to_string())
+}
+
 /// Fetches an image from a given URL using the provided HTTP client.
 pub async fn fetch_image(
     client: &reqwest::Client,
     url: &str,
     max_bytes: Option<usize>,
-) -> Result<(Bytes, Option<String>), FetchError> {
+) -> Result<FetchedImage, FetchError> {
     let fetch_start = std::time::Instant::now();
 
     let mut response = client.get(url).send().await.map_err(|source| {
         record_fetch_metrics(fetch_start, "error");
         FetchError::Request(source)
     })?;
-    let fetch_status = if response.status().is_success() {
-        "success"
-    } else {
-        "error"
-    };
 
-    let content_type = response
-        .headers()
-        .get(header::CONTENT_TYPE)
-        .and_then(|ct| ct.to_str().ok())
-        .map(|ct| ct.to_string());
+    // An error page is not an image. Returning its bytes meant the failure
+    // surfaced later as "failed to decode source image", which told the caller
+    // nothing about the 404 that actually happened.
+    if !response.status().is_success() {
+        record_fetch_metrics(fetch_start, "error");
+        return Err(FetchError::UpstreamStatus {
+            status: response.status().as_u16(),
+        });
+    }
+
+    let headers = response.headers().clone();
+    let content_type = header_string(&headers, header::CONTENT_TYPE);
+    let cache_control = header_string(&headers, header::CACHE_CONTROL);
+    let last_modified = header_string(&headers, header::LAST_MODIFIED);
+    let etag = header_string(&headers, header::ETAG);
 
     let advertised_length = response.content_length().map(|len| len as usize);
     if let (Some(limit), Some(len)) = (max_bytes, advertised_length) {
@@ -94,8 +124,14 @@ pub async fn fetch_image(
         }
     }
 
-    record_fetch_metrics(fetch_start, fetch_status);
-    Ok((image_bytes.freeze(), content_type))
+    record_fetch_metrics(fetch_start, "success");
+    Ok(FetchedImage {
+        bytes: image_bytes.freeze(),
+        content_type,
+        cache_control,
+        last_modified,
+        etag,
+    })
 }
 
 #[cfg(test)]
@@ -134,35 +170,39 @@ mod tests {
             .respond_with(
                 ResponseTemplate::new(200)
                     .set_body_bytes(vec![1u8, 2, 3])
-                    .insert_header("Content-Type", "image/jpeg"),
+                    .insert_header("Content-Type", "image/jpeg")
+                    .insert_header("Cache-Control", "max-age=600")
+                    .insert_header("Last-Modified", "Wed, 21 Oct 2015 07:28:00 GMT"),
             )
             .mount(&server)
             .await;
 
         let client = client_with_timeout(Duration::from_secs(5));
-        let (bytes, content_type) = fetch_image(&client, &format!("{}/image.jpg", server.uri()), None)
+        let fetched = fetch_image(&client, &format!("{}/image.jpg", server.uri()), None)
             .await
             .expect("request should succeed");
 
-        assert_eq!(bytes.len(), 3);
-        assert_eq!(content_type.as_deref(), Some("image/jpeg"));
+        assert_eq!(fetched.bytes.len(), 3);
+        assert_eq!(fetched.content_type.as_deref(), Some("image/jpeg"));
+        assert_eq!(fetched.cache_control.as_deref(), Some("max-age=600"));
+        assert_eq!(fetched.last_modified.as_deref(), Some("Wed, 21 Oct 2015 07:28:00 GMT"));
     }
 
     #[tokio::test]
-    async fn test_fetch_image_404() {
+    async fn test_fetch_image_404_is_reported_as_an_upstream_status() {
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/missing.jpg"))
-            .respond_with(ResponseTemplate::new(404).set_body_bytes(Vec::<u8>::new()))
+            .respond_with(ResponseTemplate::new(404).set_body_string("nope"))
             .mount(&server)
             .await;
 
         let client = client_with_timeout(Duration::from_secs(5));
-        let (bytes, _) = fetch_image(&client, &format!("{}/missing.jpg", server.uri()), None)
-            .await
-            .expect("404 responses should still return bytes");
+        let result = fetch_image(&client, &format!("{}/missing.jpg", server.uri()), None).await;
 
-        assert_eq!(bytes.len(), 0);
+        // Returning the error page's bytes would have surfaced as "failed to
+        // decode source image", hiding the 404 behind a decoder complaint.
+        assert!(matches!(result, Err(FetchError::UpstreamStatus { status: 404 })));
     }
 
     #[tokio::test]
@@ -198,12 +238,12 @@ mod tests {
             .await;
 
         let client = client_with_timeout(Duration::from_secs(5));
-        let (bytes, content_type) = fetch_image(&client, &format!("{}/image.png", server.uri()), None)
+        let fetched = fetch_image(&client, &format!("{}/image.png", server.uri()), None)
             .await
             .expect("request should succeed");
 
-        assert_eq!(bytes.len(), 3);
-        assert_eq!(content_type.as_deref(), Some("image/png"));
+        assert_eq!(fetched.bytes.len(), 3);
+        assert_eq!(fetched.content_type.as_deref(), Some("image/png"));
     }
 
     #[tokio::test]

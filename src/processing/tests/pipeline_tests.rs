@@ -1,4 +1,6 @@
-use crate::processing::options::{Crop, Gravity, ParsedOptions, Resize, Watermark};
+use crate::processing::options::{
+    Crop, Extend, Gravity, GravityType, ParsedOptions, Resize, ResizingType, Watermark, WatermarkPosition, Zoom,
+};
 use crate::processing::process_image;
 use crate::processing::save;
 use crate::processing::transform;
@@ -14,19 +16,17 @@ fn test_crop_then_resize() {
     init_vips();
     let img = image_from(create_test_image(400, 400));
     let crop = Crop {
-        x: 50,
-        y: 50,
-        width: 200,
-        height: 200,
+        width: 200.0,
+        height: 200.0,
         gravity: None,
     };
-    let cropped = transform::crop_image(img, crop).unwrap();
+    let cropped = transform::crop_image(img, &crop, &crop.gravity.unwrap_or_default()).unwrap();
     let resize = Resize {
-        resizing_type: "fit".to_string(),
+        resizing_type: ResizingType::Fit,
         width: 100,
         height: 100,
     };
-    let final_img = transform::apply_resize(cropped, &resize, &None, None, true).unwrap();
+    let final_img = transform::apply_resize(cropped, &resize, &Gravity::default(), None, true, 1.0).unwrap();
     assert_eq!(final_img.get_width(), 100);
     assert_eq!(final_img.get_height(), 100);
 }
@@ -36,11 +36,11 @@ fn test_resize_then_blur() {
     init_vips();
     let img = image_from(create_test_image(200, 200));
     let resize = Resize {
-        resizing_type: "fit".to_string(),
+        resizing_type: ResizingType::Fit,
         width: 100,
         height: 100,
     };
-    let resized = transform::apply_resize(img, &resize, &None, None, true).unwrap();
+    let resized = transform::apply_resize(img, &resize, &Gravity::default(), None, true, 1.0).unwrap();
     let blurred = transform::apply_blur(resized, 3.0).unwrap();
     assert_eq!(blurred.get_width(), 100);
     assert_eq!(blurred.get_height(), 100);
@@ -51,11 +51,11 @@ fn test_resize_then_sharpen() {
     init_vips();
     let img = image_from(create_test_image(200, 200));
     let resize = Resize {
-        resizing_type: "fit".to_string(),
+        resizing_type: ResizingType::Fit,
         width: 300,
         height: 300,
     };
-    let resized = transform::apply_resize(img, &resize, &None, None, true).unwrap();
+    let resized = transform::apply_resize(img, &resize, &Gravity::default(), None, true, 1.0).unwrap();
     let sharpened = transform::apply_sharpen(resized, 1.0).unwrap();
     assert_eq!(sharpened.get_width(), 300);
     assert_eq!(sharpened.get_height(), 300);
@@ -67,11 +67,11 @@ fn test_rotation_then_resize() {
     let img = image_from(create_test_image(100, 200));
     let rotated = transform::apply_rotation(img, 90).unwrap();
     let resize = Resize {
-        resizing_type: "fit".to_string(),
+        resizing_type: ResizingType::Fit,
         width: 100,
         height: 100,
     };
-    let resized = transform::apply_resize(rotated, &resize, &None, None, true).unwrap();
+    let resized = transform::apply_resize(rotated, &resize, &Gravity::default(), None, true, 1.0).unwrap();
     assert_eq!(resized.get_width(), 100);
     assert_eq!(resized.get_height(), 50);
 }
@@ -82,21 +82,19 @@ fn test_complex_pipeline_crop_resize_blur_rotate() {
     let img = image_from(create_test_image(400, 400));
 
     let crop = Crop {
-        x: 50,
-        y: 50,
-        width: 300,
-        height: 300,
+        width: 300.0,
+        height: 300.0,
         gravity: None,
     };
-    let img = transform::crop_image(img, crop).unwrap();
+    let img = transform::crop_image(img, &crop, &crop.gravity.unwrap_or_default()).unwrap();
     assert_eq!(img.get_width(), 300);
 
     let resize = Resize {
-        resizing_type: "fit".to_string(),
+        resizing_type: ResizingType::Fit,
         width: 200,
         height: 200,
     };
-    let img = transform::apply_resize(img, &resize, &None, None, true).unwrap();
+    let img = transform::apply_resize(img, &resize, &Gravity::default(), None, true, 1.0).unwrap();
     assert_eq!(img.get_width(), 200);
 
     let img = transform::apply_blur(img, 2.0).unwrap();
@@ -111,11 +109,11 @@ fn test_complex_pipeline_resize_padding_watermark() {
     let img = image_from(create_test_image(200, 200));
 
     let resize = Resize {
-        resizing_type: "fit".to_string(),
+        resizing_type: ResizingType::Fit,
         width: 150,
         height: 150,
     };
-    let img = transform::apply_resize(img, &resize, &None, None, true).unwrap();
+    let img = transform::apply_resize(img, &resize, &Gravity::default(), None, true, 1.0).unwrap();
 
     let img = transform::apply_padding(img, 10, 10, 10, 10, &Some([255, 255, 255, 255])).unwrap();
     assert_eq!(img.get_width(), 170);
@@ -124,7 +122,8 @@ fn test_complex_pipeline_resize_padding_watermark() {
     let watermark = cached_watermark_from_bytes(create_test_image(30, 30));
     let watermark_opts = Watermark {
         opacity: 0.7,
-        position: "soea".to_string(),
+        position: WatermarkPosition::parse("soea").unwrap(),
+        ..Watermark::default()
     };
     let img = watermark::apply_watermark(img, &watermark, &watermark_opts, None).unwrap();
     assert_eq!(img.get_width(), 170);
@@ -137,13 +136,16 @@ fn test_process_image_extend_uses_current_dimensions_after_min_height() {
     let img = VipsImage::new_from_buffer(&source_bytes, "").unwrap();
     let parsed_options = ParsedOptions {
         resize: Some(Resize {
-            resizing_type: "fit".to_string(),
+            resizing_type: ResizingType::Fit,
             width: 100,
             height: 200,
         }),
         format: Some("png".to_string()),
         enlarge: true,
-        extend: true,
+        extend: Extend {
+            enabled: true,
+            gravity: None,
+        },
         min_height: Some(150),
         ..ParsedOptions::default()
     };
@@ -164,7 +166,7 @@ fn test_max_result_dimension_rejects_oversized_output() {
     let img = VipsImage::new_from_buffer(&source_bytes, "").unwrap();
     let parsed_options = ParsedOptions {
         resize: Some(Resize {
-            resizing_type: "fit".to_string(),
+            resizing_type: ResizingType::Fit,
             width: 4000,
             height: 4000,
         }),
@@ -189,7 +191,7 @@ fn test_max_result_dimension_allows_output_within_limit() {
     let img = VipsImage::new_from_buffer(&source_bytes, "").unwrap();
     let parsed_options = ParsedOptions {
         resize: Some(Resize {
-            resizing_type: "fit".to_string(),
+            resizing_type: ResizingType::Fit,
             width: 500,
             height: 500,
         }),
@@ -235,7 +237,7 @@ fn test_fit_inside_a_square_box_downscales_a_wide_source() {
     let img = VipsImage::new_from_buffer(&source_bytes, "").unwrap();
     let parsed_options = ParsedOptions {
         resize: Some(Resize {
-            resizing_type: "fit".to_string(),
+            resizing_type: ResizingType::Fit,
             width: 500,
             height: 500,
         }),
@@ -258,7 +260,7 @@ fn test_load_shrink_never_undershoots_the_target() {
 
     let plan = |w: u32, h: u32| ParsedOptions {
         resize: Some(Resize {
-            resizing_type: "fit".to_string(),
+            resizing_type: ResizingType::Fit,
             width: w,
             height: h,
         }),
@@ -293,7 +295,7 @@ fn test_load_shrink_declines_when_it_cannot_reason_about_the_target() {
     let with = |f: fn(&mut ParsedOptions)| {
         let mut o = ParsedOptions {
             resize: Some(Resize {
-                resizing_type: "fit".to_string(),
+                resizing_type: ResizingType::Fit,
                 width: 1000,
                 height: 1000,
             }),
@@ -308,11 +310,9 @@ fn test_load_shrink_declines_when_it_cannot_reason_about_the_target() {
     // would move the region being cut.
     assert_eq!(
         with(|o| o.crop = Some(Crop {
-            x: 0,
-            y: 0,
-            width: 50,
-            height: 50,
-            gravity: None
+            width: 50.0,
+            height: 50.0,
+            gravity: None,
         })),
         1
     );
@@ -322,7 +322,11 @@ fn test_load_shrink_declines_when_it_cannot_reason_about_the_target() {
     assert_eq!(with(|o| o.resize = None), 1);
     // Growth after the resize has to be respected, not shrunk away.
     assert_eq!(with(|o| o.dpr = Some(2.0)), 2, "dpr doubles the pixels needed");
-    assert_eq!(with(|o| o.zoom = Some(2.0)), 2, "zoom doubles the pixels needed");
+    assert_eq!(
+        with(|o| o.zoom = Some(Zoom { x: 2.0, y: 2.0 })),
+        2,
+        "zoom doubles the pixels needed"
+    );
     assert_eq!(
         with(|o| o.min_width = Some(2000)),
         2,
@@ -338,7 +342,7 @@ fn test_shrink_on_load_does_not_change_output_dimensions() {
     let source_bytes = Bytes::from(create_test_image_jpeg(2000, 1600));
     let options = || ParsedOptions {
         resize: Some(Resize {
-            resizing_type: "fit".to_string(),
+            resizing_type: ResizingType::Fit,
             width: 200,
             height: 200,
         }),
@@ -375,7 +379,7 @@ fn test_load_shrink_declines_for_force_with_an_unset_axis() {
 
     let plan = |kind: &str, w: u32, h: u32| ParsedOptions {
         resize: Some(Resize {
-            resizing_type: kind.to_string(),
+            resizing_type: kind.parse().unwrap(),
             width: w,
             height: h,
         }),
@@ -411,7 +415,7 @@ fn test_load_shrink_uses_displayed_dimensions_for_rotated_sources() {
 
     let options = ParsedOptions {
         resize: Some(Resize {
-            resizing_type: "fill".to_string(),
+            resizing_type: ResizingType::Fill,
             width: 2000,
             height: 1000,
         }),
@@ -467,7 +471,7 @@ fn test_webp_load_scale_never_undershoots_the_target() {
     ] {
         let options = ParsedOptions {
             resize: Some(Resize {
-                resizing_type: "fit".to_string(),
+                resizing_type: ResizingType::Fit,
                 width: tw,
                 height: th,
             }),
@@ -496,7 +500,7 @@ fn test_webp_scale_is_finer_than_the_jpeg_shrink() {
 
     let options = ParsedOptions {
         resize: Some(Resize {
-            resizing_type: "fit".to_string(),
+            resizing_type: ResizingType::Fit,
             width: 1000,
             height: 1000,
         }),
@@ -538,14 +542,12 @@ fn test_load_shrink_measures_the_crop_region_not_the_source() {
     // ParsedOptions is not Clone, so each case is built fresh.
     let plan = |crop: Option<(u32, u32)>| ParsedOptions {
         crop: crop.map(|(w, h)| Crop {
-            x: 0,
-            y: 0,
-            width: w,
-            height: h,
+            width: f64::from(w),
+            height: f64::from(h),
             gravity: None,
         }),
         resize: Some(Resize {
-            resizing_type: "fit".to_string(),
+            resizing_type: ResizingType::Fit,
             width: 500,
             height: 375,
         }),
@@ -571,14 +573,12 @@ fn test_cropped_request_survives_a_reduced_decode() {
     let source_bytes = Bytes::from(create_test_image_jpeg(2000, 1600));
     let options = || ParsedOptions {
         crop: Some(Crop {
-            x: 0,
-            y: 0,
-            width: 1000,
-            height: 800,
-            gravity: Some(Gravity::SouthEast),
+            width: 1000.0,
+            height: 800.0,
+            gravity: Some(Gravity::new(GravityType::SouthEast)),
         }),
         resize: Some(Resize {
-            resizing_type: "fit".to_string(),
+            resizing_type: ResizingType::Fit,
             width: 250,
             height: 200,
         }),
@@ -595,8 +595,8 @@ fn test_cropped_request_survives_a_reduced_decode() {
     let shrunk = VipsImage::new_from_buffer(&source_bytes, &format!("shrink={factor}")).unwrap();
     let mut scaled_options = options();
     if let Some(crop) = scaled_options.crop.as_mut() {
-        crop.width /= factor;
-        crop.height /= factor;
+        crop.width /= f64::from(factor);
+        crop.height /= f64::from(factor);
     }
     let reduced = process_image(shrunk, scaled_options, &source_bytes, None).unwrap();
 
@@ -618,7 +618,7 @@ fn test_trim_disables_scale_on_load() {
     let plan = |trim: Option<Trim>| ParsedOptions {
         trim,
         resize: Some(Resize {
-            resizing_type: "fit".to_string(),
+            resizing_type: ResizingType::Fit,
             width: 200,
             height: 200,
         }),
