@@ -1,7 +1,7 @@
 //! Scaling: the resizing types, the enlargement cap, and the two scale-only
 //! options that run after them.
 
-use super::geometry::calc_position;
+use super::geometry::{calc_position, smart_crop};
 use super::{resize_with_algorithm, vips, TransformError, SCALE_EPSILON};
 use crate::processing::options::{Gravity, Resize, ResizingType, Zoom};
 use crate::processing::utils::is_portrait;
@@ -195,6 +195,10 @@ fn resize_to_fill(
 
     if crop_w >= resized_w && crop_h >= resized_h {
         return Ok(resized_img);
+    }
+
+    if gravity.kind.is_content_aware() {
+        return smart_crop(&resized_img, crop_w as i32, crop_h as i32);
     }
 
     // Cropping happens after the scale, so an absolute gravity offset is

@@ -60,10 +60,17 @@ listed under **Changed** and are the reason this is a minor bump rather than a p
   `IMGFORGE_RETURN_ATTACHMENT`, and `IMGFORGE_QUALITY` set the starting value for the matching option, which a URL
   still overrides.
 
+- **Smart gravity.** `gravity:sm` hands the window choice to libvips' `smartcrop`, which scores the image for the
+  region a viewer's eye would settle on. It is the answer when no fixed anchor is right for every image in a
+  catalogue, and it applies to `crop` and to the implicit crop a `fill` resize performs. imgproxy gates this one
+  behind its Pro tier.
+
 - **New processing options.** `extend_aspect_ratio` (`exar`) pads to the requested shape without reaching its size.
-  `keep_copyright` (`kcr`) carries the EXIF copyright across a metadata strip. `preserve_hdr` (`ph`) keeps a high
-  bit-depth image high bit-depth and retains its gain map. `enforce_thumbnail` (`eth`) uses the source's embedded
-  EXIF thumbnail. `skip_processing` (`skp`) returns the source untouched for the formats it lists.
+  `keep_copyright` (`kcr`) carries the EXIF copyright across a metadata strip for JPEG, PNG and WebP output — an
+  APP1 segment, an `eXIf` chunk, and an `EXIF` chunk respectively, synthesising the extended header WebP needs.
+  TIFF, AVIF and HEIF can hold EXIF too but are not implemented; they strip as normal. `preserve_hdr` (`ph`) keeps a high bit-depth image high bit-depth and retains its gain map.
+  `enforce_thumbnail` (`eth`) uses the source's embedded EXIF thumbnail. `skip_processing` (`skp`) returns the
+  source untouched for the formats it lists.
 
 - **Colour management.** The image is converted into a colourspace the pipeline's operations are written for before
   processing and back for the encoder, through the source's embedded ICC profile when it has one. A CMYK source no
@@ -113,6 +120,9 @@ listed under **Changed** and are the reason this is a minor bump rather than a p
 
 - **A resizing type with no dimensions leaves the image alone** instead of failing. `resize:fill` on its own names
   no target; imgproxy returns the image unresized, and now so does imgforge.
+
+- **An unrecognised `webp_options` preset is refused** rather than accepted and then dropped on the way to the
+  encoder, where a typo silently produced a different image.
 
 - Booleans accept imgproxy's spellings (`1`, `t`, `T`, `true`, `TRUE`, `True`) rather than only `1` and `true`.
 - `min_width` and `min_height` are accepted alongside imgforge's hyphenated `min-width` and `min-height`.

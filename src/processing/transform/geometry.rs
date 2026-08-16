@@ -89,6 +89,23 @@ pub fn calc_position(
     (left, top)
 }
 
+/// Crops to a window libvips chooses by looking at the image.
+///
+/// `smartcrop` scores the image for the region a viewer's eye would settle on,
+/// which is the one thing a geometric gravity cannot do: a centre crop of a
+/// portrait decapitates the subject, and no fixed anchor fixes that for every
+/// image in a catalogue.
+///
+/// It has to see real pixels, so unlike every other window here it forces the
+/// decode rather than composing into libvips' lazy pipeline.
+pub fn smart_crop(img: &VipsImage, width: i32, height: i32) -> Result<VipsImage, TransformError> {
+    let options = ops::SmartcropOptions {
+        interesting: ops::Interesting::Attention,
+        ..Default::default()
+    };
+    ops::smartcrop_with_opts(img, width, height, &options).map_err(vips("Error finding a smart crop"))
+}
+
 /// Crops an image to the region named by a [`Crop`].
 ///
 /// A zero extent means "the whole axis", and an extent below 1 is a fraction of
@@ -114,6 +131,10 @@ pub fn crop_image(img: VipsImage, crop: &Crop, gravity: &Gravity) -> Result<Vips
     // for an extract that returns the same pixels.
     if width >= src_width && height >= src_height {
         return Ok(img);
+    }
+
+    if gravity.kind.is_content_aware() {
+        return smart_crop(&img, width as i32, height as i32);
     }
 
     // The crop names source pixels, so DPR must not scale its offsets: it runs

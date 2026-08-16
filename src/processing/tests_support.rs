@@ -191,3 +191,33 @@ pub fn frame_count(bytes: &[u8]) -> i32 {
         .expect("encoded image should decode")
         .get_n_pages()
 }
+
+/// A flat field with one small, high-contrast block inset at (`x`, `y`).
+///
+/// Built for the content-aware crop: a uniform image gives an attention map no
+/// algorithm can distinguish from noise, so the test needs exactly one place
+/// worth looking at, positioned away from the centre.
+pub fn create_image_with_subject_at(size: (u32, u32), subject: (u32, u32, u32, u32)) -> Vec<u8> {
+    let (width, height) = size;
+    let (x, y, block_w, block_h) = subject;
+    let mut img: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::from_pixel(width, height, Rgba([250, 250, 250, 255]));
+    for py in y..(y + block_h).min(height) {
+        for px in x..(x + block_w).min(width) {
+            img.put_pixel(px, py, Rgba([5, 5, 5, 255]));
+        }
+    }
+    let mut bytes: Vec<u8> = Vec::new();
+    img.write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
+        .unwrap();
+    bytes
+}
+
+/// The mean luminance of a decoded image, for asking "did the dark subject end
+/// up inside this crop?" without depending on exact pixel positions.
+pub fn mean_luminance(decoded: &RgbaImage) -> f64 {
+    let total: f64 = decoded
+        .pixels()
+        .map(|pixel| 0.299 * f64::from(pixel[0]) + 0.587 * f64::from(pixel[1]) + 0.114 * f64::from(pixel[2]))
+        .sum();
+    total / decoded.pixels().len() as f64
+}

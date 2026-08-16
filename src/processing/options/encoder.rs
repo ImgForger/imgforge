@@ -113,10 +113,29 @@ pub(super) fn parse_png_options(args: &[String], png: &mut PngOptions) -> Result
     Ok(())
 }
 
-pub(super) fn parse_webp_options(args: &[String], webp: &mut WebpOptions) {
+/// The preset names libvips defines. imgproxy's `webp_options` preset takes the
+/// same set, since both are naming libwebp's own presets.
+pub const WEBP_PRESETS: [&str; 6] = ["default", "picture", "photo", "drawing", "icon", "text"];
+
+pub(super) fn parse_webp_options(args: &[String], webp: &mut WebpOptions) -> Result<(), OptionParseError> {
     webp.lossless = parse_optional_bool(args, 0);
     webp.smart_subsample = parse_optional_bool(args, 1);
+
     if let Some(value) = arg(args, 2) {
-        webp.preset = Some(value.to_lowercase());
+        let preset = value.to_lowercase();
+        // Previously an unrecognised name was dropped on the way to the
+        // encoder, because interpolating it into the option string would make
+        // libvips reject the whole encode. Silently ignoring it meant a typo
+        // produced a different image with no indication why, so it is now
+        // refused where every other bad argument is refused.
+        if !WEBP_PRESETS.contains(&preset.as_str()) {
+            return Err(OptionParseError::invalid(format!(
+                "webp_options preset must be one of: {}",
+                WEBP_PRESETS.join(", ")
+            )));
+        }
+        webp.preset = Some(preset);
     }
+
+    Ok(())
 }

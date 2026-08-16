@@ -12,7 +12,7 @@ mod geometry;
 mod names;
 
 pub use effects::{Adjust, Watermark, WatermarkPosition, Zoom};
-pub use encoder::{AvifOptions, JpegOptions, PngOptions, SaveOptions, WebpOptions};
+pub use encoder::{AvifOptions, JpegOptions, PngOptions, SaveOptions, WebpOptions, WEBP_PRESETS};
 pub use error::OptionParseError;
 pub use geometry::{Crop, Extend, Flip, Gravity, GravityType, Resize, ResizingType, Trim};
 
@@ -550,7 +550,7 @@ fn apply_option(option: &ProcessingOption, parsed: &mut ParsedOptions) -> Result
         }
         JPEG_OPTIONS | JPEG_OPTIONS_SHORT => encoder::parse_jpeg_options(args, &mut parsed.save.jpeg)?,
         PNG_OPTIONS | PNG_OPTIONS_SHORT => encoder::parse_png_options(args, &mut parsed.save.png)?,
-        WEBP_OPTIONS | WEBP_OPTIONS_SHORT => encoder::parse_webp_options(args, &mut parsed.save.webp),
+        WEBP_OPTIONS | WEBP_OPTIONS_SHORT => encoder::parse_webp_options(args, &mut parsed.save.webp)?,
         AVIF_OPTIONS | AVIF_OPTIONS_SHORT => {
             parsed.save.avif.no_subsample = error::parse_optional_bool(args, 0);
         }

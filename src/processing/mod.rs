@@ -151,21 +151,25 @@ pub fn process_image(
         }
     }
 
-    let mut output_vec = save::save_image_with_options(
+    // The copyright block is spliced into the encoded bytes, so its size has to
+    // be part of the budget `max_bytes` searches against. Measuring the bare
+    // encode and then growing it meant a request could come back over the limit
+    // when a lower quality would have fitted.
+    let copyright = parsed_options
+        .save
+        .retains_copyright()
+        .then(|| metadata::read_copyright(source_bytes))
+        .filter(|copyright| !copyright.is_empty());
+    let attach = copyright.map(|copyright| move |encoded: Vec<u8>| metadata::attach_copyright(encoded, &copyright));
+
+    let output_vec = save::save_image_with_options(
         img,
         &output_format,
         parsed_options.quality_for(&output_format),
         &parsed_options.save,
         page_height.filter(|_| save::format_supports_animation(&output_format)),
+        attach.as_ref().map(|attach| attach as save::Finalize<'_>),
     )?;
-
-    if parsed_options.save.retains_copyright() {
-        let copyright = metadata::read_copyright(source_bytes);
-        if !copyright.is_empty() {
-            debug!("Re-attaching copyright after metadata strip");
-            output_vec = metadata::attach_copyright(output_vec, &copyright);
-        }
-    }
 
     let output_bytes = Bytes::from(output_vec);
 

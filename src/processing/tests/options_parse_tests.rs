@@ -1330,3 +1330,63 @@ fn test_a_dimensionless_resizing_type_is_still_remembered() {
     assert!(parsed.resize.is_none(), "no dimensions means no resize");
     assert_eq!(parsed.resizing_type, Some(ResizingType::Fill));
 }
+
+/// An unrecognised WebP preset used to be dropped on the way to the encoder,
+/// so a typo silently produced a different image. It is refused now, like every
+/// other bad argument.
+#[test]
+fn test_unknown_webp_preset_is_rejected() {
+    let with_preset = |preset: &str| {
+        parse_all_options(vec![ProcessingOption {
+            name: "webp_options".to_string(),
+            args: vec![String::new(), String::new(), preset.to_string()],
+        }])
+    };
+
+    for preset in ["default", "picture", "photo", "drawing", "icon", "text", "PHOTO"] {
+        let parsed = with_preset(preset).unwrap_or_else(|err| panic!("{preset} should parse: {err}"));
+        assert_eq!(parsed.save.webp.preset.as_deref(), Some(preset.to_lowercase().as_str()));
+    }
+
+    for preset in ["photograph", "photo],lossless", "sharp"] {
+        assert!(with_preset(preset).is_err(), "{preset} should be refused");
+    }
+}
+
+/// Gravity means different things in different places, and imgproxy scopes it
+/// accordingly: `CropGravityTypes` carries `sm` and `fp`, `ExtendGravityTypes`
+/// carries only `fp`, and `WatermarkGravityTypes` carries neither. `sm` reaching
+/// an extend fell through `calc_position` to the centre branch, so the request
+/// succeeded and silently behaved as `ce`.
+#[test]
+fn smart_gravity_is_scoped_to_the_options_that_can_use_it() {
+    let with_gravity = |option: &str, gravity: &str| {
+        parse_all_options(vec![ProcessingOption {
+            name: option.to_string(),
+            args: vec!["true".to_string(), gravity.to_string()],
+        }])
+    };
+
+    for option in ["extend", "extend_aspect_ratio"] {
+        assert!(
+            with_gravity(option, "sm").is_err(),
+            "{option} has no content to choose from and must refuse sm"
+        );
+        // The rest of the anchors still work, including the focus point, which
+        // does mean something when positioning on a larger canvas.
+        for gravity in ["ce", "no", "soea", "fp"] {
+            assert!(
+                with_gravity(option, gravity).is_ok(),
+                "{option}:{gravity} should still parse"
+            );
+        }
+    }
+
+    // Cropping is exactly where smart gravity belongs.
+    let cropped = parse_all_options(vec![ProcessingOption {
+        name: "crop".to_string(),
+        args: vec!["100".to_string(), "100".to_string(), "sm".to_string()],
+    }])
+    .expect("crop:100:100:sm is the option smart gravity exists for");
+    assert!(cropped.crop.is_some());
+}

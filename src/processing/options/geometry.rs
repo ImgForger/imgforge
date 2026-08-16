@@ -86,6 +86,9 @@ pub enum GravityType {
     SouthWest,
     /// The offsets name a point, in 0..1 of each axis, to centre the result on.
     FocusPoint,
+    /// libvips picks the window, by looking for the part of the image a viewer
+    /// would look at.
+    Smart,
 }
 
 impl GravityType {
@@ -101,8 +104,15 @@ impl GravityType {
             "soea" => Some(Self::SouthEast),
             "sowe" => Some(Self::SouthWest),
             "fp" => Some(Self::FocusPoint),
+            "sm" => Some(Self::Smart),
             _ => None,
         }
+    }
+
+    /// Whether the window position is chosen by looking at the pixels rather
+    /// than computed from the geometry.
+    pub const fn is_content_aware(self) -> bool {
+        matches!(self, Self::Smart)
     }
 
     pub const fn as_str(self) -> &'static str {
@@ -117,14 +127,16 @@ impl GravityType {
             Self::SouthEast => "soea",
             Self::SouthWest => "sowe",
             Self::FocusPoint => "fp",
+            Self::Smart => "sm",
         }
     }
 }
 
 /// An anchor plus its offsets.
 ///
-/// For every anchor but [`GravityType::FocusPoint`] the offsets nudge the
-/// window away from the anchor: an absolute pixel count when the magnitude is
+/// [`GravityType::Smart`] ignores the offsets: the window is chosen from the
+/// image's content. For every anchor but that and [`GravityType::FocusPoint`]
+/// the offsets nudge the window away from the anchor: an absolute pixel count when the magnitude is
 /// at least 1, otherwise a fraction of the axis being positioned. Focus point
 /// instead reads them as the coordinates, in 0..1, that the result centres on.
 /// Both readings come from imgproxy, whose `calcPosition` this mirrors.
@@ -155,7 +167,7 @@ impl Gravity {
         };
         let kind = GravityType::parse(kind).ok_or_else(|| {
             OptionParseError::invalid(format!(
-                "{option} gravity must be one of: ce, no, so, ea, we, noea, nowe, soea, sowe, fp"
+                "{option} gravity must be one of: ce, no, so, ea, we, noea, nowe, soea, sowe, fp, sm"
             ))
         })?;
 
@@ -226,10 +238,29 @@ pub struct Extend {
 
 impl Extend {
     /// Parses `enabled[:gravity_type[:x[:y]]]`.
+    ///
+    /// Smart gravity is refused. Extending *adds* canvas around the image
+    /// rather than choosing a window inside it, so there is nothing for
+    /// `smartcrop` to look at; the value would reach `calc_position`, fall
+    /// through to the centre branch, and quietly behave as `ce`. A URL that
+    /// appears to work and does something else is worse than one that is
+    /// rejected. imgproxy draws the line in the same place — its
+    /// `ExtendGravityTypes` omits `sm` while keeping `fp`, which does mean
+    /// something here: it positions the image against a point on the canvas.
     pub fn parse(args: &[String], option: &'static str) -> Result<Self, OptionParseError> {
         let enabled = arg(args, 0).map(parse_boolean).unwrap_or(false);
         let gravity = match arg(args, 1) {
-            Some(_) => Some(Gravity::parse(args, 1, option)?),
+            Some(_) => {
+                let gravity = Gravity::parse(args, 1, option)?;
+                if gravity.kind.is_content_aware() {
+                    return Err(OptionParseError::invalid(format!(
+                        "{option} gravity cannot be {}: it positions the image on a larger canvas, \
+                         which has no content to choose from",
+                        gravity.kind.as_str()
+                    )));
+                }
+                Some(gravity)
+            }
             None => None,
         };
         Ok(Self { enabled, gravity })
