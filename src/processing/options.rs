@@ -181,6 +181,10 @@ const FORMAT_EXT: &str = "ext";
 const MAX_SRC_RESOLUTION: &str = "max_src_resolution";
 /// Shorthand for max_src_resolution.
 const MAX_SRC_RESOLUTION_SHORT: &str = "msr";
+/// Option name for trim.
+const TRIM: &str = "trim";
+/// Shorthand for trim.
+const TRIM_SHORT: &str = "t";
 /// Option name for max_result_dimension.
 const MAX_RESULT_DIMENSION: &str = "max_result_dimension";
 /// Shorthand for max_result_dimension.
@@ -458,6 +462,19 @@ pub struct WebpOptions {
     pub preset: Option<String>,
 }
 
+/// Border trimming controls.
+#[derive(Debug, Clone, Copy)]
+pub struct Trim {
+    /// How far a pixel may differ from the background and still be trimmed.
+    pub threshold: f64,
+    /// Colour to treat as background. Detected from the top-left pixel when absent.
+    pub color: Option<[u8; 4]>,
+    /// Cut equal amounts from the left and right.
+    pub equal_hor: bool,
+    /// Cut equal amounts from the top and bottom.
+    pub equal_ver: bool,
+}
+
 /// AVIF/HEIF encoder controls.
 #[derive(Debug, Clone, Default)]
 pub struct AvifOptions {
@@ -527,6 +544,8 @@ pub struct ParsedOptions {
     pub max_src_resolution: Option<MaxSourceResolution>,
     /// Ceiling for either dimension of the processed image.
     pub max_result_dimension: Option<MaxResultDimension>,
+    /// Border trimming, applied before crop and resize.
+    pub trim: Option<Trim>,
     /// Maximum allowed source image file size in bytes.
     pub max_src_file_size: Option<MaxSourceFileSize>,
     /// Value to bypass cache (e.g., timestamp).
@@ -591,6 +610,7 @@ impl Default for ParsedOptions {
             raw: false,
             max_src_resolution: None,
             max_result_dimension: None,
+            trim: None,
             max_src_file_size: None,
             cache_buster: None,
             expires: None,
@@ -913,6 +933,41 @@ pub fn parse_all_options(options: Vec<ProcessingOption>) -> Result<ParsedOptions
                 if let Some(ref mut background) = parsed_options.background {
                     background[3] = (alpha * 255.0).round() as u8;
                 }
+            }
+            TRIM | TRIM_SHORT => {
+                if option.args.is_empty() {
+                    return Err(OptionParseError::invalid(
+                        "trim option requires at least one argument: threshold",
+                    ));
+                }
+                let threshold = parse_float(&option.args[0], "trim threshold")?;
+                if !threshold.is_finite() || threshold < 0.0 {
+                    return Err(OptionParseError::invalid(
+                        "trim threshold must be a finite, non-negative number",
+                    ));
+                }
+                // An empty colour means "work it out from the image", which is
+                // how imgproxy behaves when the argument is omitted.
+                let color = match option.args.get(1).filter(|arg| !arg.is_empty()) {
+                    Some(arg) => Some(super::utils::parse_hex_color(arg).map_err(OptionParseError::Color)?),
+                    None => None,
+                };
+                parsed_options.trim = Some(Trim {
+                    threshold: f64::from(threshold),
+                    color,
+                    equal_hor: option
+                        .args
+                        .get(2)
+                        .filter(|arg| !arg.is_empty())
+                        .map(|arg| super::utils::parse_boolean(arg))
+                        .unwrap_or(false),
+                    equal_ver: option
+                        .args
+                        .get(3)
+                        .filter(|arg| !arg.is_empty())
+                        .map(|arg| super::utils::parse_boolean(arg))
+                        .unwrap_or(false),
+                });
             }
             MAX_RESULT_DIMENSION | MAX_RESULT_DIMENSION_SHORT => {
                 if option.args.is_empty() {

@@ -606,3 +606,40 @@ fn test_cropped_request_survives_a_reduced_decode() {
         "the cropped result changed size when the source was decoded smaller"
     );
 }
+
+/// Trim removes an unknown number of pixels, so there is no way to choose a
+/// decode scale against what will be left. Guessing low leaves the resize
+/// short, so scale-on-load stands aside — as it does in imgproxy.
+#[test]
+fn test_trim_disables_scale_on_load() {
+    use crate::processing::load_shrink_factor;
+    use crate::processing::options::Trim;
+
+    let plan = |trim: Option<Trim>| ParsedOptions {
+        trim,
+        resize: Some(Resize {
+            resizing_type: "fit".to_string(),
+            width: 200,
+            height: 200,
+        }),
+        ..ParsedOptions::default()
+    };
+
+    assert!(
+        load_shrink_factor(&plan(None), 4000, 4000) > 1,
+        "baseline should shrink"
+    );
+    assert_eq!(
+        load_shrink_factor(
+            &plan(Some(Trim {
+                threshold: 10.0,
+                color: None,
+                equal_hor: false,
+                equal_ver: false
+            })),
+            4000,
+            4000
+        ),
+        1
+    );
+}

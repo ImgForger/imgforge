@@ -48,18 +48,8 @@ unusual ICC profiles; no measurement yet, so the size of the problem is unknown.
 
 ## Compatibility: standard imgproxy options imgforge lacks
 
-Every option below is free-tier in imgproxy. Ordered by usefulness relative to effort.
-
-### `trim` / `t`
-
-Trim uniform borders. `trim:threshold:color:equal_hor:equal_ver`.
-
-Feasible: `ops::find_trim_with_opts` plus `extract_area`. The `line-art` property those bindings pass **does** exist
-in libvips 8.15, so this does not repeat the encoder-property problem that broke AVIF and GIF. Roughly 80–120 lines
-with tests.
-
-Caveat worth documenting if implemented: imgproxy notes trim forces the image fully into memory and disables
-scale-on-load, so it is expensive on large sources.
+Every option below is free-tier in imgproxy. Ordered by usefulness relative to effort. `trim` was the pick of this
+list and has shipped.
 
 ### `enforce_thumbnail` / `eth`
 

@@ -548,3 +548,53 @@ async fn test_large_but_valid_padding_still_renders() {
         "64px source plus 100px on each side"
     );
 }
+
+/// `trim` end to end: a bordered source comes back without its border.
+#[tokio::test]
+async fn test_trim_removes_the_border_through_the_handler() {
+    let mock_server = MockServer::start().await;
+
+    // 200x140 white, with a 100x60 red block inset.
+    let mut source: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::from_pixel(200, 140, Rgba([255, 255, 255, 255]));
+    for y in 40..100 {
+        for x in 50..150 {
+            source.put_pixel(x, y, Rgba([200, 0, 0, 255]));
+        }
+    }
+    let mut bytes: Vec<u8> = Vec::new();
+    source
+        .write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
+        .unwrap();
+
+    Mock::given(method("GET"))
+        .and(path("/bordered.png"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_bytes(bytes)
+                .insert_header("Content-Type", "image/png"),
+        )
+        .mount(&mock_server)
+        .await;
+
+    let config = create_test_config(vec![], vec![], true);
+    let state = create_test_state_with_cache(config, ImgforgeCache::None).await;
+
+    let source_url = format!("{}/bordered.png", mock_server.uri());
+    let encoded_url = URL_SAFE_NO_PAD.encode(source_url.as_bytes());
+    let path = format!("/unsafe/trim:10/format:png/{}", encoded_url);
+
+    let app = axum::Router::new()
+        .route("/{*path}", axum::routing::get(image_forge_handler))
+        .with_state(state)
+        .layer(axum::middleware::from_fn(request_id_middleware));
+
+    let (status, body) = make_request(app, &path).await;
+
+    assert_eq!(status, StatusCode::OK);
+    let decoded = image::load_from_memory(&body).expect("a decodable image");
+    assert_eq!(
+        image::GenericImageView::dimensions(&decoded),
+        (100, 60),
+        "the white border should be gone, leaving just the red block"
+    );
+}

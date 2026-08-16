@@ -1062,3 +1062,55 @@ fn test_parse_resizing_algorithm_invalid() {
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("Invalid resizing algorithm"));
 }
+
+#[test]
+fn test_parse_trim_option() {
+    for name in ["trim", "t"] {
+        let options = vec![ProcessingOption {
+            name: name.to_string(),
+            args: vec!["12.5".to_string()],
+        }];
+        let trim = parse_all_options(options).unwrap().trim.expect("trim parsed");
+        assert_eq!(trim.threshold, 12.5);
+        assert!(trim.color.is_none(), "{name}: no colour means detect it");
+        assert!(!trim.equal_hor && !trim.equal_ver);
+    }
+
+    // Full form: threshold, colour, equal_hor, equal_ver.
+    let options = vec![ProcessingOption {
+        name: "trim".to_string(),
+        args: vec![
+            "5".to_string(),
+            "ff0000".to_string(),
+            "1".to_string(),
+            "true".to_string(),
+        ],
+    }];
+    let trim = parse_all_options(options).unwrap().trim.unwrap();
+    assert_eq!(trim.color.map(|c| [c[0], c[1], c[2]]), Some([255, 0, 0]));
+    assert!(trim.equal_hor && trim.equal_ver);
+
+    // An empty colour slot still means "detect it", so the later flags stay usable.
+    let options = vec![ProcessingOption {
+        name: "trim".to_string(),
+        args: vec!["5".to_string(), String::new(), "1".to_string()],
+    }];
+    let trim = parse_all_options(options).unwrap().trim.unwrap();
+    assert!(trim.color.is_none() && trim.equal_hor);
+}
+
+#[test]
+fn test_parse_trim_rejects_bad_input() {
+    for args in [
+        vec![],
+        vec!["-1".to_string()],
+        vec!["abc".to_string()],
+        vec!["nan".to_string()],
+    ] {
+        let options = vec![ProcessingOption {
+            name: "trim".to_string(),
+            args,
+        }];
+        assert!(parse_all_options(options).is_err(), "accepted invalid trim");
+    }
+}
