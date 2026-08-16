@@ -1,6 +1,6 @@
 # Introduction
 
-imgforge is an image proxy and transformation server written in Rust on libvips and Axum. It sits between your applications, a CDN, and wherever the original images live: it resizes, crops, converts formats, applies effects, and caches the result. The URL format is largely compatible with [imgproxy](https://github.com/imgproxy/imgproxy), so migrations are mostly mechanical.
+imgforge is an image proxy and transformation server written in Rust on libvips and Axum. It sits between your applications, a CDN, and wherever the original images live: it resizes, crops, converts formats, applies effects, and caches the result. The URL format is compatible with [imgproxy](https://github.com/imgproxy/imgproxy), so migrations are mostly mechanical — every option in imgproxy's free tier is implemented, and several of its Pro options are available here at no cost.
 
 Use it to serve images at the size and format each client actually needs, without pre-generating variants or doing the work on your application servers.
 

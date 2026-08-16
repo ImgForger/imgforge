@@ -226,10 +226,18 @@ pub fn apply_client_hints(options: &mut ParsedOptions, hints: &RequestHints) {
         }
         Some(_) => {}
         None => {
-            debug!("Applying client width hint as the resize target: {}", width);
+            // The URL may have named a resizing type without dimensions, which
+            // the parser drops because it describes no target. Honouring that
+            // type here is what keeps `resizing_type:fill` plus a `Width` hint
+            // a fill rather than silently becoming a fit.
+            let resizing_type = options.resizing_type.unwrap_or_default();
+            debug!(
+                "Applying client width hint as the {:?} resize target: {}",
+                resizing_type, width
+            );
             options.width = Some(width);
             options.resize = Some(crate::processing::options::Resize {
-                resizing_type: crate::processing::options::ResizingType::Fit,
+                resizing_type,
                 width,
                 height: 0,
             });
@@ -495,6 +503,32 @@ mod tests {
         };
         apply_client_hints(&mut options, &hints);
         assert_eq!(options.resize.unwrap().width, 320);
+    }
+
+    /// A `resizing_type` with no dimensions survives to meet the hint, so the
+    /// request stays the fill the URL asked for.
+    #[test]
+    fn a_hint_honours_a_resizing_type_the_url_named_without_dimensions() {
+        use crate::processing::options::ResizingType;
+
+        let hints = RequestHints {
+            width: Some(800),
+            ..RequestHints::default()
+        };
+
+        let mut options = ParsedOptions {
+            resizing_type: Some(ResizingType::Fill),
+            ..ParsedOptions::default()
+        };
+        apply_client_hints(&mut options, &hints);
+
+        let resize = options.resize.expect("the hint supplies the missing width");
+        assert_eq!(resize.width, 800);
+        assert_eq!(
+            resize.resizing_type,
+            ResizingType::Fill,
+            "the requested type must not silently become a fit"
+        );
     }
 
     #[test]

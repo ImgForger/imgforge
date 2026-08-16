@@ -123,7 +123,9 @@ It has no effect with `force`, which already hit the requested box exactly.
 
 ### `width` / `height`
 
-Setting a single dimension implicitly enables `fit` resizing. These options influence fallback behaviour when no explicit `resize` directive exists. `enlarge:false` still applies unless you opt in globally via the `enlarge` directive.
+`width` and `height` name the same target as `resize`'s own arguments, so they can be mixed freely: `resizing_type:fill/width:300/height:200` and `resize:fill:300:200` are the same request, and a later `width` overrides an earlier one whichever form set it. Setting only one lets imgforge infer the other from the aspect ratio, using `fit` unless a `resizing_type` says otherwise. `enlarge:false` still applies unless you opt in globally via the `enlarge` directive.
+
+A resizing type with no dimensions at all — `resize:fill` on its own — names no target, and the image is returned unresized rather than rejected.
 
 ### `resizing_type`
 

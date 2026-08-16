@@ -610,33 +610,85 @@ fn test_parse_watermark_option() {
 }
 
 // Error handling tests
+
+/// A resizing type with no dimensions describes no target, so there is nothing
+/// to resize to. imgproxy leaves the image alone in that case; imgforge used to
+/// keep the empty resize and fail at processing time with "resize requires at
+/// least one non-zero dimension".
 #[test]
-fn test_parse_resize_type_only() {
+fn test_parse_resize_type_only_leaves_the_image_unresized() {
     let options = vec![ProcessingOption {
         name: "resize".to_string(),
         args: vec!["fill".to_string()],
     }];
     let parsed = parse_all_options(options).unwrap();
-    let resize = parsed.resize.unwrap();
-    assert_eq!(resize.resizing_type, ResizingType::Fill);
-    assert_eq!(resize.width, 0);
-    assert_eq!(resize.height, 0);
+    assert!(parsed.resize.is_none());
 }
 
 #[test]
 fn test_parse_resizing_type_accepts_supported_values() {
-    for value in ["fill", "fit", "force", "auto"] {
-        let options = vec![ProcessingOption {
-            name: "resizing_type".to_string(),
-            args: vec![value.to_string()],
-        }];
+    for value in ["fill", "fit", "fill-down", "force", "auto"] {
+        // Paired with a dimension, since a type on its own describes no target.
+        let options = vec![
+            ProcessingOption {
+                name: "resizing_type".to_string(),
+                args: vec![value.to_string()],
+            },
+            ProcessingOption {
+                name: "width".to_string(),
+                args: vec!["300".to_string()],
+            },
+        ];
         let parsed = parse_all_options(options).expect("supported resizing type");
 
-        assert_eq!(
-            parsed.resize.unwrap().resizing_type,
-            value.parse::<ResizingType>().unwrap()
-        );
+        let resize = parsed.resize.expect("width supplies the target");
+        assert_eq!(resize.resizing_type, value.parse::<ResizingType>().unwrap());
+        assert_eq!(resize.width, 300, "{value} should keep the width it was given");
     }
+}
+
+/// `width` and `height` name the same target as `resize`'s own arguments.
+/// Holding them in a separate field meant `resizing_type` — which creates the
+/// resize as a side effect — left them stranded, and the request failed with
+/// "resize requires at least one non-zero dimension".
+#[test]
+fn test_width_and_height_fill_in_a_resize_created_by_resizing_type() {
+    let parsed = parse_all_options(vec![
+        ProcessingOption {
+            name: "resizing_type".to_string(),
+            args: vec!["fill".to_string()],
+        },
+        ProcessingOption {
+            name: "width".to_string(),
+            args: vec!["300".to_string()],
+        },
+        ProcessingOption {
+            name: "height".to_string(),
+            args: vec!["200".to_string()],
+        },
+    ])
+    .unwrap();
+
+    let resize = parsed.resize.expect("a resize with a target");
+    assert_eq!(resize.resizing_type, ResizingType::Fill);
+    assert_eq!((resize.width, resize.height), (300, 200));
+
+    // And the other order, where the resize already carries dimensions.
+    let parsed = parse_all_options(vec![
+        ProcessingOption {
+            name: "resize".to_string(),
+            args: vec!["fill".to_string(), "300".to_string(), "200".to_string()],
+        },
+        ProcessingOption {
+            name: "width".to_string(),
+            args: vec!["400".to_string()],
+        },
+    ])
+    .unwrap();
+
+    let resize = parsed.resize.expect("a resize with a target");
+    assert_eq!(resize.resizing_type, ResizingType::Fill);
+    assert_eq!((resize.width, resize.height), (400, 200));
 }
 
 #[test]
@@ -1007,10 +1059,8 @@ fn test_parse_width_default_zero() {
     }];
     let parsed = parse_all_options(options).unwrap();
     assert_eq!(parsed.width, Some(0));
-    let resize = parsed.resize.unwrap();
-    assert_eq!(resize.resizing_type, ResizingType::Fit);
-    assert_eq!(resize.width, 0);
-    assert_eq!(resize.height, 0);
+    // A width of zero names no target, so there is nothing left to resize to.
+    assert!(parsed.resize.is_none());
 }
 
 #[test]
@@ -1264,4 +1314,19 @@ fn test_quality_precedence_runs_url_first_then_format_then_configuration() {
     // With nothing configured at all, the built-in default stands.
     let parsed = parse_all_options(Vec::new()).unwrap();
     assert_eq!(parsed.quality_for("webp"), 85);
+}
+
+/// A resizing type with no dimensions is dropped, because it describes no
+/// target — but the *type* is remembered, so a client hint that supplies the
+/// missing width later produces the resize the URL asked for rather than a fit.
+#[test]
+fn test_a_dimensionless_resizing_type_is_still_remembered() {
+    let parsed = parse_all_options(vec![ProcessingOption {
+        name: "resizing_type".to_string(),
+        args: vec!["fill".to_string()],
+    }])
+    .unwrap();
+
+    assert!(parsed.resize.is_none(), "no dimensions means no resize");
+    assert_eq!(parsed.resizing_type, Some(ResizingType::Fill));
 }

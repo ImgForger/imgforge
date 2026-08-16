@@ -107,6 +107,13 @@ listed under **Changed** and are the reason this is a minor bump rather than a p
 - **A result too large for its output container is scaled to fit** instead of failing in the encoder: WebP stops at
   16383px on a side, AVIF and HEIF at 16384.
 
+- **`width` and `height` write into the resize target** rather than a separate field reconciled afterwards.
+  `resizing_type:fill/width:300/height:200` used to fail with "resize requires at least one non-zero dimension",
+  because the resizing type had already created the resize and the reconciliation only ran when there was none.
+
+- **A resizing type with no dimensions leaves the image alone** instead of failing. `resize:fill` on its own names
+  no target; imgproxy returns the image unresized, and now so does imgforge.
+
 - Booleans accept imgproxy's spellings (`1`, `t`, `T`, `true`, `TRUE`, `True`) rather than only `1` and `true`.
 - `min_width` and `min_height` are accepted alongside imgforge's hyphenated `min-width` and `min-height`.
 - `padding` accepts three values, following the CSS shorthand, rather than rejecting them.

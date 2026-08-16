@@ -55,7 +55,7 @@ imgforge targets Linux and macOS. It also runs inside containers built from Debi
 | Requirement      | Minimum | Notes                                                                                                       |
 | ---------------- | ------- | ----------------------------------------------------------------------------------------------------------- |
 | Rust toolchain   | 1.90    | Install via [rustup](https://rustup.rs/). Ensure `cargo`, `rustc`, and `rustfmt` are on your `PATH`.        |
-| libvips          | 8.12+   | Provides the core image processing primitives. Both development headers and runtime libraries are required. |
+| libvips          | 8.12+   | Provides the core image processing primitives. Both development headers and runtime libraries are required. 8.16+ is what the published image ships, and only `preserve_hdr`'s gain map depends on that version — an older build keeps the bit depth and drops the map. AVIF and HEIF encoding are a **codec** question, not a version one: they need libheif built with an AV1 or HEVC encoder, which many distributions package separately (see below). |
 | pkg-config       | —       | Required for cargo to discover libvips. Usually bundled on Linux; install explicitly on macOS.              |
 | OpenSSL          | 1.1+    | Used by reqwest and HMAC signing utilities. Provided by default on most systems.                            |
 | Optional: Docker | 24+     | Useful for running parity tests against the container image.                                                |
@@ -67,6 +67,9 @@ imgforge targets Linux and macOS. It also runs inside containers built from Debi
 ```bash
 sudo apt-get update
 sudo apt-get install -y build-essential pkg-config libvips-dev libvips openssl ca-certificates
+# Debian ships libheif's codecs separately; without these, AVIF and HEIF
+# output is reported as unsupported rather than encoded.
+sudo apt-get install -y libheif-plugin-aomenc libheif-plugin-x265 libheif-plugin-dav1d libheif-plugin-libde265
 ```
 
 **Fedora / RHEL**
