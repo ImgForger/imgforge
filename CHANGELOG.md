@@ -60,10 +60,12 @@ listed under **Changed** and are the reason this is a minor bump rather than a p
   `IMGFORGE_RETURN_ATTACHMENT`, and `IMGFORGE_QUALITY` set the starting value for the matching option, which a URL
   still overrides.
 
-- **Smart gravity.** `gravity:sm` hands the window choice to libvips' `smartcrop`, which scores the image for the
-  region a viewer's eye would settle on. It is the answer when no fixed anchor is right for every image in a
-  catalogue, and it applies to `crop` and to the implicit crop a `fill` resize performs. imgproxy gates this one
-  behind its Pro tier.
+- **Seven options imgproxy gates behind its Pro tier**, free here. `gravity:sm` hands the window choice to
+  libvips' `smartcrop`, which scores the image for the region a viewer's eye would settle on — the answer when no
+  fixed anchor is right for every image in a catalogue — and applies to `crop` and to the implicit crop a `fill`
+  performs. `crop_aspect_ratio` (`car`) corrects the crop area's shape without moving it. `monochrome` (`mc`),
+  `duotone` (`dt`) and `colorize` (`col`) recolour the image from its luminance or wash a flat colour over it.
+  `watermark_size` (`wms`) and `watermark_rotate` (`wmr`) size and turn the watermark explicitly.
 
 - **New processing options.** `extend_aspect_ratio` (`exar`) pads to the requested shape without reaching its size.
   `keep_copyright` (`kcr`) carries the EXIF copyright across a metadata strip for JPEG, PNG and WebP output — an

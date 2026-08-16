@@ -20,7 +20,7 @@ fn test_crop_then_resize() {
         height: 200.0,
         gravity: None,
     };
-    let cropped = transform::crop_image(img, &crop, &crop.gravity.unwrap_or_default()).unwrap();
+    let cropped = transform::crop_image(img, &crop, &crop.gravity.unwrap_or_default(), None).unwrap();
     let resize = Resize {
         resizing_type: ResizingType::Fit,
         width: 100,
@@ -86,7 +86,7 @@ fn test_complex_pipeline_crop_resize_blur_rotate() {
         height: 300.0,
         gravity: None,
     };
-    let img = transform::crop_image(img, &crop, &crop.gravity.unwrap_or_default()).unwrap();
+    let img = transform::crop_image(img, &crop, &crop.gravity.unwrap_or_default(), None).unwrap();
     assert_eq!(img.get_width(), 300);
 
     let resize = Resize {
@@ -125,7 +125,13 @@ fn test_complex_pipeline_resize_padding_watermark() {
         position: WatermarkPosition::parse("soea").unwrap(),
         ..Watermark::default()
     };
-    let img = watermark::apply_watermark(img, &watermark, &watermark_opts, None).unwrap();
+    let img = watermark::apply_watermark(
+        img,
+        &watermark,
+        &watermark_opts,
+        watermark::WatermarkPlacement::default(),
+    )
+    .unwrap();
     assert_eq!(img.get_width(), 170);
 }
 

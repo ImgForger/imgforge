@@ -206,6 +206,64 @@ pub struct Crop {
     pub gravity: Option<Gravity>,
 }
 
+/// Correcting the crop area's shape, independently of its size.
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+pub struct CropAspectRatio {
+    /// The ratio the crop area should match. Zero means "leave it alone".
+    pub ratio: f64,
+    /// Grow the crop area to reach the ratio instead of shrinking it.
+    pub enlarge: bool,
+}
+
+impl CropAspectRatio {
+    /// Parses `aspect_ratio[:enlarge]`.
+    pub fn parse(args: &[String]) -> Result<Self, OptionParseError> {
+        let Some(ratio) = arg(args, 0) else {
+            return Err(OptionParseError::invalid(
+                "crop_aspect_ratio option requires an aspect ratio",
+            ));
+        };
+        let ratio = f64::from(parse_float(ratio, "crop aspect ratio")?);
+        if !ratio.is_finite() || ratio < 0.0 {
+            return Err(OptionParseError::invalid(
+                "crop aspect ratio must be a finite non-negative number",
+            ));
+        }
+
+        Ok(Self {
+            ratio,
+            enlarge: arg(args, 1).map(parse_boolean).unwrap_or(false),
+        })
+    }
+
+    /// Reshapes a crop window to the requested ratio.
+    ///
+    /// Shrinking the long axis is the default because it cannot ask for pixels
+    /// the source does not have; `enlarge` grows the short axis instead, and
+    /// the caller still clamps the result to the image.
+    pub fn correct(&self, width: u32, height: u32) -> (u32, u32) {
+        if self.ratio <= 0.0 || width == 0 || height == 0 {
+            return (width, height);
+        }
+
+        let current = f64::from(width) / f64::from(height);
+        if (current - self.ratio).abs() < f64::EPSILON {
+            return (width, height);
+        }
+
+        let too_wide = current > self.ratio;
+        if too_wide == self.enlarge {
+            // Adjust the height: shrink it when the window is too tall, or grow
+            // it when the window is too wide and we were told to enlarge.
+            let corrected = (f64::from(width) / self.ratio).round() as u32;
+            (width, corrected.max(1))
+        } else {
+            let corrected = (f64::from(height) * self.ratio).round() as u32;
+            (corrected.max(1), height)
+        }
+    }
+}
+
 impl Crop {
     /// Resolves one extent against the source axis it is measured on.
     pub fn resolve_extent(extent: f64, source: u32) -> u32 {

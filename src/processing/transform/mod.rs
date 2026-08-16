@@ -9,6 +9,7 @@ pub mod effects;
 pub mod geometry;
 pub mod orientation;
 pub mod resize;
+pub mod tone;
 pub mod trim;
 
 use libvips::{ops, VipsImage};
@@ -20,6 +21,7 @@ pub use effects::{
 pub use geometry::{apply_padding, calc_position, crop_image, extend_image, extend_to_aspect_ratio, smart_crop};
 pub use orientation::{apply_exif_orientation, apply_exif_rotation, apply_flip, apply_rotation};
 pub use resize::{apply_min_dimensions, apply_resize, apply_zoom, resolve_resize_dimensions};
+pub use tone::{apply_colorize, apply_duotone, apply_monochrome};
 pub use trim::apply_trim;
 
 /// Scales below this differ from 1 by less than a pixel on any plausible image,
