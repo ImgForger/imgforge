@@ -13,12 +13,14 @@ use crate::config::{Config, DefaultOutputFormat};
 use crate::fetch::{fetch_image, FetchedImage};
 use crate::limits::MaxSourceFileSize;
 use crate::monitoring::{ImageOperation, ImageOperationActivityGuard, ImageOperationPhase, ImageOperationTimer};
+use crate::negotiation::{apply_client_hints, negotiate_format, vary_headers, RequestHints};
 use crate::processing::metadata;
 use crate::processing::options::{parse_all_options_with_defaults, OptionDefaults, ParsedOptions};
 use crate::processing::presets::expand_presets;
 use crate::processing::watermark::{self, CachedWatermark};
 use crate::processing::{process_image, ProcessingError};
-use crate::url::{parse_path, validate_signature, ImgforgeUrl};
+use crate::response::{DeliveryHeaders, SourceMetadata};
+use crate::url::{parse_path, validate_signature_of_size, ImgforgeUrl};
 use crate::utils::{format_to_content_type, read_exif_orientation};
 use axum::http::StatusCode;
 use bytes::Bytes;
@@ -58,6 +60,23 @@ pub struct ProcessedImage {
     pub content_type: &'static str,
     pub cache_status: CacheStatus,
     pub content_disposition: Option<String>,
+    /// Caching and provenance headers derived from the configuration.
+    pub headers: DeliveryHeaders,
+    /// What the source was and what it became, when debug headers are on.
+    pub debug: Option<DebugInfo>,
+}
+
+/// Sizes worth reporting back when `IMGFORGE_ENABLE_DEBUG_HEADERS` is set.
+///
+/// Answers the question a cache-efficiency investigation always starts with:
+/// how big was the thing we downloaded, and how big is the thing we sent.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct DebugInfo {
+    pub origin_bytes: usize,
+    pub origin_width: u32,
+    pub origin_height: u32,
+    pub result_width: u32,
+    pub result_height: u32,
 }
 
 /// Result of fetching image metadata.
@@ -77,6 +96,20 @@ pub struct ImageInfo {
 pub struct ProcessRequest<'a> {
     pub path: &'a str,
     pub bearer_token: Option<&'a str>,
+    /// What the client's headers said it can accept and how large it needs it.
+    pub hints: RequestHints,
+}
+
+impl<'a> ProcessRequest<'a> {
+    /// A request carrying nothing but a path, for callers using imgforge as a
+    /// library rather than over HTTP.
+    pub fn new(path: &'a str) -> Self {
+        Self {
+            path,
+            bearer_token: None,
+            hints: RequestHints::default(),
+        }
+    }
 }
 
 /// Default output format when the URL requests none (#45): the source
@@ -114,10 +147,36 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
     // Resolved before the cache lookup: the key depends on the ceilings.
     apply_effective_limits(config, &mut parsed_options);
 
+    // Recorded before the hints are folded in, so the key can name exactly what
+    // they contributed rather than what the URL already asked for.
+    let client_hints = config.enable_client_hints.then(|| {
+        apply_client_hints(&mut parsed_options, &request.hints);
+        (
+            parsed_options.resize.map(|resize| resize.width).unwrap_or(0),
+            (parsed_options.dpr_factor() * 1000.0).round() as u32,
+        )
+    });
+
+    // Negotiation can replace the output format, so the key has to record which
+    // format this response was actually built for.
+    let has_explicit_format = parsed_options.format.is_some();
+    let negotiated_format = negotiate_format(config, &request.hints, has_explicit_format);
+    if let Some(format) = negotiated_format {
+        parsed_options.format = Some(format.to_string());
+    }
+    let vary = vary_headers(config);
+
+    // Resolved before the cache lookup: a source the deployment no longer
+    // permits must stop being served, and a persistent cache would otherwise
+    // keep answering for it long after `IMGFORGE_ALLOWED_SOURCES` was tightened
+    // — the request never reaches the check because it never reaches the fetch.
+    let decoded_url = resolve_source_url(config, &url_parts)?;
+
     let cache_key = cache_key::processed_cache_key(CacheKeyParts {
         path,
+        source_url: &decoded_url,
         default_format: config.default_format,
-        has_explicit_format: parsed_options.format.is_some(),
+        has_explicit_format: has_explicit_format && negotiated_format.is_none(),
         is_raw: parsed_options.raw,
         max_result_dimension: parsed_options.max_result_dimension,
         max_animation_frames: parsed_options.max_animation_frames,
@@ -138,28 +197,67 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
         // Only when the deployment changes them, so a default configuration
         // keeps the keys it already had.
         option_defaults: Some(config.option_defaults()).filter(|defaults| *defaults != OptionDefaults::default()),
-        negotiated_format: None,
+        negotiated_format,
+        client_hints,
     });
 
-    if let Some(cached_image) = state.cache.get(cache_key.as_ref()).await {
+    // A hit is only usable if the source it came from is still permitted. The
+    // request's own URL was checked above, but a redirect can have moved the
+    // actual source elsewhere, and an entry outlives the policy that admitted
+    // it. Treated as a miss rather than a refusal: the re-fetch follows the
+    // redirect again and the redirect policy gives the accurate answer, which
+    // is right whether the destination moved somewhere permitted or nowhere.
+    let cached_image = state.cache.get(cache_key.as_ref()).await.filter(|cached| {
+        let permitted = cached.source_url.is_empty() || config.source_rules.permits(&cached.source_url);
+        if !permitted {
+            debug!("Ignoring a cached entry fetched from a source that is no longer allowed");
+        }
+        permitted
+    });
+
+    if let Some(cached_image) = cached_image {
         debug!("Image found in cache for path={}", path);
+
+        // A cache hit has no source response to draw on, so the origin's own
+        // caching headers are not available; the configured policy still is,
+        // and the entity tag comes from the bytes either way.
+        let headers = DeliveryHeaders::build(config, &SourceMetadata::default(), &cached_image.bytes, &vary);
+
+        // Enabling the debug headers should not make them appear and disappear
+        // with the cache. A hit never made the source request, so nothing about
+        // the origin can be reported — but the result is right here, and its
+        // header is cheap to read.
+        let debug = config.enable_debug_headers.then(|| {
+            let mut debug = DebugInfo::default();
+            if let Ok(result) = VipsImage::new_from_buffer(&cached_image.bytes, "") {
+                debug.result_width = result.get_width().max(0) as u32;
+                debug.result_height = result.get_height().max(0) as u32;
+            }
+            debug
+        });
 
         return Ok(ProcessedImage {
             bytes: cached_image.bytes,
             content_type: cached_image.content_type,
             cache_status: CacheStatus::Hit,
             content_disposition: None,
+            headers,
+            debug,
         });
     }
 
     let content_disposition = content_disposition_for(&parsed_options);
 
-    let decoded_url = url_parts.source_url.decode()?;
-
     debug!("Processing image forge request for URL: {}", decoded_url);
 
     let max_src_file_size = resolve_max_src_file_size(config, &parsed_options).map(MaxSourceFileSize::get);
     let fetched = fetch_image(&state.http_client, &decoded_url, max_src_file_size).await?;
+    let source_metadata = SourceMetadata::from_fetch(&fetched, &decoded_url);
+    // Where the bytes came from, which a redirect can move away from what was
+    // asked for. The canonical header keeps naming the requested URL — that is
+    // the address callers should use — but the cache entry has to remember the
+    // one it actually fetched, so a hit can be rechecked against the allow list.
+    let fetched_from = fetched.final_url.clone();
     let FetchedImage {
         bytes: image_bytes,
         content_type: source_content_type,
@@ -197,6 +295,9 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
             image_bytes,
             source_content_type,
             content_disposition,
+            &source_metadata,
+            &fetched_from,
+            &vary,
         )
         .await;
     }
@@ -220,7 +321,8 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
     let blocking_state = state.clone();
     let span = tracing::Span::current();
     let blocking_queue = ImageOperationTimer::start(ImageOperation::Process, ImageOperationPhase::BlockingQueue);
-    let (processed_image_bytes, output_format) = tokio::task::spawn_blocking(move || {
+    let want_debug = config.enable_debug_headers;
+    let (processed_image_bytes, output_format, debug) = tokio::task::spawn_blocking(move || {
         drop(blocking_queue);
         drop(waiting);
         let _active = ImageOperationActivityGuard::active(ImageOperation::Process);
@@ -249,6 +351,17 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
         parsed_options.format = Some(output_format.clone());
 
         let opened = open_source(&image_bytes, &parsed_options, &output_format)?;
+        // The origin the debug headers describe is the source as fetched, so
+        // they measure it even when a thumbnail stands in for decoding.
+        let mut debug = want_debug.then(|| {
+            let origin = opened.constraint_image();
+            DebugInfo {
+                origin_bytes: opened.metadata_bytes.len(),
+                origin_width: origin.get_width().max(0) as u32,
+                origin_height: origin.get_height().max(0) as u32,
+                ..DebugInfo::default()
+            }
+        });
 
         // Measured on the source as fetched, never on a substituted stand-in:
         // the ceilings say what this deployment will accept, and a 10000px
@@ -286,7 +399,17 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
         );
 
         let processed_image_bytes = process_image(source_image, parsed_options, &metadata_bytes, watermark.as_ref())?;
-        Ok::<_, ServiceError>((processed_image_bytes, output_format))
+
+        // Reading the result's dimensions means decoding its header, which is
+        // only worth doing when someone asked to see them.
+        if let Some(debug) = debug.as_mut() {
+            if let Ok(result) = VipsImage::new_from_buffer(&processed_image_bytes, "") {
+                debug.result_width = result.get_width().max(0) as u32;
+                debug.result_height = result.get_height().max(0) as u32;
+            }
+        }
+
+        Ok::<_, ServiceError>((processed_image_bytes, output_format, debug))
     })
     .await
     .map_err(|source| ServiceError::BlockingTask {
@@ -295,12 +418,15 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
     })??;
 
     let content_type = format_to_content_type(&output_format);
+    let headers = DeliveryHeaders::build(config, &source_metadata, &processed_image_bytes, &vary);
+
     if content_disposition.is_none() && !matches!(state.cache, ImgforgeCache::None) {
         if let Err(err) = state.cache.insert(
             cache_key.into_owned(),
             CachedImage {
                 bytes: processed_image_bytes.clone(),
                 content_type,
+                source_url: fetched_from.clone(),
             },
         ) {
             error!("Failed to cache image: {}", err);
@@ -319,6 +445,8 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
         content_type,
         cache_status: CacheStatus::Miss,
         content_disposition,
+        headers,
+        debug,
     })
 }
 
@@ -347,6 +475,38 @@ impl OpenedSource {
     fn constraint_image(&self) -> &VipsImage {
         self.original.as_ref().unwrap_or(&self.image)
     }
+}
+
+/// Resolves the source URL a request names, applying the base URL and the
+/// allow list.
+///
+/// The allow list is checked after the base URL is applied, because that is the
+/// URL that will actually be fetched — checking the shorthand form would let a
+/// relative reference sidestep the restriction entirely.
+fn resolve_source_url(config: &Config, url_parts: &ImgforgeUrl) -> Result<String, ServiceError> {
+    let decoded = url_parts.source_url.decode()?;
+    permitted_url(config, &decoded)
+}
+
+/// Applies the base URL to a reference and checks the result against the allow
+/// list, returning the URL that may actually be fetched.
+///
+/// Every outbound fetch a request can cause goes through here, not just the one
+/// for the main image. `watermark_url` names an arbitrary URL that imgforge
+/// fetches server-side, so leaving it out made the allow list trivially
+/// sidesteppable: the option pointed at `169.254.169.254` or any internal host
+/// and imgforge fetched it. The redirect policy guards the hops *after* the
+/// first request, which is no help when the first request is already the
+/// attack.
+fn permitted_url(config: &Config, url: &str) -> Result<String, ServiceError> {
+    let resolved = config.source_rules.resolve(url);
+
+    if !config.source_rules.permits(&resolved) {
+        error!("Source URL is not in IMGFORGE_ALLOWED_SOURCES");
+        return Err(ServiceError::Fetch(crate::fetch::FetchError::SourceNotAllowed));
+    }
+
+    Ok(resolved)
 }
 
 /// Opens the source, honouring `enforce_thumbnail` and the multi-page plan.
@@ -440,7 +600,18 @@ pub async fn image_info(state: Arc<AppState>, request: ProcessRequest<'_>) -> Re
     debug!("Info path captured: {}", path);
     let url_parts = parse_and_authorize(config, path, request.bearer_token)?;
 
-    if let Some(cached_metadata) = state.metadata_cache.get(path).await {
+    // Resolved before the cache lookup, for the same reason the processed path
+    // does it: a source the deployment no longer permits must stop being
+    // described, and a persistent metadata cache would otherwise keep answering
+    // for it long after `IMGFORGE_ALLOWED_SOURCES` was tightened.
+    let decoded_url = resolve_source_url(config, &url_parts)?;
+
+    // Keyed by the resolved source rather than the path, for the same reason
+    // the processed cache is: a relative reference means a different image the
+    // moment `IMGFORGE_BASE_URL` changes.
+    let metadata_key = format!("{decoded_url}\u{0}{path}");
+
+    if let Some(cached_metadata) = state.metadata_cache.get(&metadata_key).await {
         debug!("Metadata found in cache for path={}", path);
         return Ok(ImageInfo {
             width: cached_metadata.width,
@@ -454,8 +625,6 @@ pub async fn image_info(state: Arc<AppState>, request: ProcessRequest<'_>) -> Re
             pages: cached_metadata.pages.max(1),
         });
     }
-
-    let decoded_url = url_parts.source_url.decode()?;
 
     let fetched = fetch_image(&state.http_client, &decoded_url, None).await?;
     let image_bytes = fetched.bytes;
@@ -529,7 +698,7 @@ pub async fn image_info(state: Arc<AppState>, request: ProcessRequest<'_>) -> Re
     })?;
 
     if cacheable && !matches!(state.metadata_cache, MetadataCache::None) {
-        if let Err(err) = state.metadata_cache.insert(path.to_string(), metadata.clone()) {
+        if let Err(err) = state.metadata_cache.insert(metadata_key.clone(), metadata.clone()) {
             error!("Failed to cache metadata: {}", err);
         }
     }
@@ -594,7 +763,13 @@ fn parse_and_authorize(config: &Config, path: &str, bearer_token: Option<&str>) 
             error!("Invalid URL format: {}", path);
             ServiceError::new(StatusCode::BAD_REQUEST, "Invalid URL format")
         })?;
-        if !validate_signature(&config.key, &config.salt, &url_parts.signature, &path_to_sign) {
+        if !validate_signature_of_size(
+            &config.key,
+            &config.salt,
+            &url_parts.signature,
+            &path_to_sign,
+            config.signature_size,
+        ) {
             error!("Invalid signature for path: {}", path_to_sign);
             return Err(ServiceError::new(StatusCode::FORBIDDEN, "Invalid signature"));
         }
@@ -616,8 +791,12 @@ async fn resolve_watermark(
     parsed_options: &ParsedOptions,
 ) -> Result<Option<CachedWatermark>, ServiceError> {
     if let Some(url) = &parsed_options.watermark_url {
+        // A watermark is a source like any other: the deployment decided which
+        // hosts it will fetch from, and that decision cannot depend on which
+        // option named the URL.
+        let url = permitted_url(&state.config, url)?;
         debug!("Fetching watermark from URL: {}", url);
-        match fetch_image(&state.http_client, url, None).await {
+        match fetch_image(&state.http_client, &url, None).await {
             Ok(fetched) => Ok(Some(CachedWatermark::from_bytes(fetched.bytes))),
             Err(source) => Err(ServiceError::WatermarkFetch { source }),
         }
@@ -673,6 +852,7 @@ async fn resolve_watermark(
 }
 
 /// Returns the source bytes as they arrived, for `raw` and `skip_processing`.
+#[allow(clippy::too_many_arguments)]
 async fn serve_source_response(
     state: &AppState,
     path: &str,
@@ -680,6 +860,9 @@ async fn serve_source_response(
     image_bytes: Bytes,
     source_content_type: Option<String>,
     content_disposition: Option<String>,
+    source_metadata: &SourceMetadata,
+    fetched_from: &str,
+    vary: &[&'static str],
 ) -> Result<ProcessedImage, ServiceError> {
     let content_type = source_content_type
         .as_deref()
@@ -692,6 +875,7 @@ async fn serve_source_response(
             CachedImage {
                 bytes: image_bytes.clone(),
                 content_type,
+                source_url: fetched_from.to_string(),
             },
         ) {
             error!("Failed to cache raw image: {}", err);
@@ -700,11 +884,15 @@ async fn serve_source_response(
 
     info!("Imgforge served source path={} bytes={}", path, image_bytes.len());
 
+    let headers = DeliveryHeaders::build(&state.config, source_metadata, &image_bytes, vary);
+
     Ok(ProcessedImage {
         bytes: image_bytes,
         content_type,
         cache_status: CacheStatus::Miss,
         content_disposition,
+        headers,
+        debug: None,
     })
 }
 

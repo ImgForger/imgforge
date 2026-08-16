@@ -59,7 +59,7 @@ impl Imgforge {
         let cache = Cache::new(cache_config.clone()).await?;
         let metadata_cache = MetadataCache::new(cache_config).await?;
         let vips_app = Arc::new(init_vips()?);
-        let http_client = build_http_client(config.download_timeout)?;
+        let http_client = build_http_client(&config)?;
         let rate_limiter = build_rate_limiter(config.rate_limit_per_minute);
         let watermark_cache = OnceCell::new();
 
@@ -108,7 +108,11 @@ impl Imgforge {
         path: &str,
         bearer_token: Option<&str>,
     ) -> Result<crate::service::ProcessedImage, crate::service::ServiceError> {
-        let request = crate::service::ProcessRequest { path, bearer_token };
+        let request = crate::service::ProcessRequest {
+            path,
+            bearer_token,
+            hints: crate::negotiation::RequestHints::default(),
+        };
         crate::service::process_path(self.state.clone(), request).await
     }
 
@@ -123,7 +127,11 @@ impl Imgforge {
         path: &str,
         bearer_token: Option<&str>,
     ) -> Result<crate::service::ImageInfo, crate::service::ServiceError> {
-        let request = crate::service::ProcessRequest { path, bearer_token };
+        let request = crate::service::ProcessRequest {
+            path,
+            bearer_token,
+            hints: crate::negotiation::RequestHints::default(),
+        };
         crate::service::image_info(self.state.clone(), request).await
     }
 }
@@ -158,9 +166,40 @@ fn init_vips() -> Result<VipsApp, InitError> {
     VipsApp::new("imgforge", false).map_err(InitError::Libvips)
 }
 
-fn build_http_client(timeout_secs: u64) -> Result<reqwest::Client, reqwest::Error> {
-    let timeout = Duration::from_secs(timeout_secs);
-    reqwest::Client::builder().timeout(timeout).build()
+/// Builds the outbound HTTP client, including the redirect policy that holds
+/// every hop to the source allow list.
+///
+/// Public so integration tests exercise the real policy rather than a
+/// look-alike that would not catch a regression in it.
+pub fn build_http_client(config: &Config) -> Result<reqwest::Client, reqwest::Error> {
+    reqwest::Client::builder()
+        .timeout(Duration::from_secs(config.download_timeout))
+        .user_agent(config.user_agent.clone())
+        .redirect(redirect_policy(config))
+        .build()
+}
+
+/// Bounds the redirect chain, and holds it to the same allow list as the
+/// original URL.
+///
+/// Checking only the requested URL is checking the wrong thing: an allowed
+/// origin that redirects to `http://169.254.169.254/` would be followed
+/// straight past the restriction, which is the classic way an image proxy
+/// becomes an SSRF gadget. Every destination is revalidated.
+fn redirect_policy(config: &Config) -> reqwest::redirect::Policy {
+    let max_redirects = config.max_redirects;
+    let rules = config.source_rules.clone();
+
+    reqwest::redirect::Policy::custom(move |attempt| {
+        if attempt.previous().len() >= max_redirects {
+            return attempt.error("too many redirects");
+        }
+        if !rules.permits(attempt.url().as_str()) {
+            warn!("Refusing a redirect to a source outside IMGFORGE_ALLOWED_SOURCES");
+            return attempt.stop();
+        }
+        attempt.follow()
+    })
 }
 
 fn build_rate_limiter(limit_per_minute: Option<u32>) -> Option<RequestRateLimiter> {

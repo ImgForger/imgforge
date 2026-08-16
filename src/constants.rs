@@ -3,6 +3,8 @@ pub const ENV_KEY: &str = "IMGFORGE_KEY";
 pub const ENV_SALT: &str = "IMGFORGE_SALT";
 pub const ENV_SECRET: &str = "IMGFORGE_SECRET";
 pub const ENV_ALLOW_UNSIGNED: &str = "IMGFORGE_ALLOW_UNSIGNED";
+/// Number of leading signature bytes that must match, for truncated signatures.
+pub const ENV_SIGNATURE_SIZE: &str = "IMGFORGE_SIGNATURE_SIZE";
 pub const ENV_MAX_SRC_FILE_SIZE: &str = "IMGFORGE_MAX_SRC_FILE_SIZE";
 pub const ENV_ALLOWED_MIME_TYPES: &str = "IMGFORGE_ALLOWED_MIME_TYPES";
 pub const ENV_MAX_SRC_RESOLUTION: &str = "IMGFORGE_MAX_SRC_RESOLUTION";
@@ -52,6 +54,8 @@ pub const ENV_DEVELOPMENT_ERRORS_MODE: &str = "IMGFORGE_DEVELOPMENT_ERRORS_MODE"
 pub const ENV_ENABLE_DEBUG_HEADERS: &str = "IMGFORGE_ENABLE_DEBUG_HEADERS";
 
 // Source resolution.
+pub const ENV_BASE_URL: &str = "IMGFORGE_BASE_URL";
+pub const ENV_ALLOWED_SOURCES: &str = "IMGFORGE_ALLOWED_SOURCES";
 pub const ENV_USER_AGENT: &str = "IMGFORGE_USER_AGENT";
 pub const ENV_MAX_REDIRECTS: &str = "IMGFORGE_MAX_REDIRECTS";
 

@@ -56,19 +56,46 @@ pub struct ImgforgeUrl {
     pub source_url: SourceUrlInfo,
 }
 
+/// Number of bytes in a full HMAC-SHA256 digest.
+pub const FULL_SIGNATURE_SIZE: usize = 32;
+
 /// Validates the URL signature using HMAC-SHA256.
 pub fn validate_signature(key: &[u8], salt: &[u8], signature: &str, path: &str) -> bool {
+    validate_signature_of_size(key, salt, signature, path, FULL_SIGNATURE_SIZE)
+}
+
+/// Validates a signature that may have been truncated to `signature_size` bytes.
+///
+/// imgproxy lets a deployment shorten signatures to keep URLs manageable, at
+/// the cost of collision resistance. The comparison is still constant time and
+/// still covers every byte the URL claims — a short signature is checked in
+/// full against the same prefix of the real digest, so truncation weakens the
+/// signature only by the bytes it drops.
+pub fn validate_signature_of_size(key: &[u8], salt: &[u8], signature: &str, path: &str, signature_size: usize) -> bool {
     type HmacSha256 = Hmac<Sha256>;
+
+    let Ok(decoded_signature) = URL_SAFE_NO_PAD.decode(signature) else {
+        return false;
+    };
+
+    let signature_size = signature_size.clamp(1, FULL_SIGNATURE_SIZE);
+
+    // A signature of the wrong length is rejected outright. Without this a
+    // single correct byte would pass whenever the configuration allowed a
+    // one-byte signature and the URL carried one.
+    if decoded_signature.len() != signature_size {
+        return false;
+    }
 
     let mut mac = HmacSha256::new_from_slice(key).expect("HMAC can take key of any size");
     mac.update(salt);
     mac.update(path.as_bytes());
 
-    let decoded_signature = match URL_SAFE_NO_PAD.decode(signature) {
-        Ok(s) => s,
-        Err(_) => return false,
-    };
-    mac.verify_slice(&decoded_signature).is_ok()
+    if signature_size == FULL_SIGNATURE_SIZE {
+        return mac.verify_slice(&decoded_signature).is_ok();
+    }
+
+    mac.verify_truncated_left(&decoded_signature).is_ok()
 }
 
 /// Parses the incoming URL path into its imgforge components.
@@ -224,6 +251,38 @@ mod tests {
             .step_by(2)
             .map(|i| u8::from_str_radix(&value[i..i + 2], 16).unwrap())
             .collect()
+    }
+
+    #[test]
+    fn test_truncated_signatures_match_the_digest_prefix() {
+        let key = b"test_key";
+        let salt = b"test_salt";
+        let path = "/resize:fill:300:200/plain/https://example.com/image.jpg";
+
+        type HmacSha256 = Hmac<Sha256>;
+        let mut mac = HmacSha256::new_from_slice(key).unwrap();
+        mac.update(salt);
+        mac.update(path.as_bytes());
+        let full = mac.finalize().into_bytes();
+
+        let short = URL_SAFE_NO_PAD.encode(&full[..8]);
+        assert!(validate_signature_of_size(key, salt, &short, path, 8));
+
+        // A signature of a different length than the deployment expects is not
+        // a valid signature, however many of its bytes happen to be right.
+        assert!(!validate_signature_of_size(key, salt, &short, path, 16));
+        assert!(!validate_signature_of_size(key, salt, &short, path, 32));
+
+        // And a wrong prefix still fails at the shortened length.
+        let mut wrong = full[..8].to_vec();
+        wrong[0] ^= 0xff;
+        assert!(!validate_signature_of_size(
+            key,
+            salt,
+            &URL_SAFE_NO_PAD.encode(&wrong),
+            path,
+            8
+        ));
     }
 
     #[test]

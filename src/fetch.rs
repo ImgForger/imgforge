@@ -29,6 +29,14 @@ pub enum FetchError {
 #[derive(Debug, Clone, Default)]
 pub struct FetchedImage {
     pub bytes: Bytes,
+    /// The URL the bytes actually came from, after any redirects.
+    ///
+    /// Not the same question as the URL that was requested: the allow list is
+    /// checked against what a request *asks* for, and a redirect can move the
+    /// answer somewhere else. The redirect policy revalidates each hop as it
+    /// happens, which leaves only the cache — an entry outlives the fetch, so
+    /// it has to remember where its bytes came from.
+    pub final_url: String,
     pub content_type: Option<String>,
     pub cache_control: Option<String>,
     pub last_modified: Option<String>,
@@ -74,6 +82,8 @@ pub async fn fetch_image(
     // An error page is not an image. Returning its bytes meant the failure
     // surfaced later as "failed to decode source image", which told the caller
     // nothing about the 404 that actually happened.
+    let final_url = response.url().to_string();
+
     if !response.status().is_success() {
         record_fetch_metrics(fetch_start, "error");
         return Err(FetchError::UpstreamStatus {
@@ -127,6 +137,7 @@ pub async fn fetch_image(
     record_fetch_metrics(fetch_start, "success");
     Ok(FetchedImage {
         bytes: image_bytes.freeze(),
+        final_url,
         content_type,
         cache_control,
         last_modified,

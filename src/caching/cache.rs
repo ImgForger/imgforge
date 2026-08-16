@@ -35,6 +35,13 @@ fn block_size_for_capacity(capacity: usize) -> usize {
 pub struct CachedImage {
     pub bytes: Bytes,
     pub content_type: &'static str,
+    /// The URL these bytes were fetched from, after any redirects.
+    ///
+    /// Kept so a hit can be checked against the allow list as it stands now.
+    /// The request's own URL is validated before the lookup, but a redirect can
+    /// have moved the actual source somewhere that is no longer permitted, and
+    /// an entry outlives the policy that admitted it.
+    pub source_url: String,
 }
 
 impl Code for CachedImage {
@@ -46,6 +53,10 @@ impl Code for CachedImage {
         let content_type_bytes = self.content_type.as_bytes();
         content_type_bytes.len().encode(writer)?;
         writer.write_all(content_type_bytes).map_err(FoyerError::io_error)?;
+
+        let source_bytes = self.source_url.as_bytes();
+        source_bytes.len().encode(writer)?;
+        writer.write_all(source_bytes).map_err(FoyerError::io_error)?;
         Ok(())
     }
 
@@ -61,14 +72,21 @@ impl Code for CachedImage {
             .map_err(|_| FoyerError::new(ErrorKind::Parse, "invalid utf8 in content type"))?;
         let content_type = format_to_content_type(content_str);
 
+        let source_len = usize::decode(reader)?;
+        let mut source_buf = vec![0u8; source_len];
+        reader.read_exact(&mut source_buf).map_err(FoyerError::io_error)?;
+        let source_url = String::from_utf8(source_buf)
+            .map_err(|_| FoyerError::new(ErrorKind::Parse, "invalid utf8 in source url"))?;
+
         Ok(CachedImage {
             bytes: Bytes::from(data),
             content_type,
+            source_url,
         })
     }
 
     fn estimated_size(&self) -> usize {
-        self.bytes.len() + self.content_type.len() + std::mem::size_of::<usize>() * 2
+        self.bytes.len() + self.content_type.len() + self.source_url.len() + std::mem::size_of::<usize>() * 3
     }
 }
 
@@ -394,6 +412,7 @@ mod tests {
         let value = CachedImage {
             bytes: Bytes::from(vec![1, 2, 3]),
             content_type: "image/jpeg",
+            source_url: "https://example.test/cached.png".to_string(),
         };
 
         cache.insert(key.clone(), value.clone()).unwrap();
@@ -412,6 +431,7 @@ mod tests {
         let value = CachedImage {
             bytes: Bytes::from(vec![1, 2, 3]),
             content_type: "image/jpeg",
+            source_url: "https://example.test/cached.png".to_string(),
         };
         cache.insert(key.clone(), value.clone()).unwrap();
         let retrieved = cache.get(&key).await.unwrap();

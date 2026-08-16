@@ -2,31 +2,9 @@ use crate::processing::save;
 use crate::processing::watermark;
 use bytes::Bytes;
 use image::{ImageBuffer, Rgba, RgbaImage};
-use lazy_static::lazy_static;
-use libvips::{ops, VipsApp, VipsImage};
+use libvips::{ops, VipsImage};
 
-lazy_static! {
-    static ref APP: VipsApp = {
-        let app = VipsApp::new("Test", false).expect("Cannot initialize libvips");
-        app.concurrency_set(1);
-        app
-    };
-}
-
-pub fn init_vips() {
-    let _ = &*APP;
-}
-
-/// libvips reports the useful part of a failure in a global buffer that the
-/// crate's error type does not carry, so tests that need to tell one failure
-/// from another have to read it directly. It is sticky — clear it first.
-pub fn clear_vips_error() {
-    APP.error_clear();
-}
-
-pub fn vips_error_buffer() -> String {
-    APP.error_buffer().unwrap_or_default().to_string()
-}
+pub use crate::test_support::{clear_vips_error, init_vips, vips_error_buffer};
 
 /// Decodes encoded bytes into a `VipsImage`, keeping the buffer alive as long
 /// as the image needs it.

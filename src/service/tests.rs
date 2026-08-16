@@ -17,6 +17,7 @@ use std::error::Error as _;
 fn key_parts(path: &str) -> CacheKeyParts<'_> {
     CacheKeyParts {
         path,
+        source_url: path,
         default_format: DefaultOutputFormat::Source,
         has_explicit_format: false,
         is_raw: false,
@@ -29,6 +30,7 @@ fn key_parts(path: &str) -> CacheKeyParts<'_> {
         watermark_path: None,
         option_defaults: None,
         negotiated_format: None,
+        client_hints: None,
     }
 }
 
@@ -92,6 +94,35 @@ fn cache_keys_are_namespaced_by_the_effective_animation_limits() {
 
     // Deployments that configure neither keep the keys they already have.
     assert_eq!(unlimited, processed_cache_key(key_parts(path)));
+}
+
+/// A `Width: 320` request and a `Width: 1280` request are the same URL and
+/// different images, so they cannot share an entry.
+#[test]
+fn client_hint_dimensions_get_their_own_cache_entries() {
+    let path = "/unsafe/example";
+
+    let narrow = processed_cache_key(CacheKeyParts {
+        client_hints: Some((320, 1000)),
+        ..key_parts(path)
+    });
+    let wide = processed_cache_key(CacheKeyParts {
+        client_hints: Some((1280, 1000)),
+        ..key_parts(path)
+    });
+    let retina = processed_cache_key(CacheKeyParts {
+        client_hints: Some((320, 2000)),
+        ..key_parts(path)
+    });
+
+    assert_ne!(narrow, wide);
+    assert_ne!(narrow, retina, "the device pixel ratio changes the bytes too");
+    // With hints off, the key is untouched, so enabling the feature does not
+    // invalidate a cache that never used it.
+    assert_eq!(
+        processed_cache_key(key_parts(path)),
+        processed_cache_key(key_parts(path))
+    );
 }
 
 #[test]
@@ -1083,4 +1114,46 @@ fn skip_processing_understands_every_format_alias() {
         Some("png"),
         DefaultOutputFormat::Source
     ));
+}
+
+/// A relative source reference names a different image the moment
+/// `IMGFORGE_BASE_URL` changes, so the path alone cannot identify the entry:
+/// the first request after an origin migration would be answered from the old
+/// origin's bytes without ever fetching the new one.
+#[test]
+fn cache_keys_follow_the_resolved_source_url() {
+    let path = "/unsafe/resize:fit:100:100/cat.jpg";
+
+    let old_origin = processed_cache_key(CacheKeyParts {
+        source_url: "https://old.example.com/cat.jpg",
+        ..key_parts(path)
+    });
+    let new_origin = processed_cache_key(CacheKeyParts {
+        source_url: "https://new.example.com/cat.jpg",
+        ..key_parts(path)
+    });
+    assert_ne!(old_origin, new_origin);
+
+    // A raw response resolves through the same base URL, so it needs the same
+    // distinction — it is the one shape that hands back origin bytes directly.
+    let raw_old = processed_cache_key(CacheKeyParts {
+        is_raw: true,
+        source_url: "https://old.example.com/cat.jpg",
+        ..key_parts(path)
+    });
+    let raw_new = processed_cache_key(CacheKeyParts {
+        is_raw: true,
+        source_url: "https://new.example.com/cat.jpg",
+        ..key_parts(path)
+    });
+    assert_ne!(raw_old, raw_new);
+
+    // A URL that carries its own absolute source resolves to itself, so the
+    // overwhelmingly common case pays nothing: no `src=` scope appears at all.
+    let unscoped = processed_cache_key(key_parts(path));
+    assert!(
+        !unscoped.contains("src="),
+        "a self-resolving URL should not be scoped: {unscoped}"
+    );
+    assert!(old_origin.contains("src=") && raw_old.contains("src="));
 }
