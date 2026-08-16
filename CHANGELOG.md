@@ -25,7 +25,9 @@ Entries start at 0.10.0. For earlier history, see the
 
   **Operational note:** output is visually identical but not bit-identical — DCT scaling and a lanczos downscale do
   not agree exactly. Mean absolute difference measured at 0.49 of 255 (max 3) on noise, the worst case for such a
-  comparison. Existing cache entries keep serving their current bytes until they expire.
+  comparison. Existing cache entries keep serving their current bytes: the cache has no TTL, and entries go
+  only when capacity evicts them, so a frequently requested URL can serve the old output indefinitely. Change the
+  `cachebuster` token or clear the cache if you need the new bytes.
 
 ### Internal
 
@@ -44,8 +46,9 @@ Entries start at 0.10.0. For earlier history, see the
 
   **Operational note:** URLs that were silently returning a full-size image now return the correctly
   scaled one — smaller responses and different bytes. Cache keys are URL-based, so existing entries
-  keep serving the old output until they expire or are evicted; clear the cache if you need the
-  corrected sizes immediately.
+  keep serving the old output. There is no TTL — entries go only when capacity evicts
+  them, so a frequently requested URL can serve the old size indefinitely. Change the `cachebuster` token or clear
+  the cache to pick up the corrected sizes.
 
   Enlargement is now capped the way imgproxy caps it: the resizing type settles the scale, then every
   axis is divided by the largest scale when that exceeds 1. Two consequences worth knowing —
@@ -141,7 +144,8 @@ Entries start at 0.10.0. For earlier history, see the
   **Operational note:** existing WebP URLs change size. Quality was previously fixed at libvips'
   default of roughly Q75 regardless of the requested value, so low-quality requests now produce
   smaller responses and `quality:90` and above produce noticeably larger ones. Cache keys are
-  URL-based, so cached entries refresh as they expire or are evicted.
+  URL-based and the cache has no TTL, so cached entries keep their old bytes until capacity
+  evicts them. Change the `cachebuster` token to force the new output.
 
   Preset names outside libvips' own set (`default`, `picture`, `photo`, `drawing`, `icon`, `text`)
   are accepted in URLs but ignored by the encoder rather than failing the request.
