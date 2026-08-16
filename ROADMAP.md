@@ -15,23 +15,30 @@ catching up wholesale.
 
 ## Performance
 
-### Scale-on-load — done for JPEG, open for WebP
+### Scale-on-load — done for JPEG and WebP, open for cropped requests
 
-JPEG sources now decode at 1/2, 1/4 or 1/8 when the plan allows, so a large source is no longer unpacked at full
-resolution to produce a small result. Measured through the real load path on a 9000×7000 JPEG downscaled to 450px:
-114 MB peak RSS before, 49 MB after.
+Both loaders now decode at a reduced scale when the plan allows, so a large source is no longer unpacked at full
+resolution to produce a small result. Measured through the real load path, downscaling a 9000×7000 source to 450px:
 
-Two pieces are still open:
+| Source | Before | After |
+| --- | --- | --- |
+| JPEG | 114 MB | 49 MB |
+| WebP | 737 MB | 50 MB |
 
-- **WebP.** Its loader takes a `scale` (a double), not JPEG's power-of-two `shrink`, so it needs its own branch.
-  imgproxy covers both.
+WebP gains far more because libwebp decodes the whole image at once rather than streaming, which had made a large
+WebP the worst case imgforge had. Its loader also takes a continuous `scale` rather than JPEG's power-of-two
+`shrink`, so it lands closer to what the request needs.
+
+Still open:
+
 - **Cropped requests decline it entirely.** A crop addresses source pixels by coordinate, so shrinking underneath it
   would move the region. imgproxy instead scales the crop coordinates by the shrink factor, which lets cropped
-  requests benefit too — worth doing, and the reason to keep their `processing/crop.go` alongside `scale_on_load.go`
+  requests benefit too — worth doing, and the reason to read their `processing/crop.go` alongside `scale_on_load.go`
   when implementing.
 
-A note on estimating: this entry originally read "expect to restructure `process_path`". It was about 40 lines, because
-the processing plan is already parsed before the decode and libvips' loader already takes an option string. Check the
+A note on estimating: this entry originally read "expect to restructure `process_path`". It was about 40 lines,
+because the processing plan is already parsed before the decode and libvips' loader already takes an option string.
+The WebP half was smaller still, since it reused the target calculation the JPEG half had already earned. Check the
 code before trusting a cost written here.
 
 ### Colour management
