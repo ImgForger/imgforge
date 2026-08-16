@@ -247,7 +247,12 @@ fn metadata_keep(options: &SaveOptions) -> String {
     // A gain map is what makes an HDR image high dynamic range; it is neither
     // descriptive metadata nor a colour profile, so neither strip option should
     // take it away when the request explicitly asked to preserve it.
-    if options.preserve_hdr.unwrap_or(false) {
+    //
+    // The flag itself only exists from libvips 8.16. Naming it on an older
+    // build makes the option-string parser reject the whole encode, so a
+    // deployment linked against an older system libvips would fail every
+    // request that set preserve_hdr rather than merely losing the gain map.
+    if options.preserve_hdr.unwrap_or(false) && supports_gainmap_flag() {
         flags.push("gainmap");
     }
 
@@ -256,6 +261,20 @@ fn metadata_keep(options: &SaveOptions) -> String {
     } else {
         flags.join("|")
     }
+}
+
+/// Whether this libvips knows the `gainmap` metadata flag, added in 8.16.
+fn supports_gainmap_flag() -> bool {
+    static SUPPORTED: OnceLock<bool> = OnceLock::new();
+    *SUPPORTED.get_or_init(|| {
+        // vips_version(0) is the major number and vips_version(1) the minor.
+        let (major, minor) = unsafe { (bindings::vips_version(0), bindings::vips_version(1)) };
+        let supported = major > 8 || (major == 8 && minor >= 16);
+        if !supported {
+            debug!("libvips {major}.{minor} has no gainmap keep flag; preserve_hdr will not retain one");
+        }
+        supported
+    })
 }
 
 /// Builds a libvips save suffix: `.png[option,option=value]`.

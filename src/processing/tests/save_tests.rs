@@ -211,12 +211,17 @@ fn stripping_one_kind_of_metadata_keeps_the_other() {
     );
 
     // A gain map is what makes an image HDR, so preserving HDR has to keep it
-    // even while everything else is being stripped.
+    // even while everything else is being stripped — on a libvips that has the
+    // flag. On an older one the flag is dropped rather than named, because
+    // naming it would make the option-string parser reject the whole encode.
+    init_vips();
     options.strip_metadata = Some(true);
     options.preserve_hdr = Some(true);
-    assert_eq!(
-        save::save_suffix("avif", 80, &options, None).unwrap(),
-        ".avif[Q=80,compression=av1,effort=7,subsample-mode=auto,keep=gainmap]"
+    let suffix = save::save_suffix("avif", 80, &options, None).unwrap();
+    assert!(
+        suffix == ".avif[Q=80,compression=av1,effort=7,subsample-mode=auto,keep=gainmap]"
+            || suffix == ".avif[Q=80,compression=av1,effort=7,subsample-mode=auto,keep=none]",
+        "unexpected suffix: {suffix}"
     );
 }
 

@@ -25,6 +25,9 @@ use names::*;
 use std::str::FromStr;
 use tracing::debug;
 
+/// Encoder quality when nothing in the request or the configuration names one.
+pub const DEFAULT_QUALITY: u8 = 85;
+
 /// Represents a single image processing option from the URL path.
 #[derive(Debug, Clone)]
 pub struct ProcessingOption {
@@ -45,8 +48,11 @@ pub struct ParsedOptions {
     pub crop: Option<Crop>,
     /// Optional output image format.
     pub format: Option<String>,
-    /// Optional output image quality (1-100).
+    /// Output image quality (1-100) named by the URL.
     pub quality: Option<u8>,
+    /// Server-configured quality, used only when neither the URL's `quality`
+    /// nor its `format_quality` says anything.
+    pub default_quality: Option<u8>,
     /// Optional background color for transparent areas or extending.
     pub background: Option<[u8; 4]>, // RGBA array
     /// Optional target width (used with `resize` if no explicit resize type).
@@ -176,7 +182,8 @@ impl ParsedOptions {
             blur: None,
             crop: None,
             format: None,
-            quality: defaults.quality,
+            quality: None,
+            default_quality: defaults.quality,
             background: None,
             width: None,
             height: None,
@@ -227,6 +234,20 @@ impl ParsedOptions {
             disable_animation: false,
             skip_processing: Vec::new(),
         }
+    }
+
+    /// The encoder quality for an output format.
+    ///
+    /// imgproxy's precedence, which is what a URL author expects: the URL's own
+    /// `quality` first, then its per-format `format_quality`, then whatever the
+    /// server configured, and finally the built-in default. Seeding the URL's
+    /// `quality` from the configuration instead would have made a configured
+    /// default silently outrank a `format_quality` the URL asked for.
+    pub fn quality_for(&self, format: &str) -> u8 {
+        self.quality
+            .or_else(|| self.save.format_quality.get(format).copied())
+            .or(self.default_quality)
+            .unwrap_or(DEFAULT_QUALITY)
     }
 
     /// The zoom factors in effect, defaulting to no zoom.

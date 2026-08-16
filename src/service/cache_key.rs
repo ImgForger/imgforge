@@ -23,6 +23,17 @@ use crate::processing::options::OptionDefaults;
 use sha2::{Digest, Sha256};
 use std::borrow::Cow;
 
+/// Bumped whenever a release changes the bytes an unchanged URL produces.
+///
+/// A disk or hybrid cache outlives the version that filled it, and imgforge has
+/// no TTL — an entry survives until capacity evicts it. Without this, upgrading
+/// leaves frequently requested URLs serving their old output indefinitely, and
+/// the operator's only recourse is to change every `cachebuster` or wipe the
+/// cache. 0.18.0 changes the result of, among others, any URL using
+/// `format_quality` with a configured quality, an uncentred `crop`, a
+/// watermark, `brightness`/`contrast`, or a rotation with a resize.
+const OUTPUT_VERSION: &str = "v2";
+
 /// Everything outside the URL path that changes the response bytes, or that
 /// decides whether the response may be produced at all.
 #[derive(Debug, Clone, Copy)]
@@ -84,15 +95,16 @@ pub struct CacheKeyParts<'a> {
 }
 
 pub fn processed_cache_key<'a>(parts: CacheKeyParts<'a>) -> Cow<'a, str> {
-    // A raw response is the untouched source, so the format decision and the
-    // result ceiling cannot apply to it — but the limits describing the source
-    // very much can, and they are the only thing standing between a tightened
-    // policy and the bytes already in the cache.
+    // A raw response is the untouched source: nothing is processed, so neither
+    // the format decision, the result ceiling, nor the output version can apply
+    // to it — the bytes are the origin's, and they have not changed. The limits
+    // describing the *source* are the exception, and they are the only thing
+    // standing between a tightened policy and the bytes already in the cache.
     if parts.is_raw {
         return source_limits(parts, Cow::Owned(source_scoped(parts)));
     }
 
-    let base = if parts.has_explicit_format {
+    let base: Cow<'a, str> = if parts.has_explicit_format {
         Cow::Owned(source_scoped(parts))
     } else {
         match parts.negotiated_format {
@@ -135,7 +147,7 @@ pub fn processed_cache_key<'a>(parts: CacheKeyParts<'a>) -> Cow<'a, str> {
         None => base,
     };
 
-    source_limits(parts, base)
+    source_limits(parts, Cow::Owned(format!("{OUTPUT_VERSION}:{base}")))
 }
 
 /// The request path, scoped to the source it actually resolves to.

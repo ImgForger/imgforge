@@ -21,10 +21,10 @@ merely parsed, with the exceptions listed under **Known gaps** below.
   the EXIF `Copyright` and `Artist` fields from the source and splices a minimal EXIF segment into the encoded
   result. That mechanism only exists for JPEG. PNG and WebP can carry EXIF too, and the same approach would work
   for them; nobody has needed it yet.
-- **`preserve_hdr` on libvips below 8.16** — the `gainmap` keep flag does not exist there, and naming it makes the
-  encode fail rather than degrade. The published image ships 8.16.1, so this only affects a build against an older
-  system libvips. A runtime version check that drops the flag would fix it; the cost is a `vips_version` call at
-  startup and a branch in the suffix builder.
+- **`preserve_hdr` on libvips below 8.16** — the `gainmap` keep flag does not exist there. imgforge checks the
+  runtime version once and drops the flag rather than naming it, so the request succeeds and loses only the gain
+  map; the high bit-depth half still works. The drop is logged. The published image ships 8.16.1 and is
+  unaffected.
 - **`webp_options` preset** — only libvips' own preset names reach the encoder. Others are ignored rather than
   failing, because an unknown name makes libvips reject the whole encode.
 

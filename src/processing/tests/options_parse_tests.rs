@@ -1218,3 +1218,50 @@ fn disable_animation_outranks_an_explicit_page_count() {
         "an animated output with no disable should read every frame"
     );
 }
+
+/// The URL's own `quality` beats its `format_quality`, which beats whatever the
+/// server configured. Seeding the URL's quality from the configuration instead
+/// would have made a configured default silently outrank a `format_quality` the
+/// URL asked for.
+#[test]
+fn test_quality_precedence_runs_url_first_then_format_then_configuration() {
+    use crate::processing::options::{parse_all_options_with_defaults, OptionDefaults};
+
+    let configured = OptionDefaults {
+        quality: Some(50),
+        ..OptionDefaults::default()
+    };
+
+    let format_quality = || ProcessingOption {
+        name: "format_quality".to_string(),
+        args: vec!["webp".to_string(), "70".to_string()],
+    };
+
+    // Nothing in the URL: the configured default applies.
+    let parsed = parse_all_options_with_defaults(Vec::new(), configured).unwrap();
+    assert_eq!(parsed.quality_for("webp"), 50);
+
+    // A per-format quality outranks the configured default.
+    let parsed = parse_all_options_with_defaults(vec![format_quality()], configured).unwrap();
+    assert_eq!(parsed.quality_for("webp"), 70);
+    // ...for that format only.
+    assert_eq!(parsed.quality_for("jpeg"), 50);
+
+    // An explicit quality outranks both.
+    let parsed = parse_all_options_with_defaults(
+        vec![
+            format_quality(),
+            ProcessingOption {
+                name: "quality".to_string(),
+                args: vec!["95".to_string()],
+            },
+        ],
+        configured,
+    )
+    .unwrap();
+    assert_eq!(parsed.quality_for("webp"), 95);
+
+    // With nothing configured at all, the built-in default stands.
+    let parsed = parse_all_options(Vec::new()).unwrap();
+    assert_eq!(parsed.quality_for("webp"), 85);
+}
