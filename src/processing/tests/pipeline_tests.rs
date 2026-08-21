@@ -184,6 +184,35 @@ fn test_max_result_dimension_rejects_oversized_output() {
     );
 }
 
+/// The ceiling is policy and the encoder limit is fitting, and policy runs
+/// first. Fitting first shrank a 20,000px result under WebP's 16,383px encoder
+/// cap and the 18,000px ceiling then approved what it was configured to
+/// refuse.
+#[test]
+fn test_max_result_dimension_is_checked_before_format_fitting() {
+    init_vips();
+    let source_bytes = Bytes::from(create_test_image(2000, 1));
+    let img = VipsImage::new_from_buffer(&source_bytes, "").unwrap();
+    let parsed_options = ParsedOptions {
+        resize: Some(Resize {
+            resizing_type: ResizingType::Force,
+            width: 20000,
+            height: 1,
+        }),
+        format: Some("webp".to_string()),
+        enlarge: true,
+        max_result_dimension: Some("18000".parse().unwrap()),
+        ..ParsedOptions::default()
+    };
+
+    let err = process_image(img, parsed_options, &source_bytes, None).expect_err("the ceiling should still apply");
+    let message = err.to_string();
+    assert!(
+        message.contains("20000") && message.contains("18000"),
+        "error should name the unfitted result and the limit, got: {message}"
+    );
+}
+
 #[test]
 fn test_max_result_dimension_allows_output_within_limit() {
     init_vips();

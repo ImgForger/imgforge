@@ -122,14 +122,20 @@ pub fn process_image(
     // 100x100 animation failed a 500px limit and a tall stack was needlessly
     // downscaled — with the page height passed to the encoder left describing
     // the frames from before that scaling, which misdivides them.
+    //
+    // The configured ceiling is checked first: it is policy, not fitting. A
+    // result over `max_result_dimension` is refused, and letting the encoder
+    // limit quietly scale it down first turned that refusal into acceptance —
+    // a 20,000px result under an 18,000px ceiling came back as 16,383px
+    // instead of the documented 400.
+    if let Some(frame) = processed.first() {
+        enforce_result_dimension(&parsed_options, frame)?;
+    }
+
     let processed = processed
         .into_iter()
         .map(|frame| fit_within_format_limits(frame, &output_format, parsed_options.resizing_algorithm.as_deref()))
         .collect::<Result<Vec<_>, ProcessingError>>()?;
-
-    if let Some(frame) = processed.first() {
-        enforce_result_dimension(&parsed_options, frame)?;
-    }
 
     let (mut img, page_height) = animation::join(processed)?;
 
