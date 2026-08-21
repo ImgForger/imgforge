@@ -227,6 +227,7 @@ fn rescale_gravity(gravity: Gravity, x_scale: f64, y_scale: f64) -> Gravity {
 pub fn shrink_source_on_load(
     source_image: VipsImage,
     image_bytes: &Bytes,
+    metadata_bytes: &Bytes,
     parsed_options: &mut ParsedOptions,
     base_load_options: &str,
 ) -> VipsImage {
@@ -242,8 +243,10 @@ pub fn shrink_source_on_load(
 
     // EXIF orientations 5-8 swap the axes, and the rotation happens after the
     // load. The plan is written against what the viewer sees, so the factor has
-    // to be chosen against the rotated dimensions, not the stored ones.
-    let (width, height) = if swaps_axes(parsed_options, image_bytes) {
+    // to be chosen against the rotated dimensions, not the stored ones — and
+    // read from the bytes the rotation will actually come from, which for a
+    // substituted thumbnail are the parent's, not the ones being decoded.
+    let (width, height) = if swaps_axes(parsed_options, metadata_bytes) {
         (height, width)
     } else {
         (width, height)

@@ -248,12 +248,16 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
             .unwrap_or_else(|| "jpeg".to_string());
         parsed_options.format = Some(output_format.clone());
 
-        let (source_image, image_bytes) = open_source(&image_bytes, &parsed_options, &output_format)?;
+        let OpenedSource {
+            image: source_image,
+            decode_bytes,
+            metadata_bytes,
+        } = open_source(&image_bytes, &parsed_options, &output_format)?;
 
         enforce_security_constraints(
             blocking_state.as_ref(),
             &parsed_options,
-            &image_bytes,
+            &decode_bytes,
             source_content_type.as_deref(),
             Some(&source_image),
         )?;
@@ -266,10 +270,16 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
         // everything so far has read the header and nothing more. Reopening
         // with a shrink means the full-resolution pixels are never unpacked at
         // all. Same ordering imgproxy uses: load, check, then scale on load.
-        let load_options = loader_options(&parsed_options, sniff_image_format(&image_bytes), &output_format);
-        let source_image = shrink_source_on_load(source_image, &image_bytes, &mut parsed_options, &load_options);
+        let load_options = loader_options(&parsed_options, sniff_image_format(&decode_bytes), &output_format);
+        let source_image = shrink_source_on_load(
+            source_image,
+            &decode_bytes,
+            &metadata_bytes,
+            &mut parsed_options,
+            &load_options,
+        );
 
-        let processed_image_bytes = process_image(source_image, parsed_options, &image_bytes, watermark.as_ref())?;
+        let processed_image_bytes = process_image(source_image, parsed_options, &metadata_bytes, watermark.as_ref())?;
         Ok::<_, ServiceError>((processed_image_bytes, output_format))
     })
     .await
@@ -306,25 +316,48 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
     })
 }
 
+/// What opening the source produced: the image and the two byte views the
+/// stages after it read.
+struct OpenedSource {
+    image: VipsImage,
+    /// The bytes the pixels came from — the embedded thumbnail when it was
+    /// substituted. Format sniffing and reduced-scale reopening have to see
+    /// these, because they describe the image actually in hand.
+    decode_bytes: Bytes,
+    /// The bytes EXIF-driven behaviour reads — always the original source. A
+    /// thumbnail carries no metadata of its own, so reading it made
+    /// `keep_copyright` silently lose the source's copyright and auto-rotation
+    /// lose the orientation that still applies to the thumbnail's pixels.
+    metadata_bytes: Bytes,
+}
+
 /// Opens the source, honouring `enforce_thumbnail` and the multi-page plan.
-///
-/// Returns the bytes that were actually opened alongside the image, because
-/// choosing the embedded thumbnail replaces them — everything downstream that
-/// reads EXIF or sniffs the format has to see the same bytes the pixels came
-/// from.
 fn open_source(
     image_bytes: &Bytes,
     parsed_options: &ParsedOptions,
     output_format: &str,
-) -> Result<(VipsImage, Bytes), ServiceError> {
+) -> Result<OpenedSource, ServiceError> {
     if parsed_options.enforce_thumbnail {
         if let Some(thumbnail) = metadata::embedded_thumbnail(image_bytes) {
             let thumbnail = Bytes::from(thumbnail);
             match VipsImage::new_from_buffer(&thumbnail, "") {
-                Ok(img) => {
+                // The stand-in is only taken when it covers what the request
+                // asks of it. An undersized one used to be taken anyway, and
+                // `enlarge:false` then capped a 1000px request at the 160px the
+                // thumbnail could provide.
+                Ok(img) if crate::processing::thumbnail_covers(parsed_options, img.get_width(), img.get_height()) => {
                     debug!("Using the source's embedded thumbnail ({} bytes)", thumbnail.len());
-                    return Ok((img, thumbnail));
+                    return Ok(OpenedSource {
+                        image: img,
+                        decode_bytes: thumbnail,
+                        metadata_bytes: image_bytes.clone(),
+                    });
                 }
+                Ok(img) => debug!(
+                    "Embedded thumbnail ({}x{}) cannot satisfy the request; using the full image",
+                    img.get_width(),
+                    img.get_height()
+                ),
                 // A thumbnail that will not decode is not a reason to fail the
                 // request; the full image is still there.
                 Err(err) => debug!("Embedded thumbnail did not decode ({}); using the full image", err),
@@ -336,7 +369,11 @@ fn open_source(
     let image = VipsImage::new_from_buffer(image_bytes, &load_options)
         .map_err(|source| ServiceError::SourceImageDecode { source })?;
 
-    Ok((image, image_bytes.clone()))
+    Ok(OpenedSource {
+        image,
+        decode_bytes: image_bytes.clone(),
+        metadata_bytes: image_bytes.clone(),
+    })
 }
 
 /// Retrieve metadata for an image without processing it.

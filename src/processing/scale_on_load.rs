@@ -92,6 +92,46 @@ fn load_shrink_ratio(parsed_options: &ParsedOptions, src_width: u32, src_height:
     (ratio.is_finite() && ratio >= MIN_LOAD_SHRINK).then_some(ratio)
 }
 
+/// Whether an embedded thumbnail of this size can stand in for the source.
+///
+/// The substitution is only a saving when it is invisible in the result, so the
+/// thumbnail has to be at least as large as everything the request will ask of
+/// it. A request that names no target size shows the source at the source's own
+/// size, which a thumbnail by definition is not; a crop addresses source pixels
+/// by coordinate, and the thumbnail is a different image in those coordinates;
+/// what trim needs is decided by the pixels and cannot be known here.
+pub fn thumbnail_covers(parsed_options: &ParsedOptions, thumb_width: i32, thumb_height: i32) -> bool {
+    if parsed_options.raw || parsed_options.trim.is_some() || parsed_options.crop.is_some() {
+        return false;
+    }
+    let Some(resize) = parsed_options.resize.as_ref() else {
+        return false;
+    };
+
+    // `force` fills a zero axis from the source dimension — the full-size
+    // source, which the thumbnail cannot supply.
+    if resize.resizing_type.fills_zero_axis_from_source() && (resize.width == 0 || resize.height == 0) {
+        return false;
+    }
+
+    // Folded in exactly as the scale-on-load plan folds them: anything that can
+    // grow the target grows what the thumbnail must cover.
+    let grow = f64::from(parsed_options.dpr_factor()) * f64::from(parsed_options.zoom_factors().max_factor());
+    let target_width = (f64::from(resize.width) * grow).max(f64::from(parsed_options.min_width.unwrap_or(0)));
+    let target_height = (f64::from(resize.height) * grow).max(f64::from(parsed_options.min_height.unwrap_or(0)));
+
+    // Neither axis names a size: the request is not asking for a smaller image,
+    // it is asking for the image.
+    if target_width < 1.0 && target_height < 1.0 {
+        return false;
+    }
+
+    // A zero axis is derived from the aspect ratio, which the thumbnail keeps,
+    // so only the named axes constrain it.
+    (target_width < 1.0 || f64::from(thumb_width) >= target_width)
+        && (target_height < 1.0 || f64::from(thumb_height) >= target_height)
+}
+
 /// Power-of-two shrink for the JPEG loader, or 1 to decode at full size.
 pub fn load_shrink_factor(parsed_options: &ParsedOptions, src_width: u32, src_height: u32) -> u32 {
     let Some(ratio) = load_shrink_ratio(parsed_options, src_width, src_height) else {

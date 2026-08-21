@@ -334,6 +334,54 @@ fn test_load_shrink_declines_when_it_cannot_reason_about_the_target() {
     );
 }
 
+/// An embedded thumbnail may only stand in for the source when the result
+/// cannot tell the difference — a 160x120 thumbnail answering a 1000px request
+/// is the difference.
+#[test]
+fn test_thumbnail_stands_in_only_when_it_covers_the_request() {
+    use crate::processing::thumbnail_covers;
+
+    let with = |f: fn(&mut ParsedOptions)| {
+        let mut o = ParsedOptions {
+            resize: Some(Resize {
+                resizing_type: ResizingType::Fit,
+                width: 100,
+                height: 100,
+            }),
+            ..ParsedOptions::default()
+        };
+        f(&mut o);
+        thumbnail_covers(&o, 160, 120)
+    };
+
+    assert!(with(|_| ()), "a 160x120 thumbnail covers a 100x100 fit");
+    // The two failure modes from the report: a target beyond the thumbnail,
+    // and no target at all, which means the source at its own size.
+    assert!(!with(|o| o.resize.as_mut().unwrap().width = 1000));
+    assert!(!with(|o| o.resize = None));
+    // Growth after the resize counts against the thumbnail too.
+    assert!(!with(|o| o.dpr = Some(2.0)), "dpr 2 needs 200px from 160");
+    assert!(!with(|o| o.zoom = Some(Zoom { x: 2.0, y: 2.0 })));
+    assert!(!with(|o| o.min_width = Some(500)));
+    // A zero axis is derived from the aspect ratio, which the thumbnail keeps.
+    assert!(with(|o| o.resize.as_mut().unwrap().height = 0));
+    // `force` fills a zero axis from the source dimension, which only the
+    // source has.
+    assert!(!with(|o| {
+        let resize = o.resize.as_mut().unwrap();
+        resize.resizing_type = ResizingType::Force;
+        resize.height = 0;
+    }));
+    // A crop addresses source pixels by coordinate; the thumbnail is a
+    // different image in those coordinates. Trim and raw need the source.
+    assert!(!with(|o| o.crop = Some(Crop {
+        width: 50.0,
+        height: 50.0,
+        gravity: None,
+    })));
+    assert!(!with(|o| o.raw = true));
+}
+
 /// End to end: the output must be identical whether or not the source was
 /// decoded at a reduced scale.
 #[test]

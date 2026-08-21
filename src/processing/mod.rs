@@ -22,7 +22,7 @@ use std::time::Instant;
 use thiserror::Error;
 use tracing::debug;
 
-pub use scale_on_load::{load_scale_factor, load_shrink_factor};
+pub use scale_on_load::{load_scale_factor, load_shrink_factor, thumbnail_covers};
 
 /// Errors produced by the image processing pipeline.
 #[derive(Debug, Error)]
