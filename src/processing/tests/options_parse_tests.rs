@@ -1,5 +1,7 @@
 use crate::limits::{MaxResultDimension, MaxSourceFileSize, MaxSourceResolution};
-use crate::processing::options::{parse_all_options, Gravity, OptionParseError, ProcessingOption};
+use crate::processing::options::{
+    parse_all_options, Gravity, GravityType, OptionParseError, ProcessingOption, ResizingType, WatermarkPosition, Zoom,
+};
 use crate::processing::presets::parse_options_string;
 use crate::processing::utils;
 use base64::Engine as _;
@@ -21,7 +23,7 @@ fn test_parse_resize_option() {
     }];
     let parsed = parse_all_options(options).unwrap();
     let resize = parsed.resize.unwrap();
-    assert_eq!(resize.resizing_type, "fill");
+    assert_eq!(resize.resizing_type, ResizingType::Fill);
     assert_eq!(resize.width, 300);
     assert_eq!(resize.height, 200);
 }
@@ -129,7 +131,7 @@ fn test_parse_extend_option() {
         args: vec!["1".to_string()],
     }];
     let parsed = parse_all_options(options).unwrap();
-    assert!(parsed.extend);
+    assert!(parsed.extend.enabled);
 }
 
 #[test]
@@ -139,7 +141,7 @@ fn test_parse_gravity_option() {
         args: vec!["no".to_string()],
     }];
     let parsed = parse_all_options(options).unwrap();
-    assert_eq!(parsed.gravity, Some(Gravity::North));
+    assert_eq!(parsed.gravity, Some(Gravity::new(GravityType::North)));
 }
 
 #[test]
@@ -149,7 +151,7 @@ fn test_parse_imgproxy_gravity_alias() {
         args: vec!["soea".to_string()],
     }];
     let parsed = parse_all_options(options).unwrap();
-    assert_eq!(parsed.gravity, Some(Gravity::SouthEast));
+    assert_eq!(parsed.gravity, Some(Gravity::new(GravityType::SouthEast)));
 }
 
 #[test]
@@ -170,9 +172,9 @@ fn test_parse_crop_option() {
     }];
     let parsed = parse_all_options(options).unwrap();
     let crop = parsed.crop.unwrap();
-    assert_eq!(crop.width, 100);
-    assert_eq!(crop.height, 150);
-    assert_eq!(crop.gravity, Some(Gravity::SouthEast));
+    assert_eq!(crop.width, 100.0);
+    assert_eq!(crop.height, 150.0);
+    assert_eq!(crop.gravity, Some(Gravity::new(GravityType::SouthEast)));
 }
 
 #[test]
@@ -354,14 +356,6 @@ fn test_imgforge_only_spellings_are_not_accepted() {
             args: vec!["legacy".to_string()],
         },
         ProcessingOption {
-            name: "min_width".to_string(),
-            args: vec!["500".to_string()],
-        },
-        ProcessingOption {
-            name: "min_height".to_string(),
-            args: vec!["600".to_string()],
-        },
-        ProcessingOption {
             name: "px".to_string(),
             args: vec!["10".to_string()],
         },
@@ -373,10 +367,32 @@ fn test_imgforge_only_spellings_are_not_accepted() {
     .unwrap();
 
     assert_eq!(parsed.cache_buster, None);
-    assert_eq!(parsed.min_width, None);
-    assert_eq!(parsed.min_height, None);
     assert_eq!(parsed.pixelate, None);
     assert!(parsed.resize.is_none());
+}
+
+/// imgproxy spells these with underscores while imgforge historically used
+/// hyphens. Both are accepted, so a URL written against either documentation
+/// works.
+#[test]
+fn test_min_dimension_spellings_are_interchangeable() {
+    for name in ["min-width", "min_width", "mw"] {
+        let parsed = parse_all_options(vec![ProcessingOption {
+            name: name.to_string(),
+            args: vec!["500".to_string()],
+        }])
+        .unwrap();
+        assert_eq!(parsed.min_width, Some(500), "{name} should set min_width");
+    }
+
+    for name in ["min-height", "min_height", "mh"] {
+        let parsed = parse_all_options(vec![ProcessingOption {
+            name: name.to_string(),
+            args: vec!["600".to_string()],
+        }])
+        .unwrap();
+        assert_eq!(parsed.min_height, Some(600), "{name} should set min_height");
+    }
 }
 
 #[test]
@@ -406,7 +422,7 @@ fn test_parse_zoom_option() {
         args: vec!["1.5".to_string()],
     }];
     let parsed = parse_all_options(options).unwrap();
-    assert_eq!(parsed.zoom, Some(1.5));
+    assert_eq!(parsed.zoom, Some(Zoom { x: 1.5, y: 1.5 }));
 }
 
 #[test]
@@ -590,7 +606,7 @@ fn test_parse_watermark_option() {
     let parsed = parse_all_options(options).unwrap();
     let watermark = parsed.watermark.unwrap();
     assert_eq!(watermark.opacity, 0.5);
-    assert_eq!(watermark.position, "ce");
+    assert_eq!(watermark.position, WatermarkPosition::Anchor(GravityType::Center));
 }
 
 // Error handling tests
@@ -602,7 +618,7 @@ fn test_parse_resize_type_only() {
     }];
     let parsed = parse_all_options(options).unwrap();
     let resize = parsed.resize.unwrap();
-    assert_eq!(resize.resizing_type, "fill");
+    assert_eq!(resize.resizing_type, ResizingType::Fill);
     assert_eq!(resize.width, 0);
     assert_eq!(resize.height, 0);
 }
@@ -616,7 +632,10 @@ fn test_parse_resizing_type_accepts_supported_values() {
         }];
         let parsed = parse_all_options(options).expect("supported resizing type");
 
-        assert_eq!(parsed.resize.unwrap().resizing_type, value);
+        assert_eq!(
+            parsed.resize.unwrap().resizing_type,
+            value.parse::<ResizingType>().unwrap()
+        );
     }
 }
 
@@ -671,11 +690,11 @@ fn test_parse_resize_meta_enlarge_extend() {
     }];
     let parsed = parse_all_options(options).unwrap();
     let resize = parsed.resize.unwrap();
-    assert_eq!(resize.resizing_type, "fit");
+    assert_eq!(resize.resizing_type, ResizingType::Fit);
     assert_eq!(resize.width, 640);
     assert_eq!(resize.height, 480);
     assert!(parsed.enlarge);
-    assert!(parsed.extend);
+    assert!(parsed.extend.enabled);
 }
 
 #[test]
@@ -687,7 +706,7 @@ fn test_parse_resize_meta_enlarge_only() {
     let parsed = parse_all_options(options).unwrap();
     assert!(parsed.resize.is_none());
     assert!(parsed.enlarge);
-    assert!(!parsed.extend);
+    assert!(!parsed.extend.enabled);
 }
 
 #[test]
@@ -768,11 +787,23 @@ fn test_parse_crop_invalid_args() {
     assert!(parse_all_options(options).is_err());
 }
 
+/// Padding follows the CSS shorthand, as imgproxy's does: three values mean
+/// top, then left-and-right, then bottom.
+#[test]
+fn test_parse_padding_three_values_use_the_css_shorthand() {
+    let parsed = parse_all_options(vec![ProcessingOption {
+        name: "padding".to_string(),
+        args: vec!["10".to_string(), "20".to_string(), "30".to_string()],
+    }])
+    .unwrap();
+    assert_eq!(parsed.padding, Some((10, 20, 30, 20)));
+}
+
 #[test]
 fn test_parse_padding_invalid_count() {
     let options = vec![ProcessingOption {
         name: "padding".to_string(),
-        args: vec!["10".to_string(), "20".to_string(), "30".to_string()],
+        args: (0..5).map(|value| value.to_string()).collect(),
     }];
     assert!(parse_all_options(options).is_err());
 }
@@ -901,7 +932,7 @@ fn test_parse_size_option() {
     let parsed = parse_all_options(options).unwrap();
     assert!(parsed.resize.is_some());
     let resize = parsed.resize.unwrap();
-    assert_eq!(resize.resizing_type, "fit");
+    assert_eq!(resize.resizing_type, ResizingType::Fit);
     assert_eq!(resize.width, 640);
     assert_eq!(resize.height, 480);
 }
@@ -929,11 +960,11 @@ fn test_parse_size_meta_full() {
     }];
     let parsed = parse_all_options(options).unwrap();
     let resize = parsed.resize.unwrap();
-    assert_eq!(resize.resizing_type, "fit");
+    assert_eq!(resize.resizing_type, ResizingType::Fit);
     assert_eq!(resize.width, 320);
     assert_eq!(resize.height, 240);
     assert!(parsed.enlarge);
-    assert!(parsed.extend);
+    assert!(parsed.extend.enabled);
 }
 
 #[test]
@@ -945,7 +976,7 @@ fn test_parse_size_meta_enlarge_only() {
     let parsed = parse_all_options(options).unwrap();
     assert!(parsed.resize.is_none());
     assert!(parsed.enlarge);
-    assert!(!parsed.extend);
+    assert!(!parsed.extend.enabled);
 }
 
 #[test]
@@ -961,10 +992,10 @@ fn test_parse_size_short_alias_s() {
     }];
     let parsed = parse_all_options(options).unwrap();
     let resize = parsed.resize.unwrap();
-    assert_eq!(resize.resizing_type, "fit");
+    assert_eq!(resize.resizing_type, ResizingType::Fit);
     assert_eq!(resize.width, 1024);
     assert_eq!(resize.height, 0);
-    assert!(parsed.extend);
+    assert!(parsed.extend.enabled);
     assert!(parsed.enlarge);
 }
 
@@ -977,7 +1008,7 @@ fn test_parse_width_default_zero() {
     let parsed = parse_all_options(options).unwrap();
     assert_eq!(parsed.width, Some(0));
     let resize = parsed.resize.unwrap();
-    assert_eq!(resize.resizing_type, "fit");
+    assert_eq!(resize.resizing_type, ResizingType::Fit);
     assert_eq!(resize.width, 0);
     assert_eq!(resize.height, 0);
 }
@@ -1113,4 +1144,77 @@ fn test_parse_trim_rejects_bad_input() {
         }];
         assert!(parse_all_options(options).is_err(), "accepted invalid trim");
     }
+}
+
+/// The output format is canonicalised before the encoder sees it, so a
+/// `format_quality` key spelled with an alias was looked up under the canonical
+/// name, missed, and silently fell back to the default quality.
+#[test]
+fn format_quality_keys_are_canonicalised_like_the_output_format() {
+    let quality_for = |option: &str, lookup: &str| {
+        let parsed = parse_all_options(vec![ProcessingOption {
+            name: "format_quality".to_string(),
+            args: option.split(':').map(str::to_string).collect(),
+        }])
+        .expect("format_quality should parse");
+        parsed.save.format_quality.get(lookup).copied()
+    };
+
+    for (alias, canonical) in [("tif", "tiff"), ("jpg", "jpeg"), ("heic", "heif")] {
+        assert_eq!(
+            quality_for(&format!("{alias}:20"), canonical),
+            Some(20),
+            "{alias} should be stored under {canonical}"
+        );
+        // And the canonical spelling still works unchanged.
+        assert_eq!(quality_for(&format!("{canonical}:30"), canonical), Some(30));
+    }
+
+    // A name that is not a format at all is kept as written rather than being
+    // rewritten into something it is not.
+    assert_eq!(quality_for("notaformat:40", "notaformat"), Some(40));
+}
+
+/// `disable_animation` collapses the source to one frame by definition, so it
+/// outranks an explicit page count. Letting `pages` win produced an animation
+/// from a request that had asked in as many words for it not to be one.
+#[test]
+fn disable_animation_outranks_an_explicit_page_count() {
+    use crate::processing::animation::LoadPlan;
+    use crate::processing::options::ParsedOptions;
+
+    let plan = |pages: Option<u32>, disable: bool, page: Option<u32>| {
+        LoadPlan::resolve(
+            &ParsedOptions {
+                pages,
+                disable_animation: disable,
+                page,
+                ..ParsedOptions::default()
+            },
+            Some("gif"),
+            "gif",
+        )
+    };
+
+    // Both set: the disable wins. `None` here is not "no opinion" — it means the
+    // loader's own default is already right, and that default reads one page.
+    // Either way the request loads a single frame, which is what matters.
+    let effective_count = |plan: Option<LoadPlan>| plan.map_or(Some(1), |plan| plan.count);
+    assert_eq!(effective_count(plan(Some(5), true, None)), Some(1));
+
+    // The starting page is a separate question and is still honoured.
+    let from_third = plan(Some(5), true, Some(2)).expect("a plan is needed");
+    assert_eq!((from_third.page, from_third.count), (2, Some(1)));
+
+    // Without the disable, an explicit count is respected as before.
+    let counted = plan(Some(5), false, None).expect("a plan is needed");
+    assert_eq!(counted.count, Some(5));
+
+    // And an animation-capable output with neither reads every frame: the plan
+    // asks for all pages rather than falling back to the one-page default.
+    assert_eq!(
+        plan(None, false, Some(1)).map(|p| p.count),
+        Some(None),
+        "an animated output with no disable should read every frame"
+    );
 }

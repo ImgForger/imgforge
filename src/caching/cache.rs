@@ -72,7 +72,7 @@ impl Code for CachedImage {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CachedMetadata {
     pub width: u32,
     pub height: u32,
@@ -82,6 +82,8 @@ pub struct CachedMetadata {
     pub channels: u32,
     pub has_alpha: bool,
     pub orientation: u32,
+    /// Frames or pages the source carries; 1 for a still image.
+    pub pages: u32,
 }
 
 impl Code for CachedMetadata {
@@ -101,6 +103,7 @@ impl Code for CachedMetadata {
         self.channels.encode(writer)?;
         self.has_alpha.encode(writer)?;
         self.orientation.encode(writer)?;
+        self.pages.encode(writer)?;
         Ok(())
     }
 
@@ -126,6 +129,7 @@ impl Code for CachedMetadata {
         let channels = u32::decode(reader)?;
         let has_alpha = bool::decode(reader)?;
         let orientation = u32::decode(reader)?;
+        let pages = u32::decode(reader)?;
 
         Ok(CachedMetadata {
             width,
@@ -136,11 +140,12 @@ impl Code for CachedMetadata {
             channels,
             has_alpha,
             orientation,
+            pages,
         })
     }
 
     fn estimated_size(&self) -> usize {
-        std::mem::size_of::<u32>() * 4
+        std::mem::size_of::<u32>() * 5
             + std::mem::size_of::<usize>() * 2
             + std::mem::size_of::<bool>()
             + self.format.len()
@@ -149,6 +154,11 @@ impl Code for CachedMetadata {
 }
 
 /// Represents the different cache backends for imgforge value types.
+///
+/// Every backing store is behind an `Arc`, so cloning is a handle copy rather
+/// than a copy of the cache — which is what lets one cache be shared by more
+/// than one `AppState`.
+#[derive(Clone)]
 pub enum TypedCache<T>
 where
     T: Clone + Code + Send + Sync + 'static,

@@ -41,6 +41,7 @@ pub async fn info_handler(
                 "channels": info.channels,
                 "has_alpha": info.has_alpha,
                 "orientation": info.orientation,
+                "pages": info.pages,
             });
             (StatusCode::OK, Json(response)).into_response()
         }

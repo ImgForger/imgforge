@@ -1,6 +1,6 @@
 #[cfg(test)]
 #[path = "tests_support.rs"]
-mod tests_support;
+pub(crate) mod tests_support;
 
 #[cfg(test)]
 #[path = "tests/options_parse_tests.rs"]
@@ -33,3 +33,7 @@ mod pipeline_tests;
 #[cfg(test)]
 #[path = "tests/save_tests.rs"]
 mod save_tests;
+
+#[cfg(test)]
+#[path = "tests/animation_limit_tests.rs"]
+mod animation_limit_tests;

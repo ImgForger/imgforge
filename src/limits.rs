@@ -121,9 +121,85 @@ impl FromStr for MaxResultDimension {
     }
 }
 
+/// Validated ceiling on how many frames of an animated source are decoded.
+///
+/// An animation multiplies every cost by its frame count, so the source limits
+/// that bound a still image bound almost nothing here: a 1000-frame GIF well
+/// under the resolution ceiling still asks for a thousand times the work.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct MaxAnimationFrames(NonZeroU32);
+
+impl MaxAnimationFrames {
+    /// Construct a limit from a positive frame count.
+    pub fn new(frames: u32) -> Result<Self, SecurityLimitError> {
+        NonZeroU32::new(frames)
+            .map(Self)
+            .ok_or(SecurityLimitError::ZeroDimension)
+    }
+
+    /// Return the maximum allowed frame count.
+    pub fn get(self) -> u32 {
+        self.0.get()
+    }
+}
+
+impl FromStr for MaxAnimationFrames {
+    type Err = SecurityLimitError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        let frames = value.parse::<u32>().map_err(SecurityLimitError::InvalidDimension)?;
+        Self::new(frames)
+    }
+}
+
+/// Validated ceiling on the pixel count of a single animation frame.
+///
+/// Expressed in megapixels, like [`MaxSourceResolution`], because that is what
+/// imgproxy's `max_animation_frame_resolution` takes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct MaxAnimationFrameResolution(NonZeroU64);
+
+impl MaxAnimationFrameResolution {
+    /// Construct a limit from a finite, positive megapixel value.
+    pub fn from_megapixels(megapixels: f64) -> Result<Self, SecurityLimitError> {
+        MaxSourceResolution::from_megapixels(megapixels).map(|limit| Self(limit.0))
+    }
+
+    /// Return the maximum allowed pixel count per frame.
+    pub fn pixels(self) -> u64 {
+        self.0.get()
+    }
+}
+
+impl FromStr for MaxAnimationFrameResolution {
+    type Err = SecurityLimitError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        let megapixels = value.parse::<f64>().map_err(SecurityLimitError::InvalidResolution)?;
+        Self::from_megapixels(megapixels)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn animation_limits_reject_zero_and_nonsense() {
+        for value in ["0", "-1", "abc", ""] {
+            assert!(value.parse::<MaxAnimationFrames>().is_err(), "accepted {value}");
+            assert!(
+                value.parse::<MaxAnimationFrameResolution>().is_err(),
+                "accepted {value}"
+            );
+        }
+
+        assert_eq!("64".parse::<MaxAnimationFrames>().unwrap().get(), 64);
+        assert_eq!(
+            "1.5".parse::<MaxAnimationFrameResolution>().unwrap().pixels(),
+            1_500_000
+        );
+    }
 
     #[test]
     fn resolution_rejects_non_finite_and_non_positive_values() {

@@ -43,15 +43,11 @@ pub fn parse_hex_color(hex: &str) -> Result<[u8; 4], ColorParseError> {
 
 /// Parses a string into a boolean value.
 ///
-/// # Arguments
-///
-/// * `s` - The string to parse ("1", "true" for true, anything else for false).
-///
-/// # Returns
-///
-/// `true` if the string is "1" or "true" (case-sensitive), `false` otherwise.
+/// Accepts the set imgproxy accepts — `1`, `t`, `T`, `true`, `TRUE`, `True` —
+/// so a URL written against imgproxy's documentation reads the same here.
+/// Anything else, including an empty argument, is false.
 pub fn parse_boolean(s: &str) -> bool {
-    matches!(s, "1" | "true")
+    matches!(s, "1" | "t" | "T" | "true" | "TRUE" | "True")
 }
 
 /// Determines if the given dimensions represent a portrait orientation.

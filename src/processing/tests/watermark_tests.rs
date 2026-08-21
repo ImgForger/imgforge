@@ -1,5 +1,5 @@
 use crate::constants::ENV_WATERMARK_PATH;
-use crate::processing::options::Watermark;
+use crate::processing::options::{Watermark, WatermarkPosition};
 use crate::processing::watermark;
 use bytes::Bytes;
 use libvips::VipsImage;
@@ -19,7 +19,8 @@ fn test_apply_watermark() {
     let img = image_from(create_test_image(200, 200));
     let watermark_opts = Watermark {
         opacity: 0.5,
-        position: "ce".to_string(),
+        position: WatermarkPosition::parse("ce").unwrap(),
+        ..Watermark::default()
     };
     let watermarked_img = watermark::apply_watermark(img, &watermark, &watermark_opts, None).unwrap();
 
@@ -42,7 +43,8 @@ fn test_apply_watermark_prepared() {
     let img = VipsImage::new_from_buffer(&base, "").unwrap();
     let watermark_opts = Watermark {
         opacity: 0.5,
-        position: "soea".to_string(),
+        position: WatermarkPosition::parse("soea").unwrap(),
+        ..Watermark::default()
     };
     let watermarked = watermark::apply_watermark(img, &watermark, &watermark_opts, None).unwrap();
 
@@ -61,7 +63,8 @@ fn test_apply_watermark_prepared_matches_bytes_path() {
     let watermark_bytes = create_test_image(50, 50);
     let watermark_opts = Watermark {
         opacity: 0.5,
-        position: "ce".to_string(),
+        position: WatermarkPosition::parse("ce").unwrap(),
+        ..Watermark::default()
     };
 
     // The base buffers must outlive the (lazily evaluated) pipelines:
@@ -102,7 +105,8 @@ fn test_apply_watermark_prepared_rgb_watermark() {
     let img = VipsImage::new_from_buffer(&base, "").unwrap();
     let watermark_opts = Watermark {
         opacity: 0.5,
-        position: "ce".to_string(),
+        position: WatermarkPosition::parse("ce").unwrap(),
+        ..Watermark::default()
     };
     let watermarked = watermark::apply_watermark(img, &watermark, &watermark_opts, None).unwrap();
 
@@ -121,7 +125,8 @@ fn test_watermark_all_positions() {
         let img = image_from(create_test_image(200, 200));
         let watermark_opts = Watermark {
             opacity: 0.5,
-            position: position.to_string(),
+            position: WatermarkPosition::parse(position).unwrap(),
+            ..Watermark::default()
         };
         let watermarked = watermark::apply_watermark(img, &watermark, &watermark_opts, None).unwrap();
         assert_eq!(watermarked.get_width(), 200);
@@ -136,7 +141,8 @@ fn test_watermark_full_opacity() {
     let watermark = cached_watermark_from_bytes(create_test_image(50, 50));
     let watermark_opts = Watermark {
         opacity: 1.0,
-        position: "ce".to_string(),
+        position: WatermarkPosition::parse("ce").unwrap(),
+        ..Watermark::default()
     };
     let watermarked = watermark::apply_watermark(img, &watermark, &watermark_opts, None).unwrap();
     assert_eq!(watermarked.get_width(), 200);
@@ -150,7 +156,8 @@ fn test_watermark_zero_opacity() {
     let watermark = cached_watermark_from_bytes(create_test_image(50, 50));
     let watermark_opts = Watermark {
         opacity: 0.0,
-        position: "ce".to_string(),
+        position: WatermarkPosition::parse("ce").unwrap(),
+        ..Watermark::default()
     };
     let watermarked = watermark::apply_watermark(img, &watermark, &watermark_opts, None).unwrap();
     assert_eq!(watermarked.get_width(), 200);

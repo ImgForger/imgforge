@@ -1,7 +1,7 @@
 use crate::processing::options::SaveOptions;
 use crate::processing::save;
 use image::{ImageBuffer, Rgb};
-use libvips::{ops, VipsImage};
+use libvips::VipsImage;
 
 use super::tests_support::*;
 
@@ -58,7 +58,7 @@ fn test_webp_save_lossless_applies() {
     options.webp.lossless = Some(true);
 
     let img = VipsImage::new_from_buffer(&base, "").unwrap();
-    let lossless = save::save_image_with_options(img, "webp", 80, &options).unwrap();
+    let lossless = save::save_image_with_options(img, "webp", 80, &options, None).unwrap();
     let img = VipsImage::new_from_buffer(&base, "").unwrap();
     let lossy = save::save_image(img, "webp", 80).unwrap();
 
@@ -87,7 +87,7 @@ fn test_webp_save_honors_max_bytes() {
         ..Default::default()
     };
     let img = VipsImage::new_from_buffer(&base, "").unwrap();
-    let bounded = save::save_image_with_options(img, "webp", 95, &options).unwrap();
+    let bounded = save::save_image_with_options(img, "webp", 95, &options, None).unwrap();
 
     assert!(
         bounded.len() <= budget && bounded.len() < unbounded.len(),
@@ -102,16 +102,36 @@ fn test_webp_save_honors_max_bytes() {
 fn test_webp_save_suffix_carries_encoder_options() {
     let mut options = SaveOptions::default();
     assert_eq!(
-        save::webp_save_suffix(80, ops::ForeignKeep::All, &options),
+        save::save_suffix("webp", 80, &options, None).unwrap(),
         ".webp[Q=80,keep=all]"
     );
 
     options.webp.lossless = Some(true);
     options.webp.smart_subsample = Some(true);
     options.webp.preset = Some("photo".to_string());
+    options.strip_metadata = Some(true);
+    options.strip_color_profile = Some(true);
     assert_eq!(
-        save::webp_save_suffix(90, ops::ForeignKeep::None, &options),
+        save::save_suffix("webp", 90, &options, None).unwrap(),
         ".webp[Q=90,lossless,smart-subsample,preset=photo,keep=none]"
+    );
+}
+
+#[test]
+fn test_webp_save_suffix_carries_the_animation_frame_height() {
+    // libvips stores an animation as one tall image; without the frame height
+    // the encoder writes a single very tall still instead of an animation.
+    let options = SaveOptions::default();
+    assert_eq!(
+        save::save_suffix("webp", 80, &options, Some(40)).unwrap(),
+        ".webp[Q=80,page-height=40,keep=all]"
+    );
+
+    // A format that cannot hold more than one frame never gets the option,
+    // because naming it would be meaningless rather than merely redundant.
+    assert_eq!(
+        save::save_suffix("jpeg", 80, &options, Some(40)).unwrap(),
+        ".jpg[Q=80,optimize-coding,quant-table=0,subsample-mode=auto,keep=all]"
     );
 }
 
@@ -119,7 +139,7 @@ fn test_webp_save_suffix_carries_encoder_options() {
 fn test_webp_save_suffix_clamps_quality() {
     let options = SaveOptions::default();
     assert_eq!(
-        save::webp_save_suffix(0, ops::ForeignKeep::All, &options),
+        save::save_suffix("webp", 0, &options, None).unwrap(),
         ".webp[Q=1,keep=all]"
     );
 }
@@ -131,7 +151,7 @@ fn test_webp_save_suffix_drops_unknown_preset() {
     let mut options = SaveOptions::default();
     options.webp.preset = Some("photo],lossless".to_string());
     assert_eq!(
-        save::webp_save_suffix(75, ops::ForeignKeep::All, &options),
+        save::save_suffix("webp", 75, &options, None).unwrap(),
         ".webp[Q=75,keep=all]"
     );
 }
@@ -140,28 +160,63 @@ fn test_webp_save_suffix_drops_unknown_preset() {
 fn test_heif_save_suffix_carries_encoder_options() {
     let mut options = SaveOptions::default();
     assert_eq!(
-        save::heif_save_suffix("avif", "av1", 80, 7, ops::ForeignKeep::All, &options),
+        save::save_suffix("avif", 80, &options, None).unwrap(),
         ".avif[Q=80,compression=av1,effort=7,subsample-mode=auto,keep=all]"
     );
 
     options.avif.no_subsample = Some(true);
+    options.strip_metadata = Some(true);
+    options.strip_color_profile = Some(true);
     assert_eq!(
-        save::heif_save_suffix("heif", "hevc", 80, 12, ops::ForeignKeep::None, &options),
+        save::save_suffix("heif", 100, &options, None).unwrap(),
         // effort clamps to the 0-9 libvips accepts
-        ".heif[Q=80,compression=hevc,effort=9,subsample-mode=off,keep=none]"
+        ".heif[Q=100,compression=hevc,effort=9,subsample-mode=off,keep=none]"
     );
 }
 
 #[test]
 fn test_gif_save_suffix_carries_encoder_options() {
+    let options = SaveOptions::default();
     assert_eq!(
-        save::gif_save_suffix(5, ops::ForeignKeep::All),
+        save::save_suffix("gif", 50, &options, None).unwrap(),
         ".gif[effort=5,keep=all]"
     );
     // gifsave takes effort 1-10, unlike the 0-9 of the HEIF family
     assert_eq!(
-        save::gif_save_suffix(0, ops::ForeignKeep::None),
-        ".gif[effort=1,keep=none]"
+        save::save_suffix("gif", 1, &options, None).unwrap(),
+        ".gif[effort=1,keep=all]"
+    );
+}
+
+#[test]
+fn stripping_one_kind_of_metadata_keeps_the_other() {
+    // The two strip options address different flags. Collapsing them into a
+    // single "keep nothing" — which a one-variant enum forces — meant asking
+    // to drop the colour profile also discarded the EXIF, and the reverse.
+    let mut options = SaveOptions {
+        strip_metadata: Some(true),
+        ..SaveOptions::default()
+    };
+
+    assert_eq!(
+        save::save_suffix("webp", 80, &options, None).unwrap(),
+        ".webp[Q=80,keep=icc]"
+    );
+
+    options.strip_metadata = Some(false);
+    options.strip_color_profile = Some(true);
+    assert_eq!(
+        save::save_suffix("webp", 80, &options, None).unwrap(),
+        ".webp[Q=80,keep=exif|xmp|iptc|other]"
+    );
+
+    // A gain map is what makes an image HDR, so preserving HDR has to keep it
+    // even while everything else is being stripped.
+    options.strip_metadata = Some(true);
+    options.preserve_hdr = Some(true);
+    assert_eq!(
+        save::save_suffix("avif", 80, &options, None).unwrap(),
+        ".avif[Q=80,compression=av1,effort=7,subsample-mode=auto,keep=gainmap]"
     );
 }
 

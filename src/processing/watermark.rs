@@ -1,5 +1,5 @@
-use crate::processing::options::Watermark;
-use crate::processing::transform::{resize_with_algorithm, TransformError};
+use crate::processing::options::{Gravity, Watermark, WatermarkPosition};
+use crate::processing::transform::{calc_position, resize_with_algorithm, TransformError};
 use bytes::Bytes;
 use libvips::{ops, VipsImage};
 use thiserror::Error;
@@ -96,6 +96,15 @@ pub fn prepare_cached_watermark(bytes: Bytes) -> Result<CachedWatermark, Waterma
     Ok(CachedWatermark::from_prepared(bytes, prepared_rgba))
 }
 
+/// The fraction of the image width a watermark covers when the request does not
+/// ask for a size.
+///
+/// imgproxy leaves an unscaled watermark at its natural pixel size, which makes
+/// the same watermark dominate a thumbnail and vanish on a large render.
+/// imgforge has always sized it relative to the result instead, and keeps doing
+/// so; `scale` overrides it with imgproxy's own meaning.
+const DEFAULT_WATERMARK_WIDTH_FRACTION: f64 = 0.25;
+
 /// Applies a watermark to an image.
 pub fn apply_watermark(
     img: VipsImage,
@@ -104,9 +113,16 @@ pub fn apply_watermark(
     resizing_algorithm: Option<&str>,
 ) -> Result<VipsImage, WatermarkError> {
     let watermark_img = resolve_watermark_image(watermark)?;
+    if watermark_img.get_width() <= 0 || watermark_img.get_height() <= 0 {
+        return Ok(img);
+    }
 
-    // Resize watermark to be 1/4 of the main image's width, maintaining aspect ratio
-    let factor = (img.get_width() as f64 / 4.0) / watermark_img.get_width() as f64;
+    let fraction = if watermark_opts.scale > 0.0 {
+        watermark_opts.scale
+    } else {
+        DEFAULT_WATERMARK_WIDTH_FRACTION
+    };
+    let factor = (f64::from(img.get_width()) * fraction) / f64::from(watermark_img.get_width());
     let watermark_resized = resize_with_algorithm(
         &watermark_img,
         factor,
@@ -119,32 +135,63 @@ pub fn apply_watermark(
     let watermark_with_alpha = ensure_alpha_channel(watermark_resized)?;
 
     // Apply opacity
-    let multipliers = &mut [1.0, 1.0, 1.0, watermark_opts.opacity as f64];
+    let multipliers = &mut [1.0, 1.0, 1.0, f64::from(watermark_opts.opacity)];
     let adders = &mut [0.0, 0.0, 0.0, 0.0];
     let watermark_with_opacity = ops::linear(&watermark_with_alpha, multipliers, adders)
         .map_err(vips("Failed to apply opacity to watermark"))?;
 
-    // Calculate position
-    let (x, y) = calculate_watermark_position(&img, &watermark_with_opacity, &watermark_opts.position);
-
-    // Composite watermark
-    let bg = &mut [0.0, 0.0, 0.0, 0.0]; // transparent
-    let options = ops::EmbedOptions {
-        extend: ops::Extend::Background,
-        background: bg.to_vec(),
-    };
-
-    let watermark_on_canvas = ops::embed_with_opts(
-        &watermark_with_opacity,
-        x as i32,
-        y as i32,
-        img.get_width(),
-        img.get_height(),
-        &options,
-    )
-    .map_err(vips("Failed to embed watermark on canvas"))?;
+    let watermark_on_canvas = place_watermark(&img, &watermark_with_opacity, watermark_opts)?;
 
     ops::composite_2(&img, &watermark_on_canvas, ops::BlendMode::Over).map_err(vips("Failed to composite watermark"))
+}
+
+/// Builds a full-size canvas holding the watermark where the request wants it.
+fn place_watermark(img: &VipsImage, watermark: &VipsImage, options: &Watermark) -> Result<VipsImage, WatermarkError> {
+    let (canvas_w, canvas_h) = (img.get_width(), img.get_height());
+
+    match options.position {
+        WatermarkPosition::Replicate => tile_watermark(watermark, canvas_w, canvas_h),
+        WatermarkPosition::Anchor(kind) => {
+            let gravity = Gravity {
+                kind,
+                x: options.x_offset,
+                y: options.y_offset,
+            };
+            // Overflow is allowed so an offset can push part of the watermark
+            // off the edge, which is what a caller asking for a bleed wants.
+            let (x, y) = calc_position(
+                i64::from(canvas_w),
+                i64::from(canvas_h),
+                i64::from(watermark.get_width()),
+                i64::from(watermark.get_height()),
+                &gravity,
+                1.0,
+                true,
+            );
+
+            let embed_options = ops::EmbedOptions {
+                extend: ops::Extend::Background,
+                background: vec![0.0, 0.0, 0.0, 0.0],
+            };
+            ops::embed_with_opts(watermark, x as i32, y as i32, canvas_w, canvas_h, &embed_options)
+                .map_err(vips("Failed to embed watermark on canvas"))
+        }
+    }
+}
+
+/// Tiles the watermark across the whole image, for `re` positioning.
+fn tile_watermark(watermark: &VipsImage, canvas_w: i32, canvas_h: i32) -> Result<VipsImage, WatermarkError> {
+    let (wm_w, wm_h) = (watermark.get_width().max(1), watermark.get_height().max(1));
+    let across = tiles_needed(canvas_w, wm_w);
+    let down = tiles_needed(canvas_h, wm_h);
+
+    let tiled = ops::replicate(watermark, across, down).map_err(vips("Failed to tile watermark"))?;
+    ops::extract_area(&tiled, 0, 0, canvas_w, canvas_h).map_err(vips("Failed to trim tiled watermark"))
+}
+
+/// How many tiles of `tile` it takes to cover `extent`, rounding up.
+fn tiles_needed(extent: i32, tile: i32) -> i32 {
+    ((extent + tile - 1) / tile).max(1)
 }
 
 fn resolve_watermark_image(watermark: &CachedWatermark) -> Result<VipsImage, WatermarkError> {
@@ -182,25 +229,4 @@ fn build_prepared_watermark_image(watermark_img: VipsImage) -> Result<PreparedWa
     };
 
     Ok(prepared)
-}
-
-fn calculate_watermark_position(main_img: &VipsImage, watermark_img: &VipsImage, position: &str) -> (u32, u32) {
-    let main_w = main_img.get_width() as u32;
-    let main_h = main_img.get_height() as u32;
-    let wm_w = watermark_img.get_width() as u32;
-    let wm_h = watermark_img.get_height() as u32;
-    let margin = (main_w.min(main_h) as f32 * 0.05).round() as u32; // 5% margin
-
-    match position {
-        "no" => ((main_w - wm_w) / 2, margin),
-        "so" => ((main_w - wm_w) / 2, main_h - wm_h - margin),
-        "ea" => (main_w - wm_w - margin, (main_h - wm_h) / 2),
-        "we" => (margin, (main_h - wm_h) / 2),
-        "nowe" => (margin, margin),
-        "noea" => (main_w - wm_w - margin, margin),
-        "sowe" => (margin, main_h - wm_h - margin),
-        "soea" => (main_w - wm_w - margin, main_h - wm_h - margin),
-        "ce" => ((main_w - wm_w) / 2, (main_h - wm_h) / 2),
-        _ => ((main_w - wm_w) / 2, (main_h - wm_h) / 2),
-    }
 }
