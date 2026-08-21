@@ -278,6 +278,116 @@ fn axis_swapping_orientations_are_recognised() {
     assert!(!swaps_axes(&rotating, &Bytes::from_static(b"not an image")));
 }
 
+/// A JPEG whose EXIF block carries an orientation in IFD0 and a real embedded
+/// thumbnail in IFD1 — the shape `enforce_thumbnail` looks for. Built by hand
+/// like `exif_orientation_jpeg`, so the fixture needs no checked-in binary.
+fn thumbnail_jpeg(orientation: u16, thumb: &[u8]) -> Vec<u8> {
+    use image::{ImageBuffer, ImageFormat, Rgb};
+
+    let mut base = Vec::new();
+    ImageBuffer::<Rgb<u8>, Vec<u8>>::from_pixel(80, 40, Rgb([10, 20, 30]))
+        .write_to(&mut std::io::Cursor::new(&mut base), ImageFormat::Jpeg)
+        .unwrap();
+
+    let mut tiff = Vec::new();
+    tiff.extend_from_slice(b"II"); // little-endian
+    tiff.extend_from_slice(&42u16.to_le_bytes());
+    tiff.extend_from_slice(&8u32.to_le_bytes()); // IFD0 starts here
+
+    // IFD0: the orientation, then a link to IFD1.
+    let ifd1_offset = 8u32 + 2 + 12 + 4;
+    tiff.extend_from_slice(&1u16.to_le_bytes());
+    tiff.extend_from_slice(&0x0112u16.to_le_bytes()); // Orientation
+    tiff.extend_from_slice(&3u16.to_le_bytes()); // SHORT
+    tiff.extend_from_slice(&1u32.to_le_bytes());
+    tiff.extend_from_slice(&orientation.to_le_bytes());
+    tiff.extend_from_slice(&0u16.to_le_bytes()); // value field is 4 bytes wide
+    tiff.extend_from_slice(&ifd1_offset.to_le_bytes());
+
+    // IFD1: where the thumbnail lives and how long it is.
+    let thumb_offset = ifd1_offset + 2 + 2 * 12 + 4;
+    tiff.extend_from_slice(&2u16.to_le_bytes());
+    tiff.extend_from_slice(&0x0201u16.to_le_bytes()); // JPEGInterchangeFormat
+    tiff.extend_from_slice(&4u16.to_le_bytes()); // LONG
+    tiff.extend_from_slice(&1u32.to_le_bytes());
+    tiff.extend_from_slice(&thumb_offset.to_le_bytes());
+    tiff.extend_from_slice(&0x0202u16.to_le_bytes()); // JPEGInterchangeFormatLength
+    tiff.extend_from_slice(&4u16.to_le_bytes()); // LONG
+    tiff.extend_from_slice(&1u32.to_le_bytes());
+    tiff.extend_from_slice(&(thumb.len() as u32).to_le_bytes());
+    tiff.extend_from_slice(&0u32.to_le_bytes()); // no further IFD
+    tiff.extend_from_slice(thumb);
+
+    let mut app1 = Vec::from(&b"Exif\0\0"[..]);
+    app1.extend_from_slice(&tiff);
+
+    let mut out = Vec::new();
+    out.extend_from_slice(&base[..2]); // SOI
+    out.extend_from_slice(&[0xFF, 0xE1]);
+    out.extend_from_slice(&((app1.len() + 2) as u16).to_be_bytes());
+    out.extend_from_slice(&app1);
+    out.extend_from_slice(&base[2..]);
+    out
+}
+
+#[test]
+fn thumbnail_substitution_is_gated_and_keeps_the_source_in_view() {
+    use crate::processing::options::{Resize, ResizingType};
+    crate::processing::tests::tests_support::init_vips();
+
+    // An 80x40 source carrying a 16x8 thumbnail.
+    let mut thumb = Vec::new();
+    image::ImageBuffer::<image::Rgb<u8>, Vec<u8>>::from_pixel(16, 8, image::Rgb([40, 50, 60]))
+        .write_to(&mut std::io::Cursor::new(&mut thumb), image::ImageFormat::Jpeg)
+        .unwrap();
+
+    let request = |orientation: u16, w: u32, h: u32| -> (Bytes, ParsedOptions) {
+        let source = Bytes::from(thumbnail_jpeg(orientation, &thumb));
+        let options = ParsedOptions {
+            enforce_thumbnail: true,
+            auto_rotate: true,
+            resize: Some(Resize {
+                resizing_type: ResizingType::Fit,
+                width: w,
+                height: h,
+            }),
+            ..ParsedOptions::default()
+        };
+        (source, options)
+    };
+
+    // Covered: the thumbnail stands in, while metadata keeps reading the
+    // source and the ceilings keep measuring it.
+    let (source, options) = request(1, 10, 5);
+    let opened = open_source(&source, &options, "jpeg").unwrap();
+    assert_eq!((opened.image.get_width(), opened.image.get_height()), (16, 8));
+    assert_ne!(opened.decode_bytes, source, "the pixels come from the thumbnail");
+    assert_eq!(opened.metadata_bytes, source, "metadata still reads the source");
+    let ceiling = opened.constraint_image();
+    assert_eq!(
+        (ceiling.get_width(), ceiling.get_height()),
+        (80, 40),
+        "the ceilings measure the source, not the stand-in"
+    );
+
+    // Beyond the thumbnail: the full image is opened instead.
+    let (source, options) = request(1, 50, 20);
+    let opened = open_source(&source, &options, "jpeg").unwrap();
+    assert_eq!((opened.image.get_width(), opened.image.get_height()), (80, 40));
+    assert!(opened.original.is_none());
+
+    // Orientation 6 shows the 16x8 thumbnail as 8x16, so a 6x10 request fits
+    // only the transposed shape and a 10x6 request only the stored one. The
+    // gate has to judge the shape the viewer gets.
+    let (source, options) = request(6, 6, 10);
+    let opened = open_source(&source, &options, "jpeg").unwrap();
+    assert!(opened.original.is_some(), "covered once the axes are swapped");
+
+    let (source, options) = request(6, 10, 6);
+    let opened = open_source(&source, &options, "jpeg").unwrap();
+    assert!(opened.original.is_none(), "the stored axes no longer pass the gate");
+}
+
 #[test]
 fn raw_cache_keys_ignore_the_result_limit() {
     // The raw path inserts under the bare path, so the lookup key has to match

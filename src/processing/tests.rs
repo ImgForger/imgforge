@@ -1,6 +1,6 @@
 #[cfg(test)]
 #[path = "tests_support.rs"]
-mod tests_support;
+pub(crate) mod tests_support;
 
 #[cfg(test)]
 #[path = "tests/options_parse_tests.rs"]

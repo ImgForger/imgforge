@@ -248,19 +248,25 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
             .unwrap_or_else(|| "jpeg".to_string());
         parsed_options.format = Some(output_format.clone());
 
+        let opened = open_source(&image_bytes, &parsed_options, &output_format)?;
+
+        // Measured on the source as fetched, never on a substituted stand-in:
+        // the ceilings say what this deployment will accept, and a 10000px
+        // source is exactly as unacceptable when its thumbnail is small.
+        enforce_security_constraints(
+            blocking_state.as_ref(),
+            &parsed_options,
+            &opened.metadata_bytes,
+            source_content_type.as_deref(),
+            Some(opened.constraint_image()),
+        )?;
+
         let OpenedSource {
             image: source_image,
             decode_bytes,
             metadata_bytes,
-        } = open_source(&image_bytes, &parsed_options, &output_format)?;
-
-        enforce_security_constraints(
-            blocking_state.as_ref(),
-            &parsed_options,
-            &decode_bytes,
-            source_content_type.as_deref(),
-            Some(&source_image),
-        )?;
+            ..
+        } = opened;
 
         // Scale-on-load. The guards above must see the *original* dimensions,
         // so this comes after them: shrinking first would let a source sneak
@@ -320,6 +326,11 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
 /// stages after it read.
 struct OpenedSource {
     image: VipsImage,
+    /// The source as opened for the ceiling checks, present when a stand-in
+    /// occupies `image`. The ceilings describe the source as fetched, so they
+    /// are measured on it — judging them on the stand-in let a source over
+    /// `max_src_resolution` slip under the limit at its thumbnail's size.
+    original: Option<VipsImage>,
     /// The bytes the pixels came from — the embedded thumbnail when it was
     /// substituted. Format sniffing and reduced-scale reopening have to see
     /// these, because they describe the image actually in hand.
@@ -331,6 +342,13 @@ struct OpenedSource {
     metadata_bytes: Bytes,
 }
 
+impl OpenedSource {
+    /// The image the source ceilings are measured on.
+    fn constraint_image(&self) -> &VipsImage {
+        self.original.as_ref().unwrap_or(&self.image)
+    }
+}
+
 /// Opens the source, honouring `enforce_thumbnail` and the multi-page plan.
 fn open_source(
     image_bytes: &Bytes,
@@ -339,28 +357,8 @@ fn open_source(
 ) -> Result<OpenedSource, ServiceError> {
     if parsed_options.enforce_thumbnail {
         if let Some(thumbnail) = metadata::embedded_thumbnail(image_bytes) {
-            let thumbnail = Bytes::from(thumbnail);
-            match VipsImage::new_from_buffer(&thumbnail, "") {
-                // The stand-in is only taken when it covers what the request
-                // asks of it. An undersized one used to be taken anyway, and
-                // `enlarge:false` then capped a 1000px request at the 160px the
-                // thumbnail could provide.
-                Ok(img) if crate::processing::thumbnail_covers(parsed_options, img.get_width(), img.get_height()) => {
-                    debug!("Using the source's embedded thumbnail ({} bytes)", thumbnail.len());
-                    return Ok(OpenedSource {
-                        image: img,
-                        decode_bytes: thumbnail,
-                        metadata_bytes: image_bytes.clone(),
-                    });
-                }
-                Ok(img) => debug!(
-                    "Embedded thumbnail ({}x{}) cannot satisfy the request; using the full image",
-                    img.get_width(),
-                    img.get_height()
-                ),
-                // A thumbnail that will not decode is not a reason to fail the
-                // request; the full image is still there.
-                Err(err) => debug!("Embedded thumbnail did not decode ({}); using the full image", err),
+            if let Some(opened) = thumbnail_stand_in(image_bytes, Bytes::from(thumbnail), parsed_options) {
+                return Ok(opened);
             }
         }
     }
@@ -371,7 +369,65 @@ fn open_source(
 
     Ok(OpenedSource {
         image,
+        original: None,
         decode_bytes: image_bytes.clone(),
+        metadata_bytes: image_bytes.clone(),
+    })
+}
+
+/// The embedded thumbnail as a stand-in for the source, when it qualifies.
+///
+/// `None` means the full image should be opened instead — never a failed
+/// request, because the full image is still there.
+fn thumbnail_stand_in(image_bytes: &Bytes, thumbnail: Bytes, parsed_options: &ParsedOptions) -> Option<OpenedSource> {
+    let img = match VipsImage::new_from_buffer(&thumbnail, "") {
+        Ok(img) => img,
+        Err(err) => {
+            debug!("Embedded thumbnail did not decode ({}); using the full image", err);
+            return None;
+        }
+    };
+
+    // The gate below is written against what the viewer sees. The parent's
+    // EXIF orientation applies to the thumbnail's pixels too — same scene,
+    // same sensor — and orientations 5-8 transpose them after decoding, so a
+    // stored 160x120 answers a portrait request as 120x160.
+    let (width, height) = if source::swaps_axes(parsed_options, image_bytes) {
+        (img.get_height(), img.get_width())
+    } else {
+        (img.get_width(), img.get_height())
+    };
+
+    // The stand-in is only taken when it covers what the request asks of it.
+    // An undersized one used to be taken anyway, and `enlarge:false` then
+    // capped a 1000px request at the 160px the thumbnail could provide.
+    if !crate::processing::thumbnail_covers(parsed_options, width, height) {
+        debug!(
+            "Embedded thumbnail ({}x{}) cannot satisfy the request; using the full image",
+            width, height
+        );
+        return None;
+    }
+
+    // The source itself still has to be open for the ceiling checks. One that
+    // will not open cannot be measured against them, so it does not get to
+    // stand behind a thumbnail that would pass.
+    let original = match VipsImage::new_from_buffer(image_bytes, "") {
+        Ok(original) => original,
+        Err(err) => {
+            debug!(
+                "Source did not open for the ceiling checks ({}); using the full image",
+                err
+            );
+            return None;
+        }
+    };
+
+    debug!("Using the source's embedded thumbnail ({} bytes)", thumbnail.len());
+    Some(OpenedSource {
+        image: img,
+        original: Some(original),
+        decode_bytes: thumbnail,
         metadata_bytes: image_bytes.clone(),
     })
 }

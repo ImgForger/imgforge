@@ -263,4 +263,4 @@ fn enforce_result_dimension(parsed_options: &ParsedOptions, img: &VipsImage) -> 
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
