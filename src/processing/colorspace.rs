@@ -64,9 +64,19 @@ pub fn to_processing(img: VipsImage, keep_high_bit_depth: bool) -> Result<VipsIm
     // imgproxy does: it imports whenever a profile is present rather than
     // consulting the interpretation, and pays the same conversion on an image
     // whose profile is already sRGB.
+    // The transform's device space has a depth of its own, defaulting to 8
+    // bits. Left there, a profiled 16-bit source was quantised on its way
+    // through even when the pipeline was about to continue in `Rgb16` — the
+    // final hop below restored the 16-bit interpretation but the precision was
+    // already gone, a 16-bit container around 8-bit pixels.
+    let depth = match target {
+        ops::Interpretation::Rgb16 | ops::Interpretation::Grey16 => 16,
+        _ => 8,
+    };
     let options = ops::IccTransformOptions {
         embedded: true,
         intent: ops::Intent::Relative,
+        depth,
         ..Default::default()
     };
     match ops::icc_transform_with_opts(&img, "srgb", &options) {
