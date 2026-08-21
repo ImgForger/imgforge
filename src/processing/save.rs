@@ -63,7 +63,11 @@ const FORMATS: &[FormatSpec] = &[
         color_profile: true,
         animation: false,
         high_bit_depth: false,
-        max_dimension: Some(65_535),
+        // libjpeg's own JPEG_MAX_DIMENSION, which is deliberately below what
+        // the 16-bit SOF fields could hold. Taking the container's 65_535 let
+        // a result between 65_501 and 65_535 skip the fit and then fail in the
+        // encoder — the failure this limit exists to turn into a downscale.
+        max_dimension: Some(65_500),
     },
     FormatSpec {
         name: "png",

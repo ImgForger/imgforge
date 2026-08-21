@@ -167,3 +167,49 @@ pub fn create_bordered_image(
         .unwrap();
     bytes
 }
+
+/// An animated GIF of `frames` solid-colour frames, for exercising the
+/// multi-frame path.
+///
+/// Each frame is a different colour so a test can tell them apart, and can
+/// therefore catch a pipeline that silently reinterprets the frame boundaries
+/// rather than merely losing frames.
+pub fn create_animated_gif(width: u32, height: u32, frames: usize) -> Vec<u8> {
+    use image::codecs::gif::GifEncoder;
+    use image::{Delay, Frame};
+    use std::time::Duration;
+
+    let palette = [
+        Rgba([255, 0, 0, 255]),
+        Rgba([0, 255, 0, 255]),
+        Rgba([0, 0, 255, 255]),
+        Rgba([255, 255, 0, 255]),
+        Rgba([255, 0, 255, 255]),
+        Rgba([0, 255, 255, 255]),
+    ];
+
+    let mut bytes: Vec<u8> = Vec::new();
+    {
+        let mut encoder = GifEncoder::new(&mut bytes);
+        for index in 0..frames {
+            let buffer: RgbaImage = ImageBuffer::from_pixel(width, height, palette[index % palette.len()]);
+            encoder
+                .encode_frame(Frame::from_parts(
+                    buffer,
+                    0,
+                    0,
+                    Delay::from_saturating_duration(Duration::from_millis(100)),
+                ))
+                .expect("gif frame encodes");
+        }
+    }
+    bytes
+}
+
+/// How many frames an encoded image holds, as libvips reports them.
+pub fn frame_count(bytes: &[u8]) -> i32 {
+    let leaked: &'static [u8] = Box::leak(bytes.to_vec().into_boxed_slice());
+    VipsImage::new_from_buffer(leaked, "n=-1")
+        .expect("encoded image should decode")
+        .get_n_pages()
+}

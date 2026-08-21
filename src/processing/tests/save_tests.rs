@@ -310,3 +310,24 @@ fn test_tiff_is_lossless_at_max_quality_and_lossy_below() {
         "quality 60 should select JPEG compression, which is lossy"
     );
 }
+
+/// Each format's ceiling is the encoder's, not the container's. libjpeg refuses
+/// anything over `JPEG_MAX_DIMENSION` (65,500) even though a JPEG's 16-bit size
+/// fields could describe 65,535, so taking the wider number let a result in that
+/// 35-pixel band skip the fit and fail in the encoder anyway.
+#[test]
+fn format_ceilings_match_the_encoders_own_limits() {
+    use crate::processing::save::format_max_dimension;
+
+    assert_eq!(format_max_dimension("jpeg"), Some(65_500));
+    assert_eq!(format_max_dimension("jpg"), Some(65_500), "the alias shares the limit");
+    // GIF really is bounded by its 16-bit fields.
+    assert_eq!(format_max_dimension("gif"), Some(65_535));
+    // libwebp's own cap, and the HEIF family's.
+    assert_eq!(format_max_dimension("webp"), Some(16_383));
+    assert_eq!(format_max_dimension("avif"), Some(16_384));
+    assert_eq!(format_max_dimension("heif"), Some(16_384));
+    // PNG and TIFF address far more than any request will produce.
+    assert_eq!(format_max_dimension("png"), None);
+    assert_eq!(format_max_dimension("tiff"), None);
+}

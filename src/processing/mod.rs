@@ -20,7 +20,7 @@ use bytes::Bytes;
 use libvips::VipsImage;
 use std::time::Instant;
 use thiserror::Error;
-use tracing::debug;
+use tracing::{debug, warn};
 
 pub use scale_on_load::{load_scale_factor, load_shrink_factor, thumbnail_covers};
 
@@ -94,6 +94,18 @@ pub fn process_image(
     let frames = animation::split(&img)?;
     enforce_frame_limit(&parsed_options, &frames, source_bytes)?;
 
+    // Trim measures one image's borders, and an animation is not one image. Run
+    // per frame it finds a different region in each — a subject that grows across
+    // the animation trims to a different width every frame — and no animated
+    // container can hold that, because the frames share a single canvas. The
+    // join would refuse them and the whole request would fail on an option that
+    // is otherwise perfectly reasonable. imgproxy draws the same conclusion and
+    // drops the option with a warning rather than failing, so this matches it.
+    if parsed_options.trim.is_some() && frames.images.len() > 1 {
+        warn!("Trim is not supported for animated images; ignoring it for this request");
+        parsed_options.trim = None;
+    }
+
     let processed = frames
         .images
         .into_iter()
@@ -103,6 +115,26 @@ pub fn process_image(
             }
             Ok(pipeline::transform_frame(frame, &parsed_options, watermark)?)
         })
+        .collect::<Result<Vec<_>, ProcessingError>>()?;
+
+    // Both ceilings below describe a frame the caller sees. Applying them to
+    // the joined stack measured frame height times frame count, so a ten-frame
+    // 100x100 animation failed a 500px limit and a tall stack was needlessly
+    // downscaled — with the page height passed to the encoder left describing
+    // the frames from before that scaling, which misdivides them.
+    //
+    // The configured ceiling is checked first: it is policy, not fitting. A
+    // result over `max_result_dimension` is refused, and letting the encoder
+    // limit quietly scale it down first turned that refusal into acceptance —
+    // a 20,000px result under an 18,000px ceiling came back as 16,383px
+    // instead of the documented 400.
+    if let Some(frame) = processed.first() {
+        enforce_result_dimension(&parsed_options, frame)?;
+    }
+
+    let processed = processed
+        .into_iter()
+        .map(|frame| fit_within_format_limits(frame, &output_format, parsed_options.resizing_algorithm.as_deref()))
         .collect::<Result<Vec<_>, ProcessingError>>()?;
 
     let (mut img, page_height) = animation::join(processed)?;
@@ -118,8 +150,6 @@ pub fn process_image(
             img = transform::apply_background_color(img, bg_color)?;
         }
     }
-
-    enforce_result_dimension(&parsed_options, &img)?;
 
     let quality = parsed_options
         .quality
@@ -175,6 +205,44 @@ fn apply_dpr(parsed_options: &mut ParsedOptions) {
         padding.2 = (padding.2 as f32 * dpr).round() as u32;
         padding.3 = (padding.3 as f32 * dpr).round() as u32;
     }
+}
+
+/// Scales a result down to what the output container can address.
+///
+/// WebP cannot represent a side over 16383 and the HEIF family stops at 16384.
+/// Handing the encoder something larger fails at the very end of the pipeline,
+/// after all the work is done, with a message about the codec rather than about
+/// the size — so a request that is merely too big for its chosen format looks
+/// like a server fault. imgproxy rescales here for the same reason.
+fn fit_within_format_limits(
+    img: VipsImage,
+    output_format: &str,
+    resizing_algorithm: Option<&str>,
+) -> Result<VipsImage, ProcessingError> {
+    let Some(limit) = save::format_max_dimension(output_format) else {
+        return Ok(img);
+    };
+
+    let largest = img.get_width().max(img.get_height());
+    let Ok(largest) = u32::try_from(largest) else {
+        return Ok(img);
+    };
+    if largest <= limit {
+        return Ok(img);
+    }
+
+    let scale = f64::from(limit) / f64::from(largest);
+    debug!(
+        "Rescaling by {:.4} so a {}px result fits the {} limit of {}px",
+        scale, largest, output_format, limit
+    );
+    Ok(transform::resize_with_algorithm(
+        &img,
+        scale,
+        None,
+        resizing_algorithm,
+        "Error fitting the result to the output format",
+    )?)
 }
 
 /// Rejects an animation whose individual frames are too large.
