@@ -66,7 +66,14 @@ pub async fn info_handler(
                 "orientation": info.orientation,
                 "pages": info.pages,
             });
-            (StatusCode::OK, Json(response)).into_response()
+            // The grant has to be on the answer, not just the preflight and
+            // the errors — without it a cross-origin request completes at the
+            // server and the caller still cannot read the JSON.
+            let mut headers = HeaderMap::new();
+            if let Some(origin) = state.config.allow_origin.as_deref() {
+                insert_header(&mut headers, header::ACCESS_CONTROL_ALLOW_ORIGIN, origin);
+            }
+            (StatusCode::OK, headers, Json(response)).into_response()
         }
         Err(err) => {
             error!(path, error = ?err, "Info handler error");

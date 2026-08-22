@@ -72,9 +72,17 @@ impl RequestHints {
                 }
 
                 // Anything unparseable, or absent, is the default of 1.
+                // Parameter names are case-insensitive, so `Q=0` refuses a
+                // type exactly as `q=0` does — reading only the lowercase
+                // spelling turned that refusal into the default full weight.
                 Some(
                     parts
-                        .filter_map(|parameter| parameter.strip_prefix("q="))
+                        .filter_map(|parameter| {
+                            parameter
+                                .get(..2)
+                                .filter(|prefix| prefix.eq_ignore_ascii_case("q="))
+                                .map(|_| &parameter[2..])
+                        })
                         .next()
                         .and_then(|q| q.parse::<f32>().ok())
                         .unwrap_or(1.0),
@@ -286,6 +294,12 @@ mod tests {
             Some("webp")
         );
         assert_eq!(negotiate_format(&config, &accepting("image/webp;q=0.0"), false), None);
+        // Parameter names are case-insensitive too: `Q=0` is the same refusal,
+        // not an unrecognised parameter defaulting to full weight.
+        assert_eq!(
+            negotiate_format(&config, &accepting("image/avif;Q=0, image/webp"), false),
+            Some("webp")
+        );
         // A positive quality still counts, and matching is case-insensitive.
         assert_eq!(
             negotiate_format(&config, &accepting("IMAGE/WEBP;q=0.5"), false),

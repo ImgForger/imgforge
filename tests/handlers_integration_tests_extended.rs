@@ -892,6 +892,31 @@ async fn bearer_protected_responses_are_never_publicly_cacheable() {
     assert_eq!(delivery_header(&response, "cache-control").as_deref(), Some("private"));
 }
 
+/// The CORS grant has to be on the successful `/info` answer itself: a browser
+/// that passed the preflight still cannot read JSON that arrives without it.
+#[tokio::test]
+async fn info_success_responses_carry_the_cors_grant() {
+    let server = MockServer::start().await;
+    let encoded = delivery_source(&server, &[]).await;
+    let uri = format!("/info/unsafe/{encoded}");
+
+    let mut config = delivery_config();
+    config.allow_origin = Some("https://app.example.test".to_string());
+    let app = axum::Router::new()
+        .route("/info/{*path}", axum::routing::get(imgforge::handlers::info_handler))
+        .with_state(delivery_state(config).await);
+    let response = app
+        .oneshot(Request::builder().uri(&uri).body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers().get("access-control-allow-origin").unwrap(),
+        "https://app.example.test"
+    );
+}
+
 /// `Authorization` is not a safelisted request header, so a browser holding a
 /// bearer token sends OPTIONS before the real request. A router answering only
 /// GET turned that preflight into a 405, and no header on the eventual GET
