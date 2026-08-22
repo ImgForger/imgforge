@@ -921,13 +921,31 @@ async fn serve_source_response(
 
     let headers = DeliveryHeaders::build(&state.config, source_metadata, &image_bytes, vary);
 
+    // A passthrough returns the source as the result, so both halves of the
+    // diagnostics describe the same bytes. Leaving the whole struct out
+    // silently switched the feature off for raw and skip_processing requests.
+    let debug = state.config.enable_debug_headers.then(|| {
+        let mut debug = DebugInfo {
+            origin_bytes: image_bytes.len(),
+            ..DebugInfo::default()
+        };
+        if let Ok(img) = VipsImage::new_from_buffer(&image_bytes, "") {
+            let (width, height) = (img.get_width().max(0) as u32, img.get_height().max(0) as u32);
+            debug.origin_width = width;
+            debug.origin_height = height;
+            debug.result_width = width;
+            debug.result_height = height;
+        }
+        debug
+    });
+
     Ok(ProcessedImage {
         bytes: image_bytes,
         content_type,
         cache_status: CacheStatus::Miss,
         content_disposition,
         headers,
-        debug: None,
+        debug,
     })
 }
 
