@@ -18,6 +18,13 @@ GRAFANA_PORT=3001
 METRICS_PORT=9000
 DEPLOYMENT_DIR="$HOME/.imgforge"
 
+# The unprivileged user inside the image. Bind-mounted directories are shared by
+# numeric ID, so anything the container must write to has to be owned by these
+# rather than by the host account running this script. Keep in step with the
+# useradd in the Dockerfile.
+IMGFORGE_CONTAINER_UID=10001
+IMGFORGE_CONTAINER_GID=10001
+
 # Helper functions
 print_header() {
     echo ""
@@ -354,7 +361,12 @@ create_deployment_structure() {
     
     if [ "$CACHE_TYPE" = "disk" ] || [ "$CACHE_TYPE" = "hybrid" ]; then
         sudo mkdir -p "$CACHE_DISK_PATH"
-        sudo chown -R "$USER:$USER" "$CACHE_DISK_PATH" 2>/dev/null || true
+        # Owned by the container's user, not the host's. imgforge runs
+        # unprivileged as UID 10001 inside the image and creates its own cache
+        # files, so a directory owned by whoever ran this script is one the
+        # server cannot write to — it fails during cache initialization and
+        # never finishes starting.
+        sudo chown -R "$IMGFORGE_CONTAINER_UID:$IMGFORGE_CONTAINER_GID" "$CACHE_DISK_PATH" 2>/dev/null || true
     fi
     
     if [ "$ENABLE_MONITORING" = true ]; then

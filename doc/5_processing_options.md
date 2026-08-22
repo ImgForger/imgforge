@@ -15,21 +15,22 @@ Unrecognised directive *names* are ignored rather than rejected, so a typo silen
 | `resizing_algorithm`    | `ra`       | `algorithm`                                                 | Interpolation kernel for resize operations. Defaults to `lanczos3`.                                          |
 | `width`                 | `w`        | `value`                                                     | Sets a target width (infers height). Implies `fit`.                                                          |
 | `height`                | `h`        | `value`                                                     | Sets a target height (infers width). Implies `fit`.                                                          |
-| `gravity`               | `g`        | `anchor`                                                    | Controls crop/fill anchoring (`ce`, `noea`, etc.). Defaults to `ce`.                                         |
+| `gravity`               | `g`        | `type[:x_offset[:y_offset]]`                                | Controls crop/fill anchoring (`ce`, `noea`, `fp`, ...). Defaults to `ce:0:0`.                                |
 | `flip`                  | `fl`       | `horizontal[:vertical]`                                     | Flips the image horizontally and/or vertically. Defaults to no flip.                                         |
 | `enlarge`               | `el`       | `bool`                                                      | Allows upscaling globally. Defaults to `false`.                                                              |
-| `extend`                | `ex`       | `bool`                                                      | Pads to target dimensions after resize. Defaults to `false`.                                                 |
-| `padding`               | `pd`       | `top[:right][:bottom][:left]`                               | Adds padding after resizing. Defaults to zero padding.                                                       |
-| `min-width`             | `mw`       | `value`                                                     | Floor for result width. Upscales regardless of `enlarge`.                                                    |
-| `min-height`            | `mh`       | `value`                                                     | Floor for result height. Upscales regardless of `enlarge`.                                                   |
-| `zoom`                  | `z`        | `factor`                                                    | Multiplies dimensions after resizing. Defaults to `1.0`.                                                     |
-| `crop`                  | `c`        | `width:height[:gravity]`                                    | Crops before resizing. Gravity positions the window. No crop by default.                                     |
+| `extend`                | `ex`       | `bool[:gravity]`                                            | Pads to target dimensions after resize. Defaults to `false:ce:0:0`.                                          |
+| `extend_aspect_ratio`   | `exar`, `extend_ar` | `bool[:gravity]`                                   | Pads to the target aspect ratio without reaching its size. Defaults to `false:ce:0:0`.                       |
+| `padding`               | `pd`       | `top[:right[:bottom[:left]]]`                               | Adds padding after resizing, CSS shorthand rules. Defaults to zero padding.                                  |
+| `min-width`             | `mw`, `min_width` | `value`                                              | Floor for result width. Upscales regardless of `enlarge`.                                                    |
+| `min-height`            | `mh`, `min_height` | `value`                                             | Floor for result height. Upscales regardless of `enlarge`.                                                   |
+| `zoom`                  | `z`        | `factor` or `zoom_x:zoom_y`                                 | Multiplies dimensions after resizing. Defaults to `1.0`.                                                     |
+| `crop`                  | `c`        | `width:height[:gravity]`                                    | Crops before resizing. Values below 1 are a fraction of the source. Gravity positions the window.            |
 | `trim`                  | `t`        | `threshold[:color[:equal_hor[:equal_ver]]]`                 | Removes a uniform border before cropping and resizing. Ignored for animated sources.                         |
 | `rotate`                | `rot`      | `0\|90\|180\|270`                                           | Applies fixed rotation. Defaults to `0`.                                                                     |
 | `auto_rotate`           | `ar`       | `bool`                                                      | Honours EXIF orientation (`true` by default).                                                                |
-| `adjust`                | `a`        | `brightness[:contrast[:saturation]]`                        | Meta-option for brightness, contrast, and saturation. Saturation is applied; brightness/contrast are parsed. |
-| `brightness`            | `br`       | `-255..255`                                                 | Parsed for imgproxy compatibility.                                                                           |
-| `contrast`              | `co`       | `factor`                                                    | Parsed for imgproxy compatibility.                                                                           |
+| `adjust`                | `a`        | `brightness[:contrast[:saturation]]`                        | Meta-option for brightness, contrast, and saturation.                                                        |
+| `brightness`            | `br`       | `-255..255`                                                 | Added to every colour channel. Defaults to `0`.                                                              |
+| `contrast`              | `co`       | `factor`                                                    | Multiplier applied around mid-grey. Defaults to `1.0`.                                                       |
 | `saturation`            | `sa`       | `factor`                                                    | Adjusts saturation when the image has RGB/RGBA bands. Defaults to `1.0`.                                     |
 | `blur`                  | `bl`       | `sigma`                                                     | Gaussian blur (0 disables).                                                                                  |
 | `sharpen`               | `sh`       | `sigma`                                                     | Sharpens edges.                                                                                              |
@@ -41,25 +42,30 @@ Unrecognised directive *names* are ignored rather than rejected, so a typo silen
 | `format`                | `f`, `ext` | `jpeg\|png\|webp\|avif\|...`                                | Output format. Defaults to the source image's format; see `IMGFORGE_DEFAULT_FORMAT`.                         |
 | `max_bytes`             | `mb`       | `bytes`                                                     | Re-encodes lossy formats at lower quality until the byte target is reached or quality reaches `1`.           |
 | `strip_metadata`        | `sm`       | `bool`                                                      | Drops encoder metadata when supported by the output format.                                                  |
-| `strip_color_profile`   | `scp`      | `bool`                                                      | Drops color profile metadata with the same encoder path as metadata stripping.                               |
+| `strip_color_profile`   | `scp`      | `bool`                                                      | Drops the embedded colour profile, leaving other metadata alone.                                             |
+| `keep_copyright`        | `kcr`      | `bool`                                                      | Retains the EXIF copyright and artist tags across a metadata strip. JPEG output only.                        |
+| `preserve_hdr`          | `ph`       | `bool`                                                      | Keeps a high bit-depth image high bit-depth and carries its gain map through. Needs libvips 8.16+.           |
+| `enforce_thumbnail`     | `eth`      | `bool`                                                      | Uses the source's embedded EXIF thumbnail instead of the full image when one is present.                     |
 | `jpeg_options`          | `jpgo`     | `progressive:no_subsample:trellis:dering:scans:quant_table` | Advanced JPEG encoder switches.                                                                              |
 | `png_options`           | `pngo`     | `interlaced:quantize:colors`                                | Advanced PNG encoder switches.                                                                               |
 | `webp_options`          | `webpo`    | `lossless:smart_subsample:preset`                           | Advanced WebP encoder switches.                                                                              |
 | `avif_options`          | `avifo`    | `no_subsample`                                              | Advanced AVIF/HEIF encoder switches.                                                                         |
-| `page`                  | `pg`       | `page`                                                      | Parses requested multi-page/animation page for imgproxy-compatible URLs.                                     |
-| `pages`                 | `pgs`      | `count`                                                     | Parses requested multi-page/animation page count.                                                            |
-| `disable_animation`     | `da`       | `bool`                                                      | Parses animation disable intent for compatibility.                                                           |
+| `page`                  | `pg`       | `page`                                                      | First page of a multi-page or animated source to read. Defaults to `0`.                                      |
+| `pages`                 | `pgs`      | `count`                                                     | How many pages to read. Defaults to all of them for an animated output format, one otherwise.                |
+| `disable_animation`     | `da`       | `bool`                                                      | Collapses an animated source to its first frame.                                                             |
 | `dpr`                   | —          | `1.0-5.0`                                                   | Device pixel ratio multiplier. Defaults to `1.0`.                                                            |
-| `raw`                   | —          | —                                                           | Skips the concurrency semaphore. Defaults to disabled.                                                       |
+| `raw`                   | —          | `[bool]`                                                    | Returns the source bytes untouched. Defaults to disabled.                                                    |
 | `cachebuster`           | `cb`       | `token`                                                     | Alters the cache key.                                                                                        |
 | `expires`               | `exp`      | `unix_timestamp`                                            | Returns `404` after the timestamp.                                                                           |
 | `filename`              | `fn`       | `filename[:encoded]`                                        | Sets `Content-Disposition` filename.                                                                         |
 | `return_attachment`     | `att`      | `bool`                                                      | Uses `attachment` instead of `inline` when `filename` is set.                                                |
-| `skip_processing`       | `skp`      | `extension...`                                              | Parses source format skip hints for signed URL compatibility.                                                |
+| `skip_processing`       | `skp`      | `extension...`                                              | Returns the source untouched when its format is listed and no conversion was asked for.                      |
 | `max_src_resolution`    | `msr`      | `megapixels`                                                | Request-level override. Requires server opt-in.                                                              |
 | `max_src_file_size`     | `msfs`     | `bytes`                                                     | Request-level override. Requires server opt-in.                                                              |
 | `max_result_dimension`  | `mrd`      | `pixels`                                                    | Request-level override of the output size ceiling. Requires server opt-in.                                   |
-| `watermark`             | `wm`       | `opacity:position`                                          | Enables watermarking. Requires watermark asset.                                                              |
+| `max_animation_frames`  | `maf`      | `count`                                                     | Request-level override of the animation frame ceiling. Requires server opt-in.                               |
+| `max_animation_frame_resolution` | `mafr` | `megapixels`                                        | Request-level override of the per-frame resolution ceiling. Requires server opt-in.                          |
+| `watermark`             | `wm`       | `opacity[:position[:x_offset[:y_offset[:scale]]]]`          | Enables watermarking. Requires a watermark asset.                                                            |
 | `watermark_url`         | `wmu`      | `base64url(url)`                                            | Fetches watermark per request. Overrides server default path.                                                |
 
 ## Presets
@@ -99,11 +105,17 @@ See [Presets](5.2_presets.md) for comprehensive preset documentation including p
 
 ### `resize:type:width:height[:enlarge][:extend]`
 
-- **Types** – `fill`, `fit`, `force`, and `auto`. `auto` selects `fill` when orientations match and `fit` otherwise.
+- **Types** – `fit`, `fill`, `fill-down`, `force`, and `auto`. `auto` selects `fill` when the source and the box share an orientation and `fit` otherwise. `fill-down` is `fill` except that a result which came out smaller than the box is cropped to the box's *aspect ratio* rather than left at its own shape — use it when the composition matters more than the exact size.
 - **Defaults** – If width or height are omitted (or `0`), imgforge preserves aspect ratio using the provided dimension. `enlarge` and `extend` default to `false` unless explicitly set.
 - **Enlarging** – `enlarge:false` (the default) means the image is never scaled *up*; it does not mean the resize is skipped. The resizing type settles the scale first, then that scale is capped so no axis grows. A 1600×400 banner asked for `resize:fit:500:500` still comes back at 500×125 — it fits the box, it just is not enlarged to fill it. Only when every axis would grow does the image pass through untouched.
 - With `fill`, capping can leave the result smaller than the requested box: covering a 500×200 box from a 1000×100 source would need a 2× upscale, so the crop takes what exists and returns 500×100. Set `enlarge:true` to get the exact box. `min-width`/`min-height` are the other way to force a size — see below, they upscale regardless.
-- **Extending** – `extend:true` pads the canvas to the requested size after resizing but before padding. The background colour determines the filled area.
+- **Extending** – `extend:true` pads the canvas to the requested size after resizing but before padding. The background colour determines the filled area. `extend` takes its own gravity — `extend:true:so` pins the image to the bottom of the new canvas — which is independent of the request's `gravity`.
+
+### `extend_aspect_ratio`
+
+`extend_aspect_ratio:true[:gravity]` (`exar`, `extend_ar`) pads out to the *shape* the resize asked for without reaching its size. Where `extend` fills the canvas to exactly `width`x`height`, this grows only the short axis until the ratio matches, leaving every source pixel at the size the resize produced. It is what you want for a uniform grid of thumbnails whose sources have mixed aspect ratios but whose displayed size should follow the image.
+
+It has no effect with `force`, which already hit the requested box exactly.
 
 ### `size`
 
@@ -131,23 +143,27 @@ Pick on appearance rather than speed: the kernel is rarely where the processing 
 
 ### `gravity`
 
-Gravity defaults to `ce`. It influences:
+`gravity:type[:x_offset[:y_offset]]`, defaulting to `ce:0:0`. It influences:
 
-- Cropping windows when `fill` or `crop` is used.
-- Canvas alignment for `extend`.
-- Watermark positioning when combined with the `watermark` option (gravity only applies if you omit an explicit watermark position).
+- Cropping windows when `fill`, `fill-down`, or `crop` is used.
+- Canvas alignment for `extend` and `extend_aspect_ratio`, each of which can also carry its own.
+- Watermark positioning, via the `watermark` option's own position argument.
 
-imgforge accepts imgproxy's gravity anchors: `ce`, `no`, `so`, `ea`, `we`, `noea`, `nowe`, `soea`, and `sowe`.
+imgforge accepts imgproxy's gravity anchors: `ce`, `no`, `so`, `ea`, `we`, `noea`, `nowe`, `soea`, `sowe`, and `fp`.
+
+**Offsets** nudge the window away from its anchor. A magnitude of 1 or more is a pixel count; anything smaller is a fraction of the axis being positioned. `gravity:no:0:20` takes the window from 20px below the top edge; `gravity:no:0:0.1` takes it from a tenth of the way down. The window is still clamped to the image, so an offset cannot push it off the edge.
+
+**Focus point** — `gravity:fp:x:y` — reads the two arguments as coordinates between 0 and 1 and centres the result on that point. `gravity:fp:0.5:0.25` keeps the middle of the upper quarter in view, which is the usual answer for portraits where a centre crop cuts off the head.
 
 ### Minimum dimensions & zoom
 
 - `min-width` and `min-height` trigger an extra resize pass when the image is still smaller after primary resizing. This pass **upscales regardless of `enlarge`** — the minimums are a floor, and `enlarge:false` does not override them. Use them only when you actually want a guaranteed size.
 - That pass scales both axes by the same factor, so aspect ratio is preserved: `min-width:500` on a 100×100 image returns 500×500, not 500×100.
-- `zoom` multiplies dimensions after resizing and minimum checks. Values < 1 shrink the image; values > 1 enlarge it even if `enlarge` is `false`.
+- `zoom` multiplies dimensions after resizing and minimum checks. Values < 1 shrink the image; values > 1 enlarge it even if `enlarge` is `false`. A second argument gives the axes independent factors: `zoom:2:1` doubles the width alone.
 
 ### `padding`
 
-- Accepts 1, 2, or 4 integers representing pixels.
+- Accepts 1 to 4 integers representing pixels, following the CSS shorthand: one value pads every side, two are vertical then horizontal, three are top, horizontal, bottom, and four are top, right, bottom, left.
 - Padding runs after resizing/extend, so it doesn’t influence aspect ratio.
 - `dpr` scaling multiplies all padding values before rendering.
 - Transparent padding respects the output format: JPEG outputs are flattened against the background colour.
@@ -158,7 +174,9 @@ imgforge accepts imgproxy's gravity anchors: `ce`, `no`, `so`, `ea`, `we`, `noea
 
 `crop:width:height[:gravity]` executes before any resizing, isolating a region for the rest of the pipeline to work on.
 
-There are no x/y coordinates in the URL form: **gravity is what positions the crop window**. Without it the region is taken from the top-left. `crop:300:200:soea` takes a 300×200 region from the bottom-right corner. A width or height of `0` means "the full source extent in that direction", and both are clamped to the source, so asking for more than exists yields the whole image rather than an error.
+There are no x/y coordinates in the URL form: **gravity is what positions the crop window**, and it accepts the same offsets and focus point as the `gravity` option. `crop:300:200:soea` takes a 300×200 region from the bottom-right corner; `crop:300:200:fp:0.5:0.3` centres it on a point. Without a gravity of its own, the crop falls back to the request's `gravity`, which defaults to centre.
+
+**Fractional extents.** A width or height below 1 is read as a fraction of the source, so `crop:0.5:0.5` takes the middle quarter of any image whatever its size. A value of `0` means "the full source extent in that direction", and everything is clamped to the source, so asking for more than exists yields the whole image rather than an error.
 
 ### `trim`
 
@@ -218,9 +236,20 @@ Defaults to `85` for lossy codecs (JPEG, WebP, AVIF). `quality` is ignored for l
 - `webp_options` maps to lossless, smart chroma subsampling, and encoder preset controls. Preset names outside libvips' own set (`default`, `picture`, `photo`, `drawing`, `icon`, `text`) are accepted in URLs but ignored by the encoder.
 - `avif_options` maps to AVIF/HEIF chroma subsampling.
 
-WebP, AVIF, HEIF, and GIF are encoded through the libvips save suffix (`.webp[Q=80,keep=all]` and friends) rather than the libvips crate's generated save bindings. Those bindings name encoder properties that only exist in libvips 8.16 and later — `exact` on webpsave, `tune` on heifsave, `keep-duplicate-frames` on gifsave — and an older libvips rejects the whole call with `no property named ...`, so nothing encodes. Ubuntu 24.04, the base of the published image, ships libvips 8.15.1, which is exactly that case. JPEG, PNG, and TIFF use the generated bindings; every property they name predates 8.15.
+Every format is encoded through the libvips save suffix (`.webp[Q=80,keep=all]` and friends) rather than the crate's generated save bindings. Those bindings name encoder properties that only exist in libvips 8.16 and later — `exact` on webpsave, `tune` on heifsave, `keep-duplicate-frames` on gifsave — and an older libvips rejects the whole call with `no property named ...`, so nothing encodes at all. The suffix parser sets only the options named, which keeps one code path working across libvips versions, and it is also the only form that can express a *combination* of metadata `keep` flags.
 
-Formats also depend on what your libvips was compiled with. A build without an HEVC encoder advertises `heif` support but fails at encode time with `Unsupported compression`; AVIF, which uses a different codec, is unaffected.
+That combination is why `strip_metadata` and `strip_color_profile` are now independent: stripping the colour profile keeps `keep=exif|xmp|iptc|other`, and stripping metadata keeps `keep=icc`. Previously either one dropped everything.
+
+Formats also depend on what your libvips was compiled with. imgforge probes the codec-backed formats by encoding a real pixel once at startup, so a build with no AV1 or HEVC encoder reports AVIF or HEIF as an unsupported *format* — a clear `400` — instead of failing at encode time with `Unsupported compression` and a `500`.
+
+A result too large for its output container is scaled down to fit rather than handed to an encoder that will refuse it: WebP stops at 16383px on a side, AVIF and HEIF at 16384.
+
+### Metadata
+
+- **`strip_metadata`** drops the descriptive tags (EXIF, XMP, IPTC) and leaves the colour profile alone. **`strip_color_profile`** does the reverse. Set both to drop everything.
+- **`keep_copyright`** carries the EXIF `Copyright` and `Artist` tags across a `strip_metadata`. libvips has no copyright granularity in its `keep` flags — they are `none|exif|xmp|iptc|icc|other|gainmap|all` — so imgforge reads the two fields from the source and splices a minimal EXIF segment back into the encoded result. That mechanism is JPEG-only; other output formats strip as normal, and the option is a no-op for them.
+- **`preserve_hdr`** keeps a high bit-depth source at its own depth when the output format can carry it (PNG, TIFF, AVIF, HEIF) and retains the gain map that makes the image HDR, even while other metadata is being stripped. The gain-map flag needs libvips 8.16 or later; on an older build, enabling it makes the encode fail.
+- **`enforce_thumbnail`** uses the source's embedded EXIF thumbnail in place of the full image whenever one is present, which turns a large JPEG into a very cheap request. The thumbnail is usually a few hundred pixels wide, so the result is only as good as that; a thumbnail that will not decode falls back to the full image rather than failing.
 
 ### `background`
 
@@ -255,11 +284,28 @@ Listed earlier under geometry, but keep in mind it also affects the intensity of
 
 ### `adjust`, `brightness`, `contrast`, and `saturation`
 
-`adjust` is parsed as `brightness:contrast:saturation`, matching imgproxy's meta-option shape. `saturation` is applied for RGB/RGBA images. `brightness` and `contrast` are accepted and validated for URL compatibility, but the current libvips Rust crate does not publicly expose the needed `linear` operation, so those two controls are not applied yet.
+`adjust` is parsed as `brightness:contrast:saturation`, matching imgproxy's meta-option shape; the three can also be set individually.
+
+- **`brightness`** — `-255` to `255`, added to every colour channel. Expressed in 8-bit terms whatever the source's depth, so `brightness:64` moves a 16-bit image the same visible distance as an 8-bit one.
+- **`contrast`** — a positive multiplier applied around mid-grey, so it darkens shadows and brightens highlights rather than shifting the whole image. `1.0` is unchanged.
+- **`saturation`** — a positive multiplier on chroma, applied to RGB and RGBA images. `0` is greyscale, `1.0` is unchanged.
+
+Brightness and contrast go through a single pass over the pixels, with contrast applied first. The alpha channel is left alone: brightening it would fade the image in or out rather than lighten it.
+
+## Animation and multi-page sources
+
+An animated GIF or WebP, or a multi-page PDF or TIFF, is read as many frames and every frame goes through the whole pipeline independently — resize, crop, rotate, pad, effects — before the frames are stacked back together and the encoder is told where they divide. Rotating an animation by 90° therefore works, which it cannot when the stacked frames are treated as one tall image.
+
+- **`page:<n>`** — the first page to read. Defaults to `0`.
+- **`pages:<n>`** — how many pages to read. Defaults to all of them when the output format can hold them (GIF, WebP, AVIF, HEIF) and one otherwise, because decoding frames that are about to be discarded is pure cost.
+- **`disable_animation:true`** — collapse an animated source to its first frame.
+- **`max_animation_frames`** and **`max_animation_frame_resolution`** bound what an animated source may cost. The source-resolution limit measures the whole stack; these bound the frame count and the size of one frame. See [Configuration](3_configuration.md).
+
+`/info` reports a `pages` field so you can tell a still from an animation before deciding what to request.
 
 ## Watermarking
 
-1. Add `watermark:<opacity>:<position>` to enable overlay. Opacity ranges from `0.0` (invisible) to `1.0` (solid). Position accepts the same anchors as gravity (e.g., `soea`).
+1. Add `watermark:<opacity>[:<position>[:<x_offset>[:<y_offset>[:<scale>]]]]` to enable the overlay. Opacity ranges from `0.0` (invisible) to `1.0` (solid). Position accepts the gravity anchors (`ce`, `soea`, ...) plus `re`, which tiles the watermark across the whole image. Offsets follow the same absolute-or-fractional rule as gravity offsets, and unlike a crop they may push part of the watermark off the edge. `scale` sets the watermark's width as a fraction of the result; imgforge defaults to `0.25`, where imgproxy leaves an unscaled watermark at its natural pixel size.
 2. Supply the watermark image via `watermark_url:<base64url>` or configure `IMGFORGE_WATERMARK_PATH` on the server (see [Configuration](3_configuration.md) for details). When both are present, the URL value wins.
 3. Watermarks render after resizing, padding, and effects. Oversized or missing watermark assets fail the request with `400 Bad Request`.
 
@@ -270,7 +316,7 @@ Listed earlier under geometry, but keep in mind it also affects the intensity of
 - `expires:<unix_timestamp>` rejects stale URLs with `404`.
 - `filename:<name>` sets `Content-Disposition`; add `:true` when the filename is URL-safe Base64 encoded.
 - `return_attachment:true` makes filename responses use `attachment`; otherwise they use `inline`.
-- `skip_processing`, `page`, `pages`, and `disable_animation` are accepted for signed URL compatibility. Full multi-page and animation source loading is not yet implemented in the current single-image decode path.
+- `skip_processing:<ext>[:<ext>...]` returns the source bytes untouched when its format is listed. A request that also asks for a different format is asking for a conversion, which cannot be skipped.
 
 ## Security overrides
 

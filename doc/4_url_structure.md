@@ -19,7 +19,9 @@ https://imgforge.example.com/Q7j8KNpM/resize:fill:800:600/quality:85/plain/https
                                                                                                               └─ output format
 ```
 
-(A real signature is 43 characters — a Base64 URL-safe, unpadded SHA-256 HMAC.)
+(A real signature is 43 characters — a Base64 URL-safe, unpadded SHA-256 HMAC. `IMGFORGE_SIGNATURE_SIZE` can shorten it: the URL then carries only that many leading bytes of the digest, and imgforge compares only those. A signature of the wrong length for the configured size is rejected outright, so shortening it costs exactly the bytes it drops and nothing more.)
+
+Every route can be mounted under a prefix with `IMGFORGE_PATH_PREFIX`, for sharing a hostname with another service. The prefix sits before the signature and is not part of the signed path.
 
 | Segment                | Description                                                                                                                                 |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |

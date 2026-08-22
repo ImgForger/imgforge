@@ -1,0 +1,37 @@
+# Build artefacts. Without this, `COPY . .` ships a multi-gigabyte local target
+# directory into the build context — slow at best, and out of disk at worst.
+target/
+loadtest/target/
+
+# Version control and CI metadata.
+.git/
+.github/
+.gitignore
+
+# Local tooling and editor state. `.cargo/` is deliberately *not* here:
+# `.cargo/config.toml` sets the AXUM_HTTP_* environment variables that name the
+# Prometheus metrics, and dropping it from the build context would leave the
+# published binary exporting axum-prometheus' defaults while every dashboard in
+# grafana-dashboards/ still queries the configured names.
+.agents/
+.claude/
+.kiro/
+.env
+.env.*
+*.swp
+
+# Documentation and assets that never affect the binary.
+doc/
+grafana-dashboards/
+deployment/
+*.md
+LICENSE
+openapi.yaml
+
+# Compose and monitoring configuration, which belong to the host rather than
+# the image.
+docker-compose.yml
+prometheus.yml
+grafana-datasources.yml
+Dockerfile
+.dockerignore

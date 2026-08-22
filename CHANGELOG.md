@@ -12,6 +12,130 @@ Entries start at 0.10.0. For earlier history, see the
 
 _No changes yet._
 
+## [0.18.0] - 2026-08-16
+
+The compatibility release. Every option in imgproxy's free tier is now implemented rather than parsed, and the
+response carries the headers a CDN and a browser expect. Several defaults change to match imgproxy; those are
+listed under **Changed** and are the reason this is a minor bump rather than a patch.
+
+### Added
+
+- **Animated and multi-page sources.** `page`, `pages`, and `disable_animation` reach the loader, and an animated
+  GIF or WebP is processed frame by frame and re-encoded as an animation. libvips hands an animation over as one
+  tall stack of frames and does not update the frame height when the geometry changes, so scaling the stack as a
+  single image silently reinterprets four 80px frames as two 160px ones. Splitting it, running each frame through
+  the whole pipeline, and telling the encoder the new frame height means rotation, padding, and cropping work on an
+  animation as they do on a still. `/info` gained a `pages` field.
+
+  Two new ceilings come with it, because an animation multiplies every cost by its frame count and the source
+  resolution limit does not bound that: `IMGFORGE_MAX_ANIMATION_FRAMES` and
+  `IMGFORGE_MAX_ANIMATION_FRAME_RESOLUTION`, with `maf` and `mafr` as request-level overrides.
+
+- **Content negotiation.** `IMGFORGE_ENABLE_WEBP_DETECTION` and `IMGFORGE_ENABLE_AVIF_DETECTION` serve a modern
+  format to clients whose `Accept` advertises it, where the URL left the format open; `IMGFORGE_ENFORCE_WEBP` and
+  `IMGFORGE_ENFORCE_AVIF` do so over the top of an explicit format. The negotiated format is part of the cache key
+  and the response carries `Vary: Accept`, so a shared cache cannot hand an AVIF to a client that said it could not
+  read one. A format this libvips build cannot encode is skipped rather than attempted.
+
+  `IMGFORGE_ENABLE_CLIENT_HINTS` honours the `Width` and `DPR` request headers for URLs that did not name their own.
+
+- **Caching and provenance headers.** `IMGFORGE_TTL` sets `Cache-Control: max-age`;
+  `IMGFORGE_CACHE_CONTROL_PASSTHROUGH` forwards the origin's policy instead. `IMGFORGE_USE_ETAG` emits an `ETag`
+  over the response bytes and answers a matching `If-None-Match` with `304 Not Modified`.
+  `IMGFORGE_LAST_MODIFIED_ENABLED` and `IMGFORGE_SET_CANONICAL_HEADER` pass the source's `Last-Modified` and a
+  canonical `Link` through. All are off by default.
+
+- **Source controls.** `IMGFORGE_BASE_URL` lets a URL carry only a path. `IMGFORGE_ALLOWED_SOURCES` restricts what
+  may be fetched, with `https://*.example.com/` matching exactly one subdomain label. `IMGFORGE_USER_AGENT` and
+  `IMGFORGE_MAX_REDIRECTS` control the fetch itself.
+
+- **Deployment settings.** `IMGFORGE_PATH_PREFIX` mounts every route under a prefix.
+  `IMGFORGE_HEALTH_CHECK_PATH` (default `/health`) answers alongside `/status`. `IMGFORGE_ALLOW_ORIGIN` sets a CORS
+  origin. `IMGFORGE_SIGNATURE_SIZE` accepts signatures truncated to as few as 1 byte.
+  `IMGFORGE_ENABLE_DEBUG_HEADERS` reports source and result sizes, and `IMGFORGE_DEVELOPMENT_ERRORS_MODE` returns
+  the underlying error to the caller.
+
+- **Processing defaults.** `IMGFORGE_AUTO_ROTATE`, `IMGFORGE_STRIP_METADATA`, `IMGFORGE_KEEP_COPYRIGHT`,
+  `IMGFORGE_STRIP_COLOR_PROFILE`, `IMGFORGE_PRESERVE_HDR`, `IMGFORGE_ENFORCE_THUMBNAIL`,
+  `IMGFORGE_RETURN_ATTACHMENT`, and `IMGFORGE_QUALITY` set the starting value for the matching option, which a URL
+  still overrides.
+
+- **New processing options.** `extend_aspect_ratio` (`exar`) pads to the requested shape without reaching its size.
+  `keep_copyright` (`kcr`) carries the EXIF copyright across a metadata strip. `preserve_hdr` (`ph`) keeps a high
+  bit-depth image high bit-depth and retains its gain map. `enforce_thumbnail` (`eth`) uses the source's embedded
+  EXIF thumbnail. `skip_processing` (`skp`) returns the source untouched for the formats it lists.
+
+- **Colour management.** The image is converted into a colourspace the pipeline's operations are written for before
+  processing and back for the encoder, through the source's embedded ICC profile when it has one. A CMYK source no
+  longer has its ink channels treated as if they were red, green, and blue by saturation, the background flatten,
+  and trim's luminance fallback; a wide-gamut source is no longer read as though it were sRGB.
+
+### Changed
+
+- **`brightness` and `contrast` are applied.** They were parsed and validated but never used, on the basis that the
+  libvips crate did not expose the `linear` operation they need. It does — the watermark code had been calling it
+  all along. Requests that set them will now produce different images.
+
+- **A crop with no gravity centres rather than pinning to the top-left**, which is what imgproxy has always done.
+  `crop:300:200` on an existing URL will select a different region. Add `:nowe` to keep the old behaviour.
+
+- **Watermark positioning follows imgproxy.** The implicit 5% margin is gone; use the new `x_offset` and `y_offset`
+  arguments to reproduce it (`wm:0.5:soea:10:10`). Position also accepts `re`, which tiles the watermark.
+  Watermark sizing still defaults to a quarter of the result's width, where imgproxy leaves it unscaled; the new
+  `scale` argument takes imgproxy's meaning.
+
+- **`strip_metadata` and `strip_color_profile` are independent.** Either one used to drop everything, because the
+  generated save bindings can only express a single `keep` variant. Every encoder now goes through libvips' save
+  suffix, which can express a combination, so stripping the colour profile keeps the EXIF and vice versa. JPEG,
+  PNG, and TIFF moved to the suffix path along with the four formats that were already there.
+
+- **An upstream failure is reported as one.** A 404 from the origin used to be handed to the decoder, surfacing as
+  "failed to decode source image"; the response now names the upstream status.
+
+- **The published image is built on Debian trixie** (libvips 8.16.1) rather than Ubuntu 24.04 (8.15.1). AVIF and
+  HEIF output both work there — Debian packages libheif's codecs as plugins that libvips only Recommends, so the
+  image names `libheif-plugin-aomenc` and `libheif-plugin-x265` explicitly — and `preserve_hdr`'s gain-map flag
+  exists. The image now runs as a non-root user, carries a `HEALTHCHECK`, and builds its dependency graph as its
+  own layer so an edit to imgforge's sources does not recompile every crate.
+
+  A `.dockerignore` was added: `COPY . .` had been shipping the local `target/` directory into the build context.
+
+- **An unsupported codec is reported at the format check** rather than at encode time. imgforge probes the
+  codec-backed formats by encoding a real pixel once at startup, so a build with no AV1 or HEVC encoder returns
+  `400 Unsupported output format` instead of a `500` mentioning `Unsupported compression`.
+
+- **A result too large for its output container is scaled to fit** instead of failing in the encoder: WebP stops at
+  16383px on a side, AVIF and HEIF at 16384.
+
+- Booleans accept imgproxy's spellings (`1`, `t`, `T`, `true`, `TRUE`, `True`) rather than only `1` and `true`.
+- `min_width` and `min_height` are accepted alongside imgforge's hyphenated `min-width` and `min-height`.
+- `padding` accepts three values, following the CSS shorthand, rather than rejecting them.
+- `resize` with an unrecognised type is rejected at parse time instead of failing during processing.
+
+### Extended
+
+- **`gravity` takes offsets and a focus point.** `gravity:no:0:20` nudges the window 20px down; a magnitude below 1
+  is a fraction of the axis. `gravity:fp:0.5:0.25` centres the result on a point, which is the usual answer for
+  portraits that a centre crop decapitates. `crop`, `extend`, and `extend_aspect_ratio` each take their own.
+- **`crop` extents below 1 are a fraction of the source**, so `crop:0.5:0.5` takes the middle quarter of any image.
+- **`fill-down` joins the resizing types.** Like `fill`, except a result smaller than the requested box is cropped
+  to the box's aspect ratio rather than left at its own shape.
+- **`zoom` takes independent axis factors**, so `zoom:2:1` doubles the width alone.
+- **`extend` takes its own gravity**, independent of the request's.
+
+### Fixed
+
+- `extend_image` carried the same `u32` to `i32` cast that caused the padding overflow, and would have accepted a
+  target past `i32::MAX` as a canvas smaller than the source. It now refuses one, as padding already did.
+- `extend` with a target smaller on one axis and larger on the other used to fail the whole request; it now grows
+  the axis that is short, which is what imgproxy does.
+
+### Internal
+
+- `options`, `transform`, and `service` were each over a thousand lines and are now directories whose submodules
+  own one concern. `processing` gained `animation`, `colorspace`, `metadata`, `pipeline`, and `scale_on_load`;
+  `negotiation` and `response` are new top-level modules.
+
 ## [0.17.0] - 2026-08-16
 
 ### Changed
@@ -256,7 +380,8 @@ _No changes yet._
 - WebP saves use the safe libvips save path, documented alongside the crash caveat in the generated
   `webpsave` bindings. (Superseded by the WebP encoder-option fix in 0.14.0, above.)
 
-[Unreleased]: https://github.com/ImgForger/imgforge/compare/v0.17.0...HEAD
+[Unreleased]: https://github.com/ImgForger/imgforge/compare/v0.18.0...HEAD
+[0.18.0]: https://github.com/ImgForger/imgforge/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/ImgForger/imgforge/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/ImgForger/imgforge/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/ImgForger/imgforge/compare/v0.14.0...v0.15.0

@@ -377,9 +377,8 @@ impl Config {
             .and_then(|s| s.parse::<u64>().ok())
             .unwrap_or(30);
 
-        config.allow_unsigned = env::var(ENV_ALLOW_UNSIGNED).unwrap_or_default().to_lowercase() == "true";
-        config.allow_security_options =
-            env::var(ENV_ALLOW_SECURITY_OPTIONS).unwrap_or_default().to_lowercase() == "true";
+        config.allow_unsigned = bool_var(ENV_ALLOW_UNSIGNED, false)?;
+        config.allow_security_options = bool_var(ENV_ALLOW_SECURITY_OPTIONS, false)?;
 
         config.max_src_file_size = parse_optional_security_limit(ENV_MAX_SRC_FILE_SIZE)?;
         config.max_src_resolution = parse_optional_security_limit(ENV_MAX_SRC_RESOLUTION)?;
@@ -395,7 +394,7 @@ impl Config {
 
         config.presets =
             parse_presets(&env::var(ENV_PRESETS).unwrap_or_default()).map_err(ConfigError::InvalidPresets)?;
-        config.only_presets = env::var(ENV_ONLY_PRESETS).unwrap_or_default().to_lowercase() == "true";
+        config.only_presets = bool_var(ENV_ONLY_PRESETS, false)?;
 
         config.watermark_path = env::var(ENV_WATERMARK_PATH).ok();
         match env::var(ENV_DEFAULT_FORMAT) {
