@@ -1,4 +1,4 @@
-use crate::processing::options::{Gravity, Watermark, WatermarkPosition};
+use crate::processing::options::{Gravity, Watermark, WatermarkPosition, WatermarkSize};
 use crate::processing::transform::{calc_position, resize_with_algorithm, TransformError};
 use bytes::Bytes;
 use libvips::{ops, VipsImage};
@@ -110,26 +110,21 @@ pub fn apply_watermark(
     img: VipsImage,
     watermark: &CachedWatermark,
     watermark_opts: &Watermark,
-    resizing_algorithm: Option<&str>,
+    placement: WatermarkPlacement<'_>,
 ) -> Result<VipsImage, WatermarkError> {
     let watermark_img = resolve_watermark_image(watermark)?;
     if watermark_img.get_width() <= 0 || watermark_img.get_height() <= 0 {
         return Ok(img);
     }
 
-    let fraction = if watermark_opts.scale > 0.0 {
-        watermark_opts.scale
-    } else {
-        DEFAULT_WATERMARK_WIDTH_FRACTION
+    let watermark_resized = size_watermark(&watermark_img, &img, watermark_opts, &placement)?;
+
+    // Rotation comes after sizing so the requested size describes the
+    // watermark's own shape rather than its bounding box once turned.
+    let watermark_resized = match placement.rotate {
+        Some(angle) if angle != 0 => crate::processing::transform::apply_rotation(watermark_resized, angle)?,
+        _ => watermark_resized,
     };
-    let factor = (f64::from(img.get_width()) * fraction) / f64::from(watermark_img.get_width());
-    let watermark_resized = resize_with_algorithm(
-        &watermark_img,
-        factor,
-        None,
-        resizing_algorithm,
-        "Failed to resize watermark",
-    )?;
 
     // Add alpha channel to watermark if it doesn't have one
     let watermark_with_alpha = ensure_alpha_channel(watermark_resized)?;
@@ -140,13 +135,85 @@ pub fn apply_watermark(
     let watermark_with_opacity = ops::linear(&watermark_with_alpha, multipliers, adders)
         .map_err(vips("Failed to apply opacity to watermark"))?;
 
-    let watermark_on_canvas = place_watermark(&img, &watermark_with_opacity, watermark_opts)?;
+    let watermark_on_canvas = place_watermark(&img, &watermark_with_opacity, watermark_opts, placement.offset_scale)?;
 
     ops::composite_2(&img, &watermark_on_canvas, ops::BlendMode::Over).map_err(vips("Failed to composite watermark"))
 }
 
+/// How the watermark is sized and oriented before it is placed.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct WatermarkPlacement<'a> {
+    /// An explicit size, which overrides the `scale` fraction.
+    pub size: Option<WatermarkSize>,
+    /// Rotation applied after sizing.
+    pub rotate: Option<u16>,
+    /// Scales absolute gravity offsets, so a DPR-aware request nudges the
+    /// watermark by the same visual distance it would at 1x.
+    pub offset_scale: f64,
+    pub resizing_algorithm: Option<&'a str>,
+}
+
+/// Scales the watermark to the size the request asks for.
+///
+/// `watermark_size` names pixels outright; `scale` names a fraction of the
+/// result's width; neither leaves the default, a quarter of that width.
+fn size_watermark(
+    watermark_img: &VipsImage,
+    img: &VipsImage,
+    watermark_opts: &Watermark,
+    placement: &WatermarkPlacement<'_>,
+) -> Result<VipsImage, WatermarkError> {
+    let (wm_w, wm_h) = (
+        f64::from(watermark_img.get_width()),
+        f64::from(watermark_img.get_height()),
+    );
+
+    if let Some(size) = placement.size {
+        // One scale on both axes, always: imgproxy resizes a watermark to *fit*
+        // the size it is given and never distorts it. Scaling the axes
+        // independently turned `wms:100:100` on a 100x50 logo into a 100x100
+        // one, stretching it to fill a box it was only asked to fit inside.
+        // A zero axis is simply the box being unbounded on that side.
+        let scale = match (size.width, size.height) {
+            (0, height) => f64::from(height) / wm_h,
+            (width, 0) => f64::from(width) / wm_w,
+            (width, height) => (f64::from(width) / wm_w).min(f64::from(height) / wm_h),
+        };
+        let (hscale, vscale) = (scale, scale);
+
+        return resize_with_algorithm(
+            watermark_img,
+            hscale,
+            Some(vscale),
+            placement.resizing_algorithm,
+            "Failed to resize watermark",
+        )
+        .map_err(WatermarkError::from);
+    }
+
+    let fraction = if watermark_opts.scale > 0.0 {
+        watermark_opts.scale
+    } else {
+        DEFAULT_WATERMARK_WIDTH_FRACTION
+    };
+    let factor = (f64::from(img.get_width()) * fraction) / wm_w;
+    resize_with_algorithm(
+        watermark_img,
+        factor,
+        None,
+        placement.resizing_algorithm,
+        "Failed to resize watermark",
+    )
+    .map_err(WatermarkError::from)
+}
+
 /// Builds a full-size canvas holding the watermark where the request wants it.
-fn place_watermark(img: &VipsImage, watermark: &VipsImage, options: &Watermark) -> Result<VipsImage, WatermarkError> {
+fn place_watermark(
+    img: &VipsImage,
+    watermark: &VipsImage,
+    options: &Watermark,
+    offset_scale: f64,
+) -> Result<VipsImage, WatermarkError> {
     let (canvas_w, canvas_h) = (img.get_width(), img.get_height());
 
     match options.position {
@@ -159,13 +226,22 @@ fn place_watermark(img: &VipsImage, watermark: &VipsImage, options: &Watermark) 
             };
             // Overflow is allowed so an offset can push part of the watermark
             // off the edge, which is what a caller asking for a bleed wants.
+            //
+            // The offsets scale with DPR. imgproxy is explicit that `dpr`
+            // "affects gravities offsets, watermark offsets, and paddings to
+            // make the resulting image structures with and without the dpr
+            // option applied match" — a 10px inset from the corner has to stay
+            // visually 10px once the image is twice the size, or the watermark
+            // creeps toward the edge at 2x. The watermark's *size* is
+            // deliberately not scaled: that list does not include it, and its
+            // own section says nothing about DPR.
             let (x, y) = calc_position(
                 i64::from(canvas_w),
                 i64::from(canvas_h),
                 i64::from(watermark.get_width()),
                 i64::from(watermark.get_height()),
                 &gravity,
-                1.0,
+                offset_scale,
                 true,
             );
 

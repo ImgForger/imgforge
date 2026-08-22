@@ -168,6 +168,30 @@ pub(super) const BRIGHTNESS_SHORT: &str = "br";
 pub(super) const CONTRAST: &str = "contrast";
 /// Shorthand for contrast.
 pub(super) const CONTRAST_SHORT: &str = "co";
+/// Option name for monochrome.
+pub(super) const MONOCHROME: &str = "monochrome";
+/// Shorthand for monochrome.
+pub(super) const MONOCHROME_SHORT: &str = "mc";
+/// Option name for duotone.
+pub(super) const DUOTONE: &str = "duotone";
+/// Shorthand for duotone.
+pub(super) const DUOTONE_SHORT: &str = "dt";
+/// Option name for colorize.
+pub(super) const COLORIZE: &str = "colorize";
+/// Shorthand for colorize.
+pub(super) const COLORIZE_SHORT: &str = "col";
+/// Option name for crop_aspect_ratio.
+pub(super) const CROP_ASPECT_RATIO: &str = "crop_aspect_ratio";
+/// Shorthand for crop_aspect_ratio.
+pub(super) const CROP_ASPECT_RATIO_SHORT: &str = "car";
+/// Option name for watermark_size.
+pub(super) const WATERMARK_SIZE: &str = "watermark_size";
+/// Shorthand for watermark_size.
+pub(super) const WATERMARK_SIZE_SHORT: &str = "wms";
+/// Option name for watermark_rotate.
+pub(super) const WATERMARK_ROTATE: &str = "watermark_rotate";
+/// Shorthand for watermark_rotate.
+pub(super) const WATERMARK_ROTATE_SHORT: &str = "wmr";
 /// Option name for saturation.
 pub(super) const SATURATION: &str = "saturation";
 /// Shorthand for saturation.

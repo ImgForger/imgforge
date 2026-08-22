@@ -25,6 +25,7 @@ Unrecognised directive *names* are ignored rather than rejected, so a typo silen
 | `min-height`            | `mh`, `min_height` | `value`                                             | Floor for result height. Upscales regardless of `enlarge`.                                                   |
 | `zoom`                  | `z`        | `factor` or `zoom_x:zoom_y`                                 | Multiplies dimensions after resizing. Defaults to `1.0`.                                                     |
 | `crop`                  | `c`        | `width:height[:gravity]`                                    | Crops before resizing. Values below 1 are a fraction of the source. Gravity positions the window.            |
+| `crop_aspect_ratio`     | `car`      | `ratio[:enlarge]`                                           | Corrects the crop area's shape. `0` disables. Defaults to shrinking the long axis.                          |
 | `trim`                  | `t`        | `threshold[:color[:equal_hor[:equal_ver]]]`                 | Removes a uniform border before cropping and resizing. Ignored for animated sources.                         |
 | `rotate`                | `rot`      | `0\|90\|180\|270`                                           | Applies fixed rotation. Defaults to `0`.                                                                     |
 | `auto_rotate`           | `ar`       | `bool`                                                      | Honours EXIF orientation (`true` by default).                                                                |
@@ -35,6 +36,9 @@ Unrecognised directive *names* are ignored rather than rejected, so a typo silen
 | `blur`                  | `bl`       | `sigma`                                                     | Gaussian blur (0 disables).                                                                                  |
 | `sharpen`               | `sh`       | `sigma`                                                     | Sharpens edges.                                                                                              |
 | `pixelate`              | `pix`      | `amount`                                                    | Pixelation strength.                                                                                         |
+| `monochrome`            | `mc`       | `intensity[:color]`                                         | Recolours from one base colour. Defaults to `0:b3b3b3`.                                                      |
+| `duotone`               | `dt`       | `intensity[:shadow[:highlight]]`                            | Maps the tonal range between two colours. Defaults to `0:000000:ffffff`.                                     |
+| `colorize`              | `col`      | `opacity[:color[:keep_alpha]]`                              | Washes a flat colour over the image. Defaults to `0:000000:false`.                                           |
 | `background`            | `bg`       | `RRGGBB[AA]`                                                | Canvas colour for extend/padding/flatten. Defaults to transparent unless JPEG output.                        |
 | `background_alpha`      | `bga`      | `0.0-1.0`                                                   | Sets the alpha channel for `background`.                                                                     |
 | `quality`               | `q`        | `1-100`                                                     | Compression quality. Defaults to `85` for lossy formats.                                                     |
@@ -67,6 +71,8 @@ Unrecognised directive *names* are ignored rather than rejected, so a typo silen
 | `max_animation_frame_resolution` | `mafr` | `megapixels`                                        | Request-level override of the per-frame resolution ceiling. Requires server opt-in.                          |
 | `watermark`             | `wm`       | `opacity[:position[:x_offset[:y_offset[:scale]]]]`          | Enables watermarking. Requires a watermark asset.                                                            |
 | `watermark_url`         | `wmu`      | `base64url(url)`                                            | Fetches watermark per request. Overrides server default path.                                                |
+| `watermark_size`        | `wms`      | `width:height`                                              | Explicit watermark size in pixels, overriding `scale`. Fits rather than stretches; a zero axis is unbounded.  |
+| `watermark_rotate`      | `wmr`      | `0\|90\|180\|270`                                            | Rotates the watermark after sizing.                                                                          |
 
 ## Presets
 
@@ -306,6 +312,24 @@ Listed earlier under geometry, but keep in mind it also affects the intensity of
 
 Brightness and contrast go through a single pass over the pixels, with contrast applied first. The alpha channel is left alone: brightening it would fade the image in or out rather than lighten it.
 
+### `monochrome`, `duotone`, and `colorize`
+
+Three recolourings that share a shape — derive a colour per pixel, then blend it over the original by an intensity — and differ in how the colour is derived. All three run after `adjust`, `blur`, `sharpen`, and `pixelate`, and before the watermark, which is not part of the image being toned. None of them touches the alpha channel.
+
+- **`monochrome:intensity[:color]`** scales the base colour by each pixel's luminance, so the result keeps the image's tonal structure and loses only its hue. `monochrome:1:0000ff` is a blue-toned photograph, not a blue rectangle.
+- **`duotone:intensity[:shadow[:highlight]]`** interpolates between two colours across the tonal range: the darkest pixels reach `shadow`, the brightest reach `highlight`.
+- **`colorize:opacity[:color[:keep_alpha]]`** ignores luminance entirely and washes the colour flat over everything. `keep_alpha:true` leaves transparent areas transparent; the default lets the wash reach them, which is what you want when the result is about to be flattened anyway.
+
+An intensity or opacity of `0` is a no-op, which is why it is the default for all three.
+
+imgproxy charges for these.
+
+### `crop_aspect_ratio`
+
+`crop_aspect_ratio:ratio[:enlarge]` corrects the *shape* of the crop area without changing where it sits. By default it shrinks whichever axis is too long, which can never ask for pixels the source does not have; `enlarge:true` grows the short axis instead, and the result is still clamped to the image. A ratio of `0` disables the correction.
+
+Useful when the crop size comes from somewhere that does not know the target shape — a fixed 300×300 editorial crop that has to become a 16:9 hero, say.
+
 ## Animation and multi-page sources
 
 An animated GIF or WebP, or a multi-page PDF or TIFF, is read as many frames and every frame goes through the whole pipeline independently — resize, crop, rotate, pad, effects — before the frames are stacked back together and the encoder is told where they divide. Rotating an animation by 90° therefore works, which it cannot when the stacked frames are treated as one tall image.
@@ -321,7 +345,8 @@ An animated GIF or WebP, or a multi-page PDF or TIFF, is read as many frames and
 
 1. Add `watermark:<opacity>[:<position>[:<x_offset>[:<y_offset>[:<scale>]]]]` to enable the overlay. Opacity ranges from `0.0` (invisible) to `1.0` (solid). Position accepts the gravity anchors (`ce`, `soea`, ...) plus `re`, which tiles the watermark across the whole image. Offsets follow the same absolute-or-fractional rule as gravity offsets, and unlike a crop they may push part of the watermark off the edge. `scale` sets the watermark's width as a fraction of the result; imgforge defaults to `0.25`, where imgproxy leaves an unscaled watermark at its natural pixel size.
 2. Supply the watermark image via `watermark_url:<base64url>` or configure `IMGFORGE_WATERMARK_PATH` on the server (see [Configuration](3_configuration.md) for details). When both are present, the URL value wins.
-3. Watermarks render after resizing, padding, and effects. Oversized or missing watermark assets fail the request with `400 Bad Request`.
+3. `watermark_size:width:height` sets an explicit pixel size, overriding `scale`. The watermark is *fitted* to that box and never distorted, matching imgproxy — a 100x50 logo asked for `wms:100:100` comes back 100x50, with whichever axis binds deciding the scale. A zero axis leaves that side unbounded. Unlike `padding`, the size is not scaled by `dpr`; the watermark's *offsets* are, so its inset from the edge stays visually constant on a high-density request. `watermark_rotate` turns it by a right angle after sizing, so the requested size describes the watermark itself rather than its bounding box once turned. imgproxy charges for both.
+4. Watermarks render after resizing, padding, and effects. Oversized or missing watermark assets fail the request with `400 Bad Request`.
 
 ## Cache control & concurrency
 

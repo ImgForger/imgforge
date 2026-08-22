@@ -46,7 +46,7 @@ pub fn transform_frame(
 
     if let Some(crop) = options.crop.as_ref() {
         debug!("Applying crop: {:?}", crop);
-        img = transform::crop_image(img, crop, &options.crop_gravity())?;
+        img = transform::crop_image(img, crop, &options.crop_gravity(), options.crop_aspect_ratio)?;
     }
 
     if let Some(resize) = options.resize.as_ref() {
@@ -129,9 +129,33 @@ pub fn transform_frame(
         img = transform::apply_pixelate(img, amount)?;
     }
 
+    // The tone effects run after the adjustments and the blur so they recolour
+    // the finished image rather than something a later stage will change again,
+    // and before the watermark, which is not part of the image being toned.
+    if let Some(monochrome) = options.monochrome {
+        debug!("Applying monochrome: {:?}", monochrome);
+        img = transform::apply_monochrome(img, monochrome)?;
+    }
+
+    if let Some(duotone) = options.duotone {
+        debug!("Applying duotone: {:?}", duotone);
+        img = transform::apply_duotone(img, duotone)?;
+    }
+
+    if let Some(colorize) = options.colorize {
+        debug!("Applying colorize: {:?}", colorize);
+        img = transform::apply_colorize(img, colorize)?;
+    }
+
     if let (Some(watermark_opts), Some(source)) = (options.watermark.as_ref(), watermark_source) {
         debug!("Applying watermark with options: {:?}", watermark_opts);
-        img = watermark::apply_watermark(img, source, watermark_opts, options.resizing_algorithm.as_deref())?;
+        let placement = watermark::WatermarkPlacement {
+            size: options.watermark_size,
+            rotate: options.watermark_rotate,
+            offset_scale: f64::from(options.dpr_factor()),
+            resizing_algorithm: options.resizing_algorithm.as_deref(),
+        };
+        img = watermark::apply_watermark(img, source, watermark_opts, placement)?;
     }
 
     Ok(img)

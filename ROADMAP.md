@@ -10,7 +10,8 @@ Measurements below were taken on libvips 8.16.1 (the version the published image
 
 imgproxy gates a number of options behind its Pro tier that imgforge implements for free: `resizing_algorithm`,
 `background_alpha`, `watermark_url`, all four `*_options` encoder groups, the `adjust`/`brightness`/`contrast`/
-`saturation` family, `page`/`pages`/`disable_animation`, and smart gravity (`gravity:sm`).
+`saturation` family, `page`/`pages`/`disable_animation`, smart gravity (`gravity:sm`), `crop_aspect_ratio`, the
+`monochrome`/`duotone`/`colorize` tone effects, and `watermark_size`/`watermark_rotate`.
 
 0.18.0 closed the free-tier gap that remained. Every option in imgproxy's free tier is implemented rather than
 merely parsed, and every option imgforge parses is applied.
@@ -30,18 +31,16 @@ request, and each logged when it takes effect:
 
 ## imgproxy Pro options imgforge does not implement
 
-Listed so the comparison is honest rather than because they are planned: `autoquality`, `crop_aspect_ratio`,
-`objects_position` and the object-detection family, `monochrome`, `duotone`, `colorize`, `gradient`,
-`unsharp_masking`, `blur_areas`, `style`, `dpi`, `color_profile`, `hashsum`, `watermark_text`/`_size`/`_rotate`/
-`_shadow`, `fallback_image_url`, and the `video_thumbnail_*` family.
+Listed so the comparison is honest rather than because they are planned: `autoquality`, `objects_position` and the
+object-detection family, `gradient`, `unsharp_masking`, `blur_areas`, `style`, `dpi`, `color_profile`, `hashsum`,
+`watermark_text`, `watermark_shadow`, `fallback_image_url`, and the `video_thumbnail_*` family.
 
-Most of these need something libvips does not provide on its own — an object detector, a quality search loop, a CSS
-parser. The ones that do not are `crop_aspect_ratio` (pure arithmetic on the crop extents), `monochrome`, `duotone`,
-and `colorize` (each a recombination matrix or a blend), and `watermark_size`/`watermark_rotate`. None is hard;
-none has been asked for either, which is why they sit here rather than in the code.
+Each needs something libvips does not provide on its own — an object detector, a quality search loop, a CSS parser,
+a video decoder — or a design decision nobody has had to make yet.
 
-Smart gravity used to be on this list with a note that it would be cheap. It was, and it shipped: `gravity:sm`
-hands the window choice to libvips' `smartcrop`, which is the one thing a geometric anchor cannot do.
+Everything on this list that was merely *cheap* has now shipped, because "easy and undone" is not a defensible
+place for an option to sit: smart gravity (`gravity:sm`), `crop_aspect_ratio`, `monochrome`, `duotone`, `colorize`,
+`watermark_size`, and `watermark_rotate` are all implemented and free here.
 
 ## Performance
 

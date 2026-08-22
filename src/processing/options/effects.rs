@@ -1,7 +1,8 @@
 //! Pixel-effect options: colour adjustment, zoom and watermarking.
 
-use super::error::{arg, parse_float, parse_integer, parse_positive_f32, OptionParseError};
+use super::error::{arg, parse_float, parse_integer, parse_positive_f32, parse_unit_f32, OptionParseError};
 use super::geometry::GravityType;
+use crate::processing::utils::{parse_boolean, parse_hex_color};
 
 /// Represents the parameters for colour adjustment.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -183,5 +184,149 @@ impl Watermark {
             y_offset,
             scale,
         })
+    }
+}
+
+/// Recolouring an image from a single base colour.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Monochrome {
+    /// How much of the effect to apply, 0 to 1.
+    pub intensity: f64,
+    /// The colour a fully lit pixel becomes.
+    pub color: [u8; 4],
+}
+
+impl Default for Monochrome {
+    fn default() -> Self {
+        Self {
+            intensity: 0.0,
+            // imgproxy's default base, a neutral mid grey.
+            color: [0xb3, 0xb3, 0xb3, 255],
+        }
+    }
+}
+
+impl Monochrome {
+    /// Parses `intensity[:color]`.
+    pub fn parse(args: &[String]) -> Result<Self, OptionParseError> {
+        let Some(intensity) = arg(args, 0) else {
+            return Err(OptionParseError::invalid("monochrome option requires an intensity"));
+        };
+
+        Ok(Self {
+            intensity: f64::from(parse_unit_f32(intensity, "monochrome intensity")?),
+            color: match arg(args, 1) {
+                Some(value) => parse_hex_color(value).map_err(OptionParseError::Color)?,
+                None => Self::default().color,
+            },
+        })
+    }
+}
+
+/// Mapping the tonal range between two colours.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Duotone {
+    pub intensity: f64,
+    /// The colour the darkest pixels become.
+    pub shadow: [u8; 4],
+    /// The colour the brightest pixels become.
+    pub highlight: [u8; 4],
+}
+
+impl Default for Duotone {
+    fn default() -> Self {
+        Self {
+            intensity: 0.0,
+            shadow: [0, 0, 0, 255],
+            highlight: [255, 255, 255, 255],
+        }
+    }
+}
+
+impl Duotone {
+    /// Parses `intensity[:shadow_color[:highlight_color]]`.
+    pub fn parse(args: &[String]) -> Result<Self, OptionParseError> {
+        let Some(intensity) = arg(args, 0) else {
+            return Err(OptionParseError::invalid("duotone option requires an intensity"));
+        };
+        let defaults = Self::default();
+
+        Ok(Self {
+            intensity: f64::from(parse_unit_f32(intensity, "duotone intensity")?),
+            shadow: match arg(args, 1) {
+                Some(value) => parse_hex_color(value).map_err(OptionParseError::Color)?,
+                None => defaults.shadow,
+            },
+            highlight: match arg(args, 2) {
+                Some(value) => parse_hex_color(value).map_err(OptionParseError::Color)?,
+                None => defaults.highlight,
+            },
+        })
+    }
+}
+
+/// Washing a flat colour over the image.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Colorize {
+    pub opacity: f64,
+    pub color: [u8; 4],
+    /// Whether the transparent parts stay transparent.
+    pub keep_alpha: bool,
+}
+
+impl Default for Colorize {
+    fn default() -> Self {
+        Self {
+            opacity: 0.0,
+            color: [0, 0, 0, 255],
+            keep_alpha: false,
+        }
+    }
+}
+
+impl Colorize {
+    /// Parses `opacity[:color[:keep_alpha]]`.
+    pub fn parse(args: &[String]) -> Result<Self, OptionParseError> {
+        let Some(opacity) = arg(args, 0) else {
+            return Err(OptionParseError::invalid("colorize option requires an opacity"));
+        };
+
+        Ok(Self {
+            opacity: f64::from(parse_unit_f32(opacity, "colorize opacity")?),
+            color: match arg(args, 1) {
+                Some(value) => parse_hex_color(value).map_err(OptionParseError::Color)?,
+                None => Self::default().color,
+            },
+            keep_alpha: arg(args, 2).map(parse_boolean).unwrap_or(false),
+        })
+    }
+}
+
+/// An explicit size for the watermark, in place of the `scale` fraction.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct WatermarkSize {
+    pub width: u32,
+    pub height: u32,
+}
+
+impl WatermarkSize {
+    /// Parses `width:height`, where a zero axis is derived from the other.
+    pub fn parse(args: &[String]) -> Result<Self, OptionParseError> {
+        let width = match arg(args, 0) {
+            Some(value) => parse_integer(value, "watermark width")?,
+            None => 0,
+        };
+        let height = match arg(args, 1) {
+            Some(value) => parse_integer(value, "watermark height")?,
+            None => 0,
+        };
+
+        if width == 0 && height == 0 {
+            return Err(OptionParseError::invalid(
+                "watermark_size requires at least one non-zero dimension",
+            ));
+        }
+
+        Ok(Self { width, height })
     }
 }

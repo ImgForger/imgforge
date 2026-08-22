@@ -11,10 +11,10 @@ mod error;
 mod geometry;
 mod names;
 
-pub use effects::{Adjust, Watermark, WatermarkPosition, Zoom};
+pub use effects::{Adjust, Colorize, Duotone, Monochrome, Watermark, WatermarkPosition, WatermarkSize, Zoom};
 pub use encoder::{AvifOptions, JpegOptions, PngOptions, SaveOptions, WebpOptions, WEBP_PRESETS};
 pub use error::OptionParseError;
-pub use geometry::{Crop, Extend, Flip, Gravity, GravityType, Resize, ResizingType, Trim};
+pub use geometry::{Crop, CropAspectRatio, Extend, Flip, Gravity, GravityType, Resize, ResizingType, Trim};
 
 use crate::limits::{
     MaxAnimationFrameResolution, MaxAnimationFrames, MaxResultDimension, MaxSourceFileSize, MaxSourceResolution,
@@ -50,6 +50,8 @@ pub struct ParsedOptions {
     pub blur: Option<f32>,
     /// Optional crop operation parameters.
     pub crop: Option<Crop>,
+    /// Correction applied to the crop area's shape.
+    pub crop_aspect_ratio: Option<CropAspectRatio>,
     /// Optional output image format.
     pub format: Option<String>,
     /// Output image quality (1-100) named by the URL.
@@ -117,12 +119,22 @@ pub struct ParsedOptions {
     pub watermark: Option<Watermark>,
     /// Optional URL for a watermark image.
     pub watermark_url: Option<String>,
+    /// An explicit watermark size, in place of the scale fraction.
+    pub watermark_size: Option<WatermarkSize>,
+    /// Rotation applied to the watermark before it is placed.
+    pub watermark_rotate: Option<u16>,
     /// Resizing algorithm to use (nearest, linear, cubic, lanczos2, lanczos3).
     pub resizing_algorithm: Option<String>,
     /// Optional alpha value applied to background.
     pub background_alpha: Option<f32>,
     /// Optional color adjustments.
     pub adjust: Option<Adjust>,
+    /// Recolouring from a single base colour.
+    pub monochrome: Option<Monochrome>,
+    /// Mapping the tonal range between two colours.
+    pub duotone: Option<Duotone>,
+    /// A flat colour washed over the image.
+    pub colorize: Option<Colorize>,
     /// Encoder-specific output options.
     pub save: SaveOptions,
     /// Prefer the source's embedded thumbnail when one is large enough.
@@ -186,6 +198,7 @@ impl ParsedOptions {
             resizing_type: None,
             blur: None,
             crop: None,
+            crop_aspect_ratio: None,
             format: None,
             quality: None,
             default_quality: defaults.quality,
@@ -223,9 +236,14 @@ impl ParsedOptions {
             pixelate: None,
             watermark: None,
             watermark_url: None,
+            watermark_size: None,
+            watermark_rotate: None,
             resizing_algorithm: Some("lanczos3".to_string()),
             background_alpha: None,
             adjust: None,
+            monochrome: None,
+            duotone: None,
+            colorize: None,
             save: SaveOptions {
                 strip_metadata: Some(defaults.strip_metadata),
                 strip_color_profile: Some(defaults.strip_color_profile),
@@ -402,6 +420,9 @@ fn apply_option(option: &ProcessingOption, parsed: &mut ParsedOptions) -> Result
             parsed.blur = Some(parse_positive_f32(value, "blur")?);
         }
         CROP | CROP_SHORT => parsed.crop = Some(parse_crop(args)?),
+        CROP_ASPECT_RATIO | CROP_ASPECT_RATIO_SHORT => {
+            parsed.crop_aspect_ratio = Some(CropAspectRatio::parse(args)?);
+        }
         FORMAT | FORMAT_SHORT | FORMAT_EXT => {
             let value = arg(args, 0).ok_or_else(|| OptionParseError::invalid("format option requires one argument"))?;
             parsed.format = Some(value.to_lowercase());
@@ -507,6 +528,15 @@ fn apply_option(option: &ProcessingOption, parsed: &mut ParsedOptions) -> Result
             parsed.adjust = Some(adjust);
         }
         WATERMARK | WATERMARK_SHORT => parsed.watermark = Some(Watermark::parse(args)?),
+        WATERMARK_SIZE | WATERMARK_SIZE_SHORT => parsed.watermark_size = Some(WatermarkSize::parse(args)?),
+        WATERMARK_ROTATE | WATERMARK_ROTATE_SHORT => {
+            let value = arg(args, 0)
+                .ok_or_else(|| OptionParseError::invalid("watermark_rotate option requires one argument"))?;
+            parsed.watermark_rotate = Some(geometry::parse_rotation(value)?);
+        }
+        MONOCHROME | MONOCHROME_SHORT => parsed.monochrome = Some(Monochrome::parse(args)?),
+        DUOTONE | DUOTONE_SHORT => parsed.duotone = Some(Duotone::parse(args)?),
+        COLORIZE | COLORIZE_SHORT => parsed.colorize = Some(Colorize::parse(args)?),
         WATERMARK_URL | WATERMARK_URL_SHORT => {
             let value =
                 arg(args, 0).ok_or_else(|| OptionParseError::invalid("watermark_url option requires one argument"))?;

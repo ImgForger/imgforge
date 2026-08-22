@@ -1,5 +1,8 @@
 use crate::processing::colorspace;
-use crate::processing::options::{Adjust, Crop, Flip, Gravity, GravityType, Resize, ResizingType, Trim, Zoom};
+use crate::processing::options::{
+    Adjust, Colorize, Crop, CropAspectRatio, Duotone, Flip, Gravity, GravityType, Monochrome, Resize, ResizingType,
+    Trim, Zoom,
+};
 use crate::processing::transform::{self, TransformError};
 use libvips::{ops, VipsImage};
 
@@ -14,7 +17,7 @@ fn test_crop_image() {
         height: 150.0,
         gravity: None,
     };
-    let cropped_img = transform::crop_image(img, &crop, &Gravity::default()).unwrap();
+    let cropped_img = transform::crop_image(img, &crop, &Gravity::default(), None).unwrap();
     assert_eq!(cropped_img.get_width(), 100);
     assert_eq!(cropped_img.get_height(), 150);
 }
@@ -149,7 +152,7 @@ fn test_crop_at_edge() {
         height: 50.0,
         gravity: None,
     };
-    let cropped_img = transform::crop_image(img, &crop, &crop.gravity.unwrap_or_default()).unwrap();
+    let cropped_img = transform::crop_image(img, &crop, &crop.gravity.unwrap_or_default(), None).unwrap();
     assert_eq!(cropped_img.get_width(), 50);
     assert_eq!(cropped_img.get_height(), 50);
 }
@@ -163,7 +166,7 @@ fn test_crop_bottom_right_corner() {
         height: 50.0,
         gravity: None,
     };
-    let cropped_img = transform::crop_image(img, &crop, &crop.gravity.unwrap_or_default()).unwrap();
+    let cropped_img = transform::crop_image(img, &crop, &crop.gravity.unwrap_or_default(), None).unwrap();
     assert_eq!(cropped_img.get_width(), 50);
     assert_eq!(cropped_img.get_height(), 50);
 }
@@ -397,6 +400,7 @@ fn test_crop_window_is_positioned_by_gravity() {
                 gravity: Some(gravity),
             },
             &gravity,
+            None,
         )
         .unwrap();
         assert_eq!((cropped.get_width(), cropped.get_height()), (40, 40));
@@ -426,6 +430,7 @@ fn test_crop_defaults_to_the_centre() {
             gravity: None,
         },
         &Gravity::default(),
+        None,
     )
     .unwrap();
 
@@ -453,6 +458,7 @@ fn test_fractional_crop_extents_scale_with_the_source() {
                 gravity: None,
             },
             &Gravity::default(),
+            None,
         )
         .unwrap();
         assert_eq!(
@@ -477,6 +483,7 @@ fn test_crop_zero_means_full_extent_and_oversized_clamps() {
             gravity: None,
         },
         &Gravity::default(),
+        None,
     )
     .unwrap();
     assert_eq!((cropped.get_width(), cropped.get_height()), (100, 30));
@@ -491,6 +498,7 @@ fn test_crop_zero_means_full_extent_and_oversized_clamps() {
             gravity: None,
         },
         &Gravity::default(),
+        None,
     )
     .unwrap();
     assert_eq!((cropped.get_width(), cropped.get_height()), (100, 60));
@@ -689,6 +697,7 @@ fn test_smart_gravity_finds_the_subject_a_centre_crop_would_miss() {
             gravity: Some(Gravity::new(GravityType::Smart)),
         },
         &Gravity::new(GravityType::Smart),
+        None,
     )
     .unwrap();
     let centred = transform::crop_image(
@@ -699,6 +708,7 @@ fn test_smart_gravity_finds_the_subject_a_centre_crop_would_miss() {
             gravity: None,
         },
         &Gravity::default(),
+        None,
     )
     .unwrap();
 
@@ -740,5 +750,323 @@ fn test_smart_gravity_positions_the_fill_window() {
     assert!(
         mean_luminance(&decode_rgba(&smart)) < mean_luminance(&decode_rgba(&centred)) - 10.0,
         "the fill window should have moved toward the subject"
+    );
+}
+
+/// Monochrome keeps the image's tonal structure and loses only its hue, so a
+/// red/green/blue quadrant image comes back with every quadrant a shade of the
+/// base colour rather than its original hue.
+#[test]
+fn test_monochrome_reduces_every_hue_to_the_base_colour() {
+    init_vips();
+    let img = image_from(create_quadrant_test_image(40, 40));
+    let toned = transform::apply_monochrome(
+        img,
+        Monochrome {
+            intensity: 1.0,
+            color: [0, 0, 255, 255],
+        },
+    )
+    .unwrap();
+
+    let decoded = decode_rgba(&toned);
+    for (x, y) in [(5, 5), (35, 5), (5, 35), (35, 35)] {
+        let [r, g, b, a] = rgba_pixel(&decoded, x, y);
+        assert_eq!((r, g), (0, 0), "the base colour has no red or green at ({x}, {y})");
+        assert_eq!(a, 255, "alpha must survive untouched");
+        // Each quadrant had a different luminance, so each keeps a different
+        // amount of blue — the point of a monochrome rather than a flat fill.
+        assert!(b > 0, "a lit pixel should keep some of the base colour");
+    }
+
+    // An intensity of zero is a no-op rather than a full conversion.
+    let untouched = transform::apply_monochrome(
+        image_from(create_quadrant_test_image(40, 40)),
+        Monochrome {
+            intensity: 0.0,
+            ..Monochrome::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(rgba_pixel(&decode_rgba(&untouched), 5, 5), [255, 0, 0, 255]);
+}
+
+/// Duotone maps the darkest pixels to one colour and the brightest to another.
+#[test]
+fn test_duotone_maps_the_tonal_range_between_two_colours() {
+    init_vips();
+    // Black on the left, white on the right.
+    let img = image_from(create_transparent_edge_image(40, 20));
+    let toned = transform::apply_duotone(
+        img,
+        Duotone {
+            intensity: 1.0,
+            shadow: [255, 0, 0, 255],
+            highlight: [0, 0, 255, 255],
+        },
+    )
+    .unwrap();
+
+    let decoded = decode_rgba(&toned);
+    // The white half is the highlight colour; the transparent half carries
+    // black RGB, so it lands on the shadow colour.
+    let [lit_r, _, lit_b, _] = rgba_pixel(&decoded, 5, 10);
+    let [dark_r, _, dark_b, _] = rgba_pixel(&decoded, 35, 10);
+    assert!(lit_b > lit_r, "the bright side should reach the highlight colour");
+    assert!(dark_r > dark_b, "the dark side should reach the shadow colour");
+}
+
+/// Colorize is a flat wash, so it ignores luminance entirely: every pixel moves
+/// the same distance toward the colour.
+#[test]
+fn test_colorize_washes_a_flat_colour_over_the_image() {
+    init_vips();
+    let img = image_from(create_quadrant_test_image(40, 40));
+    let washed = transform::apply_colorize(
+        img,
+        Colorize {
+            opacity: 0.5,
+            color: [0, 0, 0, 255],
+            keep_alpha: true,
+        },
+    )
+    .unwrap();
+
+    let decoded = decode_rgba(&washed);
+    // Half-way to black from full red.
+    let [r, g, b, a] = rgba_pixel(&decoded, 5, 5);
+    assert!((126..=129).contains(&r), "red should be halved, got {r}");
+    assert_eq!((g, b), (0, 0));
+    assert_eq!(a, 255, "keep_alpha should preserve the alpha channel");
+}
+
+/// `crop_aspect_ratio` reshapes the crop window without moving it, shrinking
+/// the long axis by default and growing the short one when asked.
+#[test]
+fn test_crop_aspect_ratio_reshapes_the_window() {
+    init_vips();
+    let source = create_test_image(200, 200);
+
+    let square = Crop {
+        width: 100.0,
+        height: 100.0,
+        gravity: None,
+    };
+
+    // 2:1 by reduction takes the height down.
+    let reduced = transform::crop_image(
+        image_from(source.clone()),
+        &square,
+        &Gravity::default(),
+        Some(CropAspectRatio {
+            ratio: 2.0,
+            enlarge: false,
+        }),
+    )
+    .unwrap();
+    assert_eq!((reduced.get_width(), reduced.get_height()), (100, 50));
+
+    // The same ratio by enlargement takes the width up instead.
+    let enlarged = transform::crop_image(
+        image_from(source.clone()),
+        &square,
+        &Gravity::default(),
+        Some(CropAspectRatio {
+            ratio: 2.0,
+            enlarge: true,
+        }),
+    )
+    .unwrap();
+    assert_eq!((enlarged.get_width(), enlarged.get_height()), (200, 100));
+
+    // A ratio of zero means "leave it alone".
+    let untouched = transform::crop_image(
+        image_from(source),
+        &square,
+        &Gravity::default(),
+        Some(CropAspectRatio {
+            ratio: 0.0,
+            enlarge: false,
+        }),
+    )
+    .unwrap();
+    assert_eq!((untouched.get_width(), untouched.get_height()), (100, 100));
+}
+
+/// A crop larger than the source is clamped to the source *before* the ratio is
+/// corrected. Correcting first threw the correction away entirely whenever the
+/// request exceeded the image.
+#[test]
+fn test_crop_aspect_ratio_survives_an_oversized_request() {
+    init_vips();
+    let img = image_from(create_test_image(100, 100));
+
+    let cropped = transform::crop_image(
+        img,
+        &Crop {
+            width: 1000.0,
+            height: 1000.0,
+            gravity: None,
+        },
+        &Gravity::default(),
+        Some(CropAspectRatio {
+            ratio: 2.0,
+            enlarge: false,
+        }),
+    )
+    .unwrap();
+
+    assert_eq!(
+        (cropped.get_width(), cropped.get_height()),
+        (100, 50),
+        "the 2:1 correction should apply to the clamped 100x100 window"
+    );
+}
+
+/// The tone constants are written in 8-bit terms but have to be mixed into the
+/// image's own range. On a 16-bit image an unscaled `ff0000` lands at 255 out
+/// of 65535 — very nearly black rather than red.
+#[test]
+fn test_colorize_scales_its_colour_to_a_high_bit_depth_image() {
+    init_vips();
+    let eight_bit = image_from(create_test_image(8, 8));
+    let sixteen_bit = ops::cast(&eight_bit, ops::BandFormat::Ushort).unwrap();
+    // Bring the 0-255 values up to the 16-bit range so the source is genuinely
+    // high bit depth rather than a 16-bit container holding 8-bit values.
+    let sixteen_bit = ops::linear(&sixteen_bit, &mut [257.0; 4], &mut [0.0; 4]).unwrap();
+    let sixteen_bit = ops::cast(&sixteen_bit, ops::BandFormat::Ushort).unwrap();
+
+    let washed = transform::apply_colorize(
+        sixteen_bit,
+        Colorize {
+            opacity: 1.0,
+            color: [0, 0, 255, 255],
+            keep_alpha: true,
+        },
+    )
+    .unwrap();
+
+    // Fully opaque blue, expressed in the image's own range.
+    let blue = ops::extract_band(&washed, 2).unwrap();
+    let mean = ops::avg(&blue).unwrap();
+    assert!(
+        mean > 60000.0,
+        "expected the blue channel near the 16-bit ceiling, got {mean}"
+    );
+}
+
+/// A signed 16-bit image spans 0-32767, not 0-65535. Grouping `Short` with
+/// `Ushort` scaled mid-grey to roughly 32896, which the cast back clipped to
+/// the format's own ceiling — so `colorize:1:808080` painted white instead of
+/// grey, and a duotone's shadow colour clipped the same way.
+#[test]
+fn test_tone_constants_use_the_signed_range_for_short_images() {
+    init_vips();
+    let eight_bit = image_from(create_test_image(8, 8));
+    let signed = ops::cast(&eight_bit, ops::BandFormat::Short).unwrap();
+    // Scale the 0-255 values across the signed range, so this is genuinely a
+    // signed high-bit-depth source rather than 8-bit values in a wider box.
+    let signed = ops::linear(&signed, &mut [128.5; 4], &mut [0.0; 4]).unwrap();
+    let signed = ops::cast(&signed, ops::BandFormat::Short).unwrap();
+
+    let washed = transform::apply_colorize(
+        signed,
+        Colorize {
+            opacity: 1.0,
+            color: [128, 128, 128, 255],
+            keep_alpha: true,
+        },
+    )
+    .unwrap();
+
+    // Half of 32767, give or take the rounding in `component`.
+    let green = ops::extract_band(&washed, 1).unwrap();
+    let mean = ops::avg(&green).unwrap();
+    assert!(
+        (15000.0..18000.0).contains(&mean),
+        "mid-grey should land near half of the signed ceiling, got {mean}"
+    );
+    assert!(
+        mean < 32000.0,
+        "scaling against the unsigned ceiling clips mid-grey to white, got {mean}"
+    );
+
+    // The unsigned range is unaffected, so the earlier fix still holds.
+    let unsigned = ops::cast(&image_from(create_test_image(8, 8)), ops::BandFormat::Ushort).unwrap();
+    let unsigned = ops::linear(&unsigned, &mut [257.0; 4], &mut [0.0; 4]).unwrap();
+    let unsigned = ops::cast(&unsigned, ops::BandFormat::Ushort).unwrap();
+    let washed = transform::apply_colorize(
+        unsigned,
+        Colorize {
+            opacity: 1.0,
+            color: [128, 128, 128, 255],
+            keep_alpha: true,
+        },
+    )
+    .unwrap();
+    let green = ops::extract_band(&washed, 1).unwrap();
+    let mean = ops::avg(&green).unwrap();
+    assert!(
+        (31000.0..35000.0).contains(&mean),
+        "mid-grey on a 16-bit unsigned image should land near half of 65535, got {mean}"
+    );
+}
+
+/// `keep_alpha:false` asks the wash to reach the transparent parts too, which is
+/// a blend toward the colour's own alpha — not a discard. Dropping the band made
+/// opacity irrelevant to transparency: `colorize:0.01` turned an invisible pixel
+/// fully solid instead of moving it one percent of the way.
+#[test]
+fn test_colorize_blends_alpha_rather_than_discarding_it() {
+    init_vips();
+
+    let washed_alpha = |opacity: f64, keep_alpha: bool| {
+        // Fully transparent on the right half, so the alpha band has something
+        // to move.
+        let img = image_from(create_transparent_edge_image(8, 8));
+        let out = transform::apply_colorize(
+            img,
+            Colorize {
+                opacity,
+                color: [255, 0, 0, 255],
+                keep_alpha,
+            },
+        )
+        .unwrap();
+        assert!(out.image_hasalpha(), "the result must still carry an alpha channel");
+        let alpha = ops::extract_band(&out, out.get_bands() - 1).unwrap();
+        ops::avg(&alpha).unwrap()
+    };
+
+    // Half the image is transparent, so the untouched mean sits near half of 255.
+    let untouched = washed_alpha(0.5, true);
+    assert!(
+        (120.0..=136.0).contains(&untouched),
+        "keep_alpha:true must leave transparency exactly as it was, got {untouched}"
+    );
+
+    // A barely-there wash barely moves it.
+    let faint = washed_alpha(0.01, false);
+    assert!(
+        faint < untouched + 5.0,
+        "a 1% wash must not make a transparent pixel opaque, got {faint}"
+    );
+    assert!(
+        faint > untouched,
+        "but it must move alpha toward the colour's, got {faint} against {untouched}"
+    );
+
+    // A full wash reaches the colour's own alpha, which is opaque.
+    let full = washed_alpha(1.0, false);
+    assert!(
+        full > 250.0,
+        "a full wash should land on the colour's alpha, got {full}"
+    );
+
+    // And the progression is monotonic in between.
+    let half = washed_alpha(0.5, false);
+    assert!(
+        faint < half && half < full,
+        "alpha should track opacity: {faint} < {half} < {full}"
     );
 }

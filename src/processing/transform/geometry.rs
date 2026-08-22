@@ -2,7 +2,7 @@
 //! padded out to a larger one.
 
 use super::{bg_color_for_bands, vips, TransformError, VIPS_MAX_COORD};
-use crate::processing::options::{Crop, Gravity, GravityType};
+use crate::processing::options::{Crop, CropAspectRatio, Gravity, GravityType};
 use libvips::{ops, VipsImage};
 use tracing::debug;
 
@@ -111,21 +111,42 @@ pub fn smart_crop(img: &VipsImage, width: i32, height: i32) -> Result<VipsImage,
 /// A zero extent means "the whole axis", and an extent below 1 is a fraction of
 /// the source, so the same URL crops the same proportion whatever size the
 /// source turns out to be.
-pub fn crop_image(img: VipsImage, crop: &Crop, gravity: &Gravity) -> Result<VipsImage, TransformError> {
+pub fn crop_image(
+    img: VipsImage,
+    crop: &Crop,
+    gravity: &Gravity,
+    aspect_ratio: Option<CropAspectRatio>,
+) -> Result<VipsImage, TransformError> {
     let src_width = img.get_width().max(0) as u32;
     let src_height = img.get_height().max(0) as u32;
     let (requested_width, requested_height) = crop.resolve(src_width, src_height);
 
-    let width = if requested_width == 0 {
+    // A zero extent means the whole axis, and an oversized one means the whole
+    // axis too. Both are resolved against the source *before* the ratio is
+    // corrected: correcting first and clamping afterwards throws the correction
+    // away whenever the request was larger than the image, so `crop:1000:1000`
+    // with `car:2` on a 100x100 source came back square instead of 100x50.
+    let requested_width = if requested_width == 0 {
         src_width
     } else {
-        requested_width.min(src_width)
+        requested_width
     };
-    let height = if requested_height == 0 {
+    let requested_height = if requested_height == 0 {
         src_height
     } else {
-        requested_height.min(src_height)
+        requested_height
     };
+    let requested_width = requested_width.min(src_width).max(1);
+    let requested_height = requested_height.min(src_height).max(1);
+
+    let (width, height) = match aspect_ratio {
+        Some(aspect_ratio) => aspect_ratio.correct(requested_width, requested_height),
+        None => (requested_width, requested_height),
+    };
+
+    // An `enlarge` correction can still grow an axis past the source.
+    let width = width.min(src_width).max(1);
+    let height = height.min(src_height).max(1);
 
     // Nothing to cut: skipping keeps the image's own header rather than paying
     // for an extract that returns the same pixels.
