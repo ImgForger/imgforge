@@ -42,6 +42,10 @@ pub struct ProcessingOption {
 pub struct ParsedOptions {
     /// Optional resize operation parameters.
     pub resize: Option<Resize>,
+    /// The resizing type the URL asked for, kept even when no dimensions came
+    /// with it. A client hint may supply those later, and it should produce the
+    /// type that was requested rather than the default.
+    pub resizing_type: Option<ResizingType>,
     /// Optional blur sigma value.
     pub blur: Option<f32>,
     /// Optional crop operation parameters.
@@ -179,6 +183,7 @@ impl ParsedOptions {
     pub fn with_defaults(defaults: OptionDefaults) -> Self {
         Self {
             resize: None,
+            resizing_type: None,
             blur: None,
             crop: None,
             format: None,
@@ -303,14 +308,16 @@ pub fn parse_all_options_with_defaults(
         apply_option(&option, &mut parsed)?;
     }
 
-    // Default resize type is `fit`
-    if parsed.resize.is_none() && (parsed.width.is_some() || parsed.height.is_some()) {
-        debug!("Applying default 'fit' resize due to width/height options");
-        parsed.resize = Some(Resize {
-            resizing_type: ResizingType::Fit,
-            width: parsed.width.unwrap_or(0),
-            height: parsed.height.unwrap_or(0),
-        });
+    // A resize whose dimensions never got set — `resizing_type:fill` on its own
+    // — describes no target at all, and would fail at resolve time complaining
+    // about a zero dimension. Dropping it lets the request through unresized,
+    // which is what asking for a resizing type without a size means.
+    if parsed
+        .resize
+        .is_some_and(|resize| resize.width == 0 && resize.height == 0)
+    {
+        debug!("Dropping a resize with no dimensions");
+        parsed.resize = None;
     }
 
     Ok(parsed)
@@ -324,20 +331,32 @@ fn apply_option(option: &ProcessingOption, parsed: &mut ParsedOptions) -> Result
         RESIZING_TYPE | RESIZING_TYPE_SHORT => {
             let value =
                 arg(args, 0).ok_or_else(|| OptionParseError::invalid("resizing_type option requires one argument"))?;
-            parsed.resize.get_or_insert_with(Resize::default).resizing_type = parse_resizing_type(value)?;
+            let resizing_type = parse_resizing_type(value)?;
+            parsed.resizing_type = Some(resizing_type);
+            parsed.resize.get_or_insert_with(Resize::default).resizing_type = resizing_type;
         }
         SIZE | SIZE_SHORT => apply_size(args, parsed)?,
+        // `width` and `height` name the same target as `resize`'s own
+        // arguments — imgproxy stores them in one field — so they write
+        // straight into it. Keeping them in separate fields and reconciling
+        // afterwards meant `resizing_type:fill/width:300/height:200` produced a
+        // resize of 0x0: the resizing type had already created the resize, so
+        // the reconciliation never ran.
         WIDTH | WIDTH_SHORT => {
-            parsed.width = Some(match arg(args, 0) {
+            let width = match arg(args, 0) {
                 Some(value) => parse_integer(value, "width")?,
                 None => 0,
-            });
+            };
+            parsed.width = Some(width);
+            parsed.resize.get_or_insert_with(Resize::default).width = width;
         }
         HEIGHT | HEIGHT_SHORT => {
-            parsed.height = Some(match arg(args, 0) {
+            let height = match arg(args, 0) {
                 Some(value) => parse_integer(value, "height")?,
                 None => 0,
-            });
+            };
+            parsed.height = Some(height);
+            parsed.resize.get_or_insert_with(Resize::default).height = height;
         }
         GRAVITY | GRAVITY_SHORT => parsed.gravity = Some(Gravity::parse(args, 0, "gravity")?),
         ENLARGE | ENLARGE_SHORT => {
@@ -609,6 +628,7 @@ fn apply_resize(args: &[String], parsed: &mut ParsedOptions) -> Result<(), Optio
 
     if let Some(value) = arg(args, 0) {
         resize.resizing_type = parse_resizing_type(value)?;
+        parsed.resizing_type = Some(resize.resizing_type);
         store_resize = true;
     }
     if let Some(value) = arg(args, 1) {
