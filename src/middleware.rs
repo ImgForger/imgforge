@@ -36,6 +36,14 @@ pub async fn status_code_metric_middleware(req: Request<Body>, next: Next) -> Re
 }
 
 pub async fn rate_limit_middleware(State(state): State<Arc<AppState>>, request: Request<Body>, next: Next) -> Response {
+    // A CORS preflight is the browser asking permission, not fetching an
+    // image; it does no fetching or processing worth a token. Charging it
+    // billed every cross-origin request twice, and at a limit of 1 the
+    // preflight spent the only token and the real request got the 429.
+    if request.method() == axum::http::Method::OPTIONS {
+        return next.run(request).await;
+    }
+
     if let Some(rate_limiter) = &state.rate_limiter {
         match rate_limiter.check() {
             Ok(_) => next.run(request).await,

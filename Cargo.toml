@@ -51,6 +51,9 @@ lazy_static = "1.5.0"
 governor = "0.10.4"
 bytes = "1.12.1"
 metrics = "0.24.6"
+# Already in the tree via hyper and axum-extra; naming it directly costs no
+# extra compilation and replaces a hand-rolled HTTP-date parser.
+httpdate = "1.0.3"
 
 [dev-dependencies]
 tempfile = "3.27.0"

@@ -1,6 +1,9 @@
 //! Server configuration, assembled from the environment at startup.
 
 mod env_vars;
+pub mod source;
+
+pub use source::{SourcePattern, SourceRules};
 
 use crate::constants::*;
 use crate::limits::{
@@ -9,11 +12,14 @@ use crate::limits::{
 };
 use crate::processing::options::{OptionDefaults, ProcessingOption};
 use crate::processing::presets::{parse_options_string, PresetError};
-use env_vars::{bool_var, optional_var, parsed_var, security_limit_var};
+use env_vars::{bool_var, list_var, optional_var, parsed_var, security_limit_var};
 use std::collections::HashMap;
 use std::env;
 use std::str::FromStr;
 use thiserror::Error;
+
+/// Number of bytes in a full HMAC-SHA256 signature.
+const FULL_SIGNATURE_SIZE: usize = 32;
 
 #[derive(Debug, Error)]
 pub enum ConfigError {
@@ -52,6 +58,8 @@ pub enum ConfigError {
     },
     #[error("image-processing worker count must be greater than zero")]
     ZeroWorkers,
+    #[error("invalid IMGFORGE_ALLOWED_SOURCES entry {entry:?}: {reason}")]
+    InvalidSourcePattern { entry: String, reason: String },
     #[error("image-processing worker count {value} exceeds the supported maximum of {max}")]
     WorkerCountTooLarge { value: usize, max: usize },
     #[error("invalid value for {name} ({value:?}): {reason}")]
@@ -60,6 +68,8 @@ pub enum ConfigError {
         value: String,
         reason: String,
     },
+    #[error("{name} must be between 1 and {max}")]
+    SignatureSizeOutOfRange { name: &'static str, max: usize },
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -157,6 +167,8 @@ pub struct Config {
     pub max_animation_frames: Option<MaxAnimationFrames>,
     /// Ceiling on the pixel count of a single animation frame.
     pub max_animation_frame_resolution: Option<MaxAnimationFrameResolution>,
+    /// How many leading signature bytes a signed URL must match.
+    pub signature_size: usize,
     /// Starting values for the processing options a URL may override.
     pub option_defaults: OptionDefaults,
 
@@ -181,6 +193,8 @@ pub struct Config {
     /// Emit `X-Origin-*` headers describing the source image.
     pub enable_debug_headers: bool,
 
+    /// How source URLs are resolved and restricted.
+    pub source_rules: SourceRules,
     /// `User-Agent` sent when fetching a source image.
     pub user_agent: String,
     /// How many redirects a source fetch may follow.
@@ -311,6 +325,7 @@ impl Config {
             rate_limit_per_minute: None,
             max_animation_frames: None,
             max_animation_frame_resolution: None,
+            signature_size: FULL_SIGNATURE_SIZE,
             option_defaults: OptionDefaults::default(),
             ttl: None,
             cache_control_passthrough: false,
@@ -322,6 +337,7 @@ impl Config {
             health_check_path: "/health".to_string(),
             development_errors_mode: false,
             enable_debug_headers: false,
+            source_rules: SourceRules::default(),
             user_agent: DEFAULT_USER_AGENT.to_string(),
             max_redirects: 10,
             enable_webp_detection: false,
@@ -404,6 +420,7 @@ impl Config {
 
         config.max_animation_frames = security_limit_var(ENV_MAX_ANIMATION_FRAMES)?;
         config.max_animation_frame_resolution = security_limit_var(ENV_MAX_ANIMATION_FRAME_RESOLUTION)?;
+        config.signature_size = resolve_signature_size()?;
 
         config.option_defaults = OptionDefaults {
             auto_rotate: bool_var(ENV_AUTO_ROTATE, true)?,
@@ -427,6 +444,21 @@ impl Config {
         config.development_errors_mode = bool_var(ENV_DEVELOPMENT_ERRORS_MODE, false)?;
         config.enable_debug_headers = bool_var(ENV_ENABLE_DEBUG_HEADERS, false)?;
 
+        config.source_rules = SourceRules {
+            base_url: optional_var(ENV_BASE_URL)?.filter(|value| !value.trim().is_empty()),
+            // A malformed entry is a startup error: an allow list that cannot
+            // be enforced as written must not quietly enforce something else.
+            allowed: list_var(ENV_ALLOWED_SOURCES)?
+                .unwrap_or_default()
+                .iter()
+                .map(|pattern| {
+                    SourcePattern::parse(pattern).map_err(|reason| ConfigError::InvalidSourcePattern {
+                        entry: pattern.clone(),
+                        reason,
+                    })
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+        };
         config.user_agent = optional_var(ENV_USER_AGENT)?
             .filter(|value| !value.trim().is_empty())
             .unwrap_or_else(|| DEFAULT_USER_AGENT.to_string());
@@ -440,6 +472,22 @@ impl Config {
 
         Ok(config)
     }
+}
+
+/// A signature may be truncated to fewer bytes, which shortens the URL at the
+/// cost of collision resistance. Zero would accept anything, and more than a
+/// full HMAC-SHA256 could never match.
+fn resolve_signature_size() -> Result<usize, ConfigError> {
+    let Some(size) = parsed_var::<usize>(ENV_SIGNATURE_SIZE)? else {
+        return Ok(FULL_SIGNATURE_SIZE);
+    };
+    if size == 0 || size > FULL_SIGNATURE_SIZE {
+        return Err(ConfigError::SignatureSizeOutOfRange {
+            name: ENV_SIGNATURE_SIZE,
+            max: FULL_SIGNATURE_SIZE,
+        });
+    }
+    Ok(size)
 }
 
 /// Normalises a mount prefix to either empty or `/segment` with no trailing

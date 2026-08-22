@@ -28,6 +28,15 @@ use std::borrow::Cow;
 #[derive(Debug, Clone, Copy)]
 pub struct CacheKeyParts<'a> {
     pub path: &'a str,
+    /// The URL the request actually resolves to, after `IMGFORGE_BASE_URL`.
+    ///
+    /// The path alone does not identify the bytes: with a base URL configured,
+    /// the same relative reference points at a different origin the moment that
+    /// setting changes, and the first request after a migration would otherwise
+    /// be answered from the old origin's entry without ever fetching the new
+    /// one. Including it also means an entry is tied to the address it was
+    /// fetched from rather than to the shorthand that named it.
+    pub source_url: &'a str,
     pub default_format: DefaultOutputFormat,
     pub has_explicit_format: bool,
     pub is_raw: bool,
@@ -49,6 +58,15 @@ pub struct CacheKeyParts<'a> {
     /// every watermarked response while leaving every URL identical, so without
     /// this the old logo is served until the entries age out.
     pub watermark_path: Option<&'a str>,
+    /// The resolved URL of a `watermark_url` watermark, when the request
+    /// carries one.
+    ///
+    /// A relative watermark reference resolves through `IMGFORGE_BASE_URL`
+    /// exactly as the main source does, so the same URL composites a different
+    /// overlay the moment that setting changes — while the path and the main
+    /// source stay identical. Keying by the resolved form retires those
+    /// entries the same way `source_url` does for the image itself.
+    pub watermark_url: Option<&'a str>,
     /// Configured option defaults, when the deployment changes any of them.
     ///
     /// These seed the parse, so `IMGFORGE_QUALITY` and its neighbours change the
@@ -57,6 +75,12 @@ pub struct CacheKeyParts<'a> {
     pub option_defaults: Option<OptionDefaults>,
     /// Format chosen from the request's `Accept` header, when one was.
     pub negotiated_format: Option<&'static str>,
+    /// Dimensions the client's own hints contributed, when they were honoured.
+    ///
+    /// A `Width: 320` request and a `Width: 1280` request are the same URL and
+    /// different images, so without this the first one's output is handed to
+    /// the second.
+    pub client_hints: Option<(u32, u32)>,
 }
 
 pub fn processed_cache_key<'a>(parts: CacheKeyParts<'a>) -> Cow<'a, str> {
@@ -65,24 +89,29 @@ pub fn processed_cache_key<'a>(parts: CacheKeyParts<'a>) -> Cow<'a, str> {
     // very much can, and they are the only thing standing between a tightened
     // policy and the bytes already in the cache.
     if parts.is_raw {
-        return source_limits(parts, Cow::Borrowed(parts.path));
+        return source_limits(parts, Cow::Owned(source_scoped(parts)));
     }
 
     let base = if parts.has_explicit_format {
-        Cow::Borrowed(parts.path)
+        Cow::Owned(source_scoped(parts))
     } else {
         match parts.negotiated_format {
             // Content negotiation makes one URL produce different bytes for
             // different clients, so the chosen format is part of the identity
             // of the entry. Without this a Chrome request would poison the
             // cache for a client that cannot read AVIF.
-            Some(format) => Cow::Owned(format!("accept-format={format}:{}", parts.path)),
+            Some(format) => Cow::Owned(format!("accept-format={format}:{}", source_scoped(parts))),
             None => Cow::Owned(format!(
                 "default-format={}:{}",
                 parts.default_format.as_str(),
-                parts.path
+                source_scoped(parts)
             )),
         }
+    };
+
+    let base = match parts.client_hints {
+        Some((width, dpr_thousandths)) => Cow::Owned(format!("hint={width}x{dpr_thousandths}:{base}")),
+        None => base,
     };
 
     // The ceilings that describe the *result*. Changing any of them retires the
@@ -109,6 +138,18 @@ pub fn processed_cache_key<'a>(parts: CacheKeyParts<'a>) -> Cow<'a, str> {
     source_limits(parts, base)
 }
 
+/// The request path, scoped to the source it actually resolves to.
+///
+/// Only prefixed when the two differ — a URL that carries its own absolute
+/// source resolves to itself, so the vast majority of keys stay exactly as they
+/// were and only a `IMGFORGE_BASE_URL` deployment pays for the distinction.
+fn source_scoped(parts: CacheKeyParts<'_>) -> String {
+    if parts.source_url == parts.path {
+        return parts.path.to_string();
+    }
+    format!("src={}:{}", parts.source_url, parts.path)
+}
+
 /// Namespaces a key by the limits that describe the source rather than the
 /// result.
 ///
@@ -133,6 +174,11 @@ fn source_limits<'a>(parts: CacheKeyParts<'a>, base: Cow<'a, str>) -> Cow<'a, st
 
     let base = match parts.watermark_path {
         Some(path) => Cow::Owned(format!("wm={}:{}", digest(&[path.as_bytes()]), base)),
+        None => base,
+    };
+
+    let base = match parts.watermark_url {
+        Some(url) => Cow::Owned(format!("wmu={}:{}", digest(&[url.as_bytes()]), base)),
         None => base,
     };
 

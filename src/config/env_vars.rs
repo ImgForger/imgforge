@@ -63,3 +63,15 @@ where
         .map(Some)
         .map_err(|source| ConfigError::InvalidSecurityLimit { name, value, source })
 }
+
+/// Reads a comma-separated list, dropping empty entries.
+pub(super) fn list_var(name: &'static str) -> Result<Option<Vec<String>>, ConfigError> {
+    Ok(optional_var(name)?.map(|value| {
+        value
+            .split(',')
+            .map(str::trim)
+            .filter(|entry| !entry.is_empty())
+            .map(str::to_string)
+            .collect()
+    }))
+}
