@@ -172,6 +172,14 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
     // — the request never reaches the check because it never reaches the fetch.
     let decoded_url = resolve_source_url(config, &url_parts)?;
 
+    // The watermark's URL is part of the request too, so it is checked where
+    // the main URL is checked — before the cache can answer. Validating it
+    // only on the miss path let a cached composite keep serving pixels from a
+    // host the allow list no longer names.
+    if let Some(url) = parsed_options.watermark_url.as_deref() {
+        permitted_url(config, url)?;
+    }
+
     let cache_key = cache_key::processed_cache_key(CacheKeyParts {
         path,
         source_url: &decoded_url,
@@ -208,7 +216,12 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
     // redirect again and the redirect policy gives the accurate answer, which
     // is right whether the destination moved somewhere permitted or nowhere.
     let cached_image = state.cache.get(cache_key.as_ref()).await.filter(|cached| {
-        let permitted = cached.source_url.is_empty() || config.source_rules.permits(&cached.source_url);
+        let source_ok = cached.source_url.is_empty() || config.source_rules.permits(&cached.source_url);
+        // The watermark's pixels are in the composite, so where they came from
+        // counts exactly as much as where the image's own did.
+        let watermark_ok =
+            cached.watermark_source_url.is_empty() || config.source_rules.permits(&cached.watermark_source_url);
+        let permitted = source_ok && watermark_ok;
         if !permitted {
             debug!("Ignoring a cached entry fetched from a source that is no longer allowed");
         }
@@ -302,10 +315,13 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
         .await;
     }
 
-    let watermark = if needs_watermark(&parsed_options) {
-        resolve_watermark(state.as_ref(), &parsed_options).await?
+    let (watermark, watermark_fetched_from) = if needs_watermark(&parsed_options) {
+        match resolve_watermark(state.as_ref(), &parsed_options).await? {
+            Some((watermark, fetched_from)) => (Some(watermark), fetched_from),
+            None => (None, String::new()),
+        }
     } else {
-        None
+        (None, String::new())
     };
 
     let waiting = ImageOperationActivityGuard::waiting(ImageOperation::Process);
@@ -427,6 +443,7 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
                 bytes: processed_image_bytes.clone(),
                 content_type,
                 source_url: fetched_from.clone(),
+                watermark_source_url: watermark_fetched_from.clone(),
             },
         ) {
             error!("Failed to cache image: {}", err);
@@ -611,7 +628,18 @@ pub async fn image_info(state: Arc<AppState>, request: ProcessRequest<'_>) -> Re
     // moment `IMGFORGE_BASE_URL` changes.
     let metadata_key = format!("{decoded_url}\u{0}{path}");
 
-    if let Some(cached_metadata) = state.metadata_cache.get(&metadata_key).await {
+    // Same rule as the image cache: the request's own URL was checked above,
+    // but a redirect can have moved the described source somewhere the allow
+    // list no longer names, and an entry outlives the policy that admitted it.
+    let cached_metadata = state.metadata_cache.get(&metadata_key).await.filter(|cached| {
+        let permitted = cached.source_url.is_empty() || config.source_rules.permits(&cached.source_url);
+        if !permitted {
+            debug!("Ignoring cached metadata read from a source that is no longer allowed");
+        }
+        permitted
+    });
+
+    if let Some(cached_metadata) = cached_metadata {
         debug!("Metadata found in cache for path={}", path);
         return Ok(ImageInfo {
             width: cached_metadata.width,
@@ -627,6 +655,7 @@ pub async fn image_info(state: Arc<AppState>, request: ProcessRequest<'_>) -> Re
     }
 
     let fetched = fetch_image(&state.http_client, &decoded_url, None).await?;
+    let fetched_from = fetched.final_url;
     let image_bytes = fetched.bytes;
     let content_type = fetched.content_type;
 
@@ -672,6 +701,7 @@ pub async fn image_info(state: Arc<AppState>, request: ProcessRequest<'_>) -> Re
                         has_alpha: image_has_alpha(channels),
                         orientation: read_exif_orientation(&image_bytes).unwrap_or(0),
                         pages: img.get_n_pages().max(1) as u32,
+                        source_url: fetched_from,
                     },
                     true,
                 )
@@ -786,10 +816,13 @@ fn needs_watermark(parsed_options: &ParsedOptions) -> bool {
     parsed_options.watermark.is_some() || parsed_options.watermark_url.is_some()
 }
 
+/// The watermark to composite, alongside the URL it was actually fetched
+/// from — empty for the configured file watermark, which no allow list
+/// governs.
 async fn resolve_watermark(
     state: &AppState,
     parsed_options: &ParsedOptions,
-) -> Result<Option<CachedWatermark>, ServiceError> {
+) -> Result<Option<(CachedWatermark, String)>, ServiceError> {
     if let Some(url) = &parsed_options.watermark_url {
         // A watermark is a source like any other: the deployment decided which
         // hosts it will fetch from, and that decision cannot depend on which
@@ -797,7 +830,7 @@ async fn resolve_watermark(
         let url = permitted_url(&state.config, url)?;
         debug!("Fetching watermark from URL: {}", url);
         match fetch_image(&state.http_client, &url, None).await {
-            Ok(fetched) => Ok(Some(CachedWatermark::from_bytes(fetched.bytes))),
+            Ok(fetched) => Ok(Some((CachedWatermark::from_bytes(fetched.bytes), fetched.final_url))),
             Err(source) => Err(ServiceError::WatermarkFetch { source }),
         }
     } else if parsed_options.watermark.is_some() {
@@ -842,7 +875,7 @@ async fn resolve_watermark(
                         .map_err(ServiceError::from)
                     })
                     .await?;
-            Ok(Some(watermark.clone()))
+            Ok(Some((watermark.clone(), String::new())))
         } else {
             Ok(None)
         }
@@ -876,6 +909,8 @@ async fn serve_source_response(
                 bytes: image_bytes.clone(),
                 content_type,
                 source_url: fetched_from.to_string(),
+                // A passthrough composites nothing.
+                watermark_source_url: String::new(),
             },
         ) {
             error!("Failed to cache raw image: {}", err);

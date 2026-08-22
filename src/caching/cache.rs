@@ -42,6 +42,10 @@ pub struct CachedImage {
     /// have moved the actual source somewhere that is no longer permitted, and
     /// an entry outlives the policy that admitted it.
     pub source_url: String,
+    /// Where a `watermark_url` watermark was fetched from, after any redirects,
+    /// or empty when the entry composites none. Its pixels are in the bytes
+    /// above, so its source is rechecked on a hit exactly as the image's own.
+    pub watermark_source_url: String,
 }
 
 impl Code for CachedImage {
@@ -57,6 +61,10 @@ impl Code for CachedImage {
         let source_bytes = self.source_url.as_bytes();
         source_bytes.len().encode(writer)?;
         writer.write_all(source_bytes).map_err(FoyerError::io_error)?;
+
+        let watermark_bytes = self.watermark_source_url.as_bytes();
+        watermark_bytes.len().encode(writer)?;
+        writer.write_all(watermark_bytes).map_err(FoyerError::io_error)?;
         Ok(())
     }
 
@@ -78,15 +86,26 @@ impl Code for CachedImage {
         let source_url = String::from_utf8(source_buf)
             .map_err(|_| FoyerError::new(ErrorKind::Parse, "invalid utf8 in source url"))?;
 
+        let watermark_len = usize::decode(reader)?;
+        let mut watermark_buf = vec![0u8; watermark_len];
+        reader.read_exact(&mut watermark_buf).map_err(FoyerError::io_error)?;
+        let watermark_source_url = String::from_utf8(watermark_buf)
+            .map_err(|_| FoyerError::new(ErrorKind::Parse, "invalid utf8 in watermark source url"))?;
+
         Ok(CachedImage {
             bytes: Bytes::from(data),
             content_type,
             source_url,
+            watermark_source_url,
         })
     }
 
     fn estimated_size(&self) -> usize {
-        self.bytes.len() + self.content_type.len() + self.source_url.len() + std::mem::size_of::<usize>() * 3
+        self.bytes.len()
+            + self.content_type.len()
+            + self.source_url.len()
+            + self.watermark_source_url.len()
+            + std::mem::size_of::<usize>() * 4
     }
 }
 
@@ -102,6 +121,10 @@ pub struct CachedMetadata {
     pub orientation: u32,
     /// Frames or pages the source carries; 1 for a still image.
     pub pages: u32,
+    /// The URL the description was read from, after any redirects, so a hit
+    /// can be rechecked against the allow list as it stands now — the same
+    /// reason `CachedImage` remembers its own.
+    pub source_url: String,
 }
 
 impl Code for CachedMetadata {
@@ -122,6 +145,10 @@ impl Code for CachedMetadata {
         self.has_alpha.encode(writer)?;
         self.orientation.encode(writer)?;
         self.pages.encode(writer)?;
+
+        let source_bytes = self.source_url.as_bytes();
+        source_bytes.len().encode(writer)?;
+        writer.write_all(source_bytes).map_err(FoyerError::io_error)?;
         Ok(())
     }
 
@@ -149,6 +176,12 @@ impl Code for CachedMetadata {
         let orientation = u32::decode(reader)?;
         let pages = u32::decode(reader)?;
 
+        let source_len = usize::decode(reader)?;
+        let mut source_buf = vec![0u8; source_len];
+        reader.read_exact(&mut source_buf).map_err(FoyerError::io_error)?;
+        let source_url = String::from_utf8(source_buf)
+            .map_err(|_| FoyerError::new(ErrorKind::Parse, "invalid utf8 in source url"))?;
+
         Ok(CachedMetadata {
             width,
             height,
@@ -159,15 +192,17 @@ impl Code for CachedMetadata {
             has_alpha,
             orientation,
             pages,
+            source_url,
         })
     }
 
     fn estimated_size(&self) -> usize {
         std::mem::size_of::<u32>() * 5
-            + std::mem::size_of::<usize>() * 2
+            + std::mem::size_of::<usize>() * 3
             + std::mem::size_of::<bool>()
             + self.format.len()
             + self.content_type.len()
+            + self.source_url.len()
     }
 }
 
@@ -413,6 +448,7 @@ mod tests {
             bytes: Bytes::from(vec![1, 2, 3]),
             content_type: "image/jpeg",
             source_url: "https://example.test/cached.png".to_string(),
+            watermark_source_url: "https://cdn.example.test/mark.png".to_string(),
         };
 
         cache.insert(key.clone(), value.clone()).unwrap();
@@ -432,10 +468,36 @@ mod tests {
             bytes: Bytes::from(vec![1, 2, 3]),
             content_type: "image/jpeg",
             source_url: "https://example.test/cached.png".to_string(),
+            watermark_source_url: "https://cdn.example.test/mark.png".to_string(),
         };
         cache.insert(key.clone(), value.clone()).unwrap();
         let retrieved = cache.get(&key).await.unwrap();
         assert_eq!(retrieved.bytes, value.bytes);
         assert_eq!(retrieved.content_type, value.content_type);
+        // Both provenance URLs have to survive the disk round trip, or the
+        // hit-time allow-list check silently checks nothing.
+        assert_eq!(retrieved.source_url, value.source_url);
+        assert_eq!(retrieved.watermark_source_url, value.watermark_source_url);
+    }
+
+    #[test]
+    fn cached_metadata_round_trips_through_its_encoding() {
+        let metadata = CachedMetadata {
+            width: 800,
+            height: 600,
+            format: "jpeg".to_string(),
+            content_type: "image/jpeg".to_string(),
+            size_bytes: 1234,
+            channels: 3,
+            has_alpha: false,
+            orientation: 6,
+            pages: 4,
+            source_url: "https://cdn.example.test/real.jpg".to_string(),
+        };
+
+        let mut buf = Vec::new();
+        metadata.encode(&mut buf).unwrap();
+        let decoded = CachedMetadata::decode(&mut buf.as_slice()).unwrap();
+        assert_eq!(decoded, metadata);
     }
 }
