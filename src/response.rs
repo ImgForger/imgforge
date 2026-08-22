@@ -63,6 +63,19 @@ impl SourceMetadata {
 /// client falls back to its own heuristics, which is the behaviour imgforge
 /// has always had.
 fn cache_control(config: &Config, source_cache_control: Option<&str>) -> Option<String> {
+    // A bearer-protected response must never be reusable from a shared cache:
+    // `public` expressly invites a CDN to store the authorised answer and
+    // replay it to a request carrying no token. The origin's own policy does
+    // not get a say either — it cannot know imgforge put a token in front of
+    // it — so this outranks passthrough, and it applies even with no TTL
+    // configured, because heuristic caching needs refusing too.
+    if config.secret.as_deref().is_some_and(|secret| !secret.is_empty()) {
+        return Some(match config.ttl {
+            Some(ttl) => format!("max-age={ttl}, private"),
+            None => "private".to_string(),
+        });
+    }
+
     if config.cache_control_passthrough {
         if let Some(value) = source_cache_control.filter(|value| !value.trim().is_empty()) {
             return Some(sanitise_header_value(value));
