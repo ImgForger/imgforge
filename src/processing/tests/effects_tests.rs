@@ -1,5 +1,5 @@
 use crate::processing::colorspace;
-use crate::processing::options::{Adjust, Crop, Flip, Gravity, GravityType, Trim, Zoom};
+use crate::processing::options::{Adjust, Crop, Flip, Gravity, GravityType, Resize, ResizingType, Trim, Zoom};
 use crate::processing::transform::{self, TransformError};
 use libvips::{ops, VipsImage};
 
@@ -669,5 +669,76 @@ fn a_wide_gamut_source_is_converted_through_its_profile() {
     assert!(
         recovered < 4.0,
         "the round trip should land close to the original, got {recovered:.2}"
+    );
+}
+
+/// Smart gravity asks libvips which part of the image a viewer would look at,
+/// which is the one thing a geometric anchor cannot do. The subject here sits
+/// in the bottom-right, so a centre crop misses it entirely and any fixed
+/// anchor would only be right for images built like this one.
+#[test]
+fn test_smart_gravity_finds_the_subject_a_centre_crop_would_miss() {
+    init_vips();
+    let source = create_image_with_subject_at((120, 120), (86, 86, 24, 24));
+
+    let smart = transform::crop_image(
+        image_from(source.clone()),
+        &Crop {
+            width: 48.0,
+            height: 48.0,
+            gravity: Some(Gravity::new(GravityType::Smart)),
+        },
+        &Gravity::new(GravityType::Smart),
+    )
+    .unwrap();
+    let centred = transform::crop_image(
+        image_from(source),
+        &Crop {
+            width: 48.0,
+            height: 48.0,
+            gravity: None,
+        },
+        &Gravity::default(),
+    )
+    .unwrap();
+
+    assert_eq!((smart.get_width(), smart.get_height()), (48, 48));
+
+    // The subject is dark on a light field, so the crop that found it is the
+    // darker one by a wide margin.
+    let smart_luminance = mean_luminance(&decode_rgba(&smart));
+    let centred_luminance = mean_luminance(&decode_rgba(&centred));
+    assert!(
+        smart_luminance < centred_luminance - 20.0,
+        "smart crop should have found the subject: smart {smart_luminance:.1}, centred {centred_luminance:.1}"
+    );
+}
+
+/// The same applies to the implicit crop a `fill` resize performs.
+#[test]
+fn test_smart_gravity_positions_the_fill_window() {
+    init_vips();
+    let source = create_image_with_subject_at((200, 100), (160, 30, 32, 40));
+
+    let resize = Resize {
+        resizing_type: ResizingType::Fill,
+        width: 60,
+        height: 60,
+    };
+    let smart = transform::apply_resize(
+        image_from(source.clone()),
+        &resize,
+        &Gravity::new(GravityType::Smart),
+        None,
+        false,
+        1.0,
+    )
+    .unwrap();
+    let centred = transform::apply_resize(image_from(source), &resize, &Gravity::default(), None, false, 1.0).unwrap();
+
+    assert_eq!((smart.get_width(), smart.get_height()), (60, 60));
+    assert!(
+        mean_luminance(&decode_rgba(&smart)) < mean_luminance(&decode_rgba(&centred)) - 10.0,
+        "the fill window should have moved toward the subject"
     );
 }

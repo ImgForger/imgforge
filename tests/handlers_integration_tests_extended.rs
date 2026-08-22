@@ -1670,6 +1670,189 @@ async fn a_cached_redirect_destination_is_revalidated_on_a_hit() {
     );
 }
 
+/// Smart gravity through the handler rather than the transform helper: the URL
+/// has to parse, reach the pipeline, and come back as an encoded response of the
+/// requested size. AGENTS.md asks for the extended suite to grow whenever
+/// processing changes, and a helper-level test proves none of the routing,
+/// option propagation, or encoding in between.
+#[tokio::test]
+async fn smart_gravity_survives_the_whole_request_path() {
+    let server = MockServer::start().await;
+
+    // A subject in the bottom-right, so a smart crop and a centre crop cannot
+    // produce the same bytes.
+    // Wider than it is tall, so filling a square target leaves horizontal slack
+    // for the gravity to position. A square source would scale with no overhang
+    // and every anchor would produce identical bytes.
+    let mut source: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::from_pixel(240, 120, Rgba([250, 250, 250, 255]));
+    for y in 30..90 {
+        for x in 170..230 {
+            source.put_pixel(x, y, Rgba([5, 5, 5, 255]));
+        }
+    }
+    let mut bytes = Vec::new();
+    source
+        .write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
+        .unwrap();
+
+    Mock::given(method("GET"))
+        .and(path("/subject.png"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_bytes(bytes)
+                .insert_header("Content-Type", "image/png"),
+        )
+        .expect(1..)
+        .mount(&server)
+        .await;
+
+    let encoded = URL_SAFE_NO_PAD.encode(format!("{}/subject.png", server.uri()).as_bytes());
+
+    let fetch = |gravity: &str| {
+        let uri = format!("/unsafe/rs:fill:48:48/g:{gravity}/format:png/{encoded}");
+        async move {
+            let state =
+                create_test_state_with_cache(create_test_config(vec![], vec![], true), ImgforgeCache::None).await;
+            let app = axum::Router::new()
+                .route("/{*path}", axum::routing::get(image_forge_handler))
+                .with_state(state);
+            make_request(app, &uri).await
+        }
+    };
+
+    let (smart_status, smart_body) = fetch("sm").await;
+    let (centre_status, centre_body) = fetch("ce").await;
+    assert_eq!(smart_status, StatusCode::OK, "smart gravity should be accepted");
+    assert_eq!(centre_status, StatusCode::OK);
+
+    let decoded = image::load_from_memory(&smart_body).expect("the response should be a decodable image");
+    assert_eq!(
+        image::GenericImageView::dimensions(&decoded),
+        (48, 48),
+        "the fill target should be honoured"
+    );
+    // Compared as mean brightness rather than as raw bytes: the subject is dark,
+    // so a window that found it is measurably darker than the centre one — and a
+    // failure prints two numbers instead of two PNGs.
+    let mean = |body: &[u8]| {
+        let image = image::load_from_memory(body).expect("a decodable image").to_luma8();
+        image.pixels().map(|p| f64::from(p[0])).sum::<f64>() / image.pixels().len() as f64
+    };
+    let smart_mean = mean(&smart_body);
+    let centre_mean = mean(&centre_body);
+    assert!(
+        smart_mean < centre_mean - 10.0,
+        "smart gravity should have moved the window onto the subject \
+         (smart {smart_mean:.1} should be darker than centre {centre_mean:.1})"
+    );
+
+    // And the scoping holds end to end: `sm` is refused where it means nothing.
+    let uri = format!("/unsafe/rs:fit:48:48/ex:true:sm/{encoded}");
+    let state = create_test_state_with_cache(create_test_config(vec![], vec![], true), ImgforgeCache::None).await;
+    let app = axum::Router::new()
+        .route("/{*path}", axum::routing::get(image_forge_handler))
+        .with_state(state);
+    let (status, _) = make_request(app, &uri).await;
+    assert_eq!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "extend has no content to choose from, so sm must be refused"
+    );
+}
+
+/// `keep_copyright` through the handler, checking the bytes a client actually
+/// receives rather than the helper that builds them: the EXIF block has to
+/// survive encoding into each container that has a writer.
+#[tokio::test]
+async fn keep_copyright_reaches_the_encoded_response_for_png_and_webp() {
+    let server = MockServer::start().await;
+    let source = jpeg_with_copyright("Imgforge Test", "A. Photographer");
+
+    Mock::given(method("GET"))
+        .and(path("/rights.jpg"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_bytes(source)
+                .insert_header("Content-Type", "image/jpeg"),
+        )
+        .expect(1..)
+        .mount(&server)
+        .await;
+
+    let encoded = URL_SAFE_NO_PAD.encode(format!("{}/rights.jpg", server.uri()).as_bytes());
+
+    for format in ["jpeg", "png", "webp"] {
+        let uri = format!("/unsafe/rs:fit:32:32/sm:true/kcr:true/format:{format}/{encoded}");
+        let state = create_test_state_with_cache(create_test_config(vec![], vec![], true), ImgforgeCache::None).await;
+        let app = axum::Router::new()
+            .route("/{*path}", axum::routing::get(image_forge_handler))
+            .with_state(state);
+        let (status, body) = make_request(app, &uri).await;
+
+        assert_eq!(status, StatusCode::OK, "format:{format} should succeed");
+        assert!(
+            contains_bytes(&body, b"Imgforge Test"),
+            "format:{format} should carry the copyright through the strip"
+        );
+        assert!(
+            contains_bytes(&body, b"A. Photographer"),
+            "format:{format} should carry the artist through the strip"
+        );
+    }
+}
+
+/// Whether `needle` appears anywhere in `haystack`.
+fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {
+    haystack.windows(needle.len()).any(|window| window == needle)
+}
+
+/// A JPEG carrying EXIF `Copyright` and `Artist`, built by hand so the fixture
+/// needs no tooling and no checked-in binary.
+fn jpeg_with_copyright(copyright: &str, artist: &str) -> Vec<u8> {
+    use image::{ImageBuffer, ImageFormat, Rgb};
+
+    let mut base = Vec::new();
+    ImageBuffer::<Rgb<u8>, Vec<u8>>::from_pixel(64, 64, Rgb([120, 90, 60]))
+        .write_to(&mut std::io::Cursor::new(&mut base), ImageFormat::Jpeg)
+        .unwrap();
+
+    // Two ASCII entries whose values live past the IFD, which is where anything
+    // longer than four bytes has to go.
+    let copyright = format!("{copyright}\0");
+    let artist = format!("{artist}\0");
+    let ifd_end = 8 + 2 + 12 * 2 + 4;
+    let artist_offset = ifd_end;
+    let copyright_offset = artist_offset + artist.len();
+
+    let mut tiff = Vec::new();
+    tiff.extend_from_slice(b"II");
+    tiff.extend_from_slice(&42u16.to_le_bytes());
+    tiff.extend_from_slice(&8u32.to_le_bytes());
+    tiff.extend_from_slice(&2u16.to_le_bytes());
+    for (tag, value, offset) in [
+        (0x013Bu16, &artist, artist_offset),
+        (0x8298u16, &copyright, copyright_offset),
+    ] {
+        tiff.extend_from_slice(&tag.to_le_bytes());
+        tiff.extend_from_slice(&2u16.to_le_bytes()); // ASCII
+        tiff.extend_from_slice(&(value.len() as u32).to_le_bytes());
+        tiff.extend_from_slice(&(offset as u32).to_le_bytes());
+    }
+    tiff.extend_from_slice(&0u32.to_le_bytes());
+    tiff.extend_from_slice(artist.as_bytes());
+    tiff.extend_from_slice(copyright.as_bytes());
+
+    let mut app1 = Vec::from(&b"Exif\0\0"[..]);
+    app1.extend_from_slice(&tiff);
+
+    let mut out = Vec::new();
+    out.extend_from_slice(&base[..2]);
+    out.extend_from_slice(&[0xFF, 0xE1]);
+    out.extend_from_slice(&((app1.len() + 2) as u16).to_be_bytes());
+    out.extend_from_slice(&app1);
+    out.extend_from_slice(&base[2..]);
+    out
+}
 /// Both of these settings change the bytes of a response whose URL never
 /// changes, and neither carries a version bump to retire what it invalidates.
 /// The cache key has to carry them, and the request path has to actually pass

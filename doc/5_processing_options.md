@@ -15,7 +15,7 @@ Unrecognised directive *names* are ignored rather than rejected, so a typo silen
 | `resizing_algorithm`    | `ra`       | `algorithm`                                                 | Interpolation kernel for resize operations. Defaults to `lanczos3`.                                          |
 | `width`                 | `w`        | `value`                                                     | Sets a target width (infers height). Implies `fit`.                                                          |
 | `height`                | `h`        | `value`                                                     | Sets a target height (infers width). Implies `fit`.                                                          |
-| `gravity`               | `g`        | `type[:x_offset[:y_offset]]`                                | Controls crop/fill anchoring (`ce`, `noea`, `fp`, ...). Defaults to `ce:0:0`.                                |
+| `gravity`               | `g`        | `type[:x_offset[:y_offset]]`                                | Controls crop/fill anchoring (`ce`, `noea`, `fp`, `sm`, ...). Defaults to `ce:0:0`.                          |
 | `flip`                  | `fl`       | `horizontal[:vertical]`                                     | Flips the image horizontally and/or vertically. Defaults to no flip.                                         |
 | `enlarge`               | `el`       | `bool`                                                      | Allows upscaling globally. Defaults to `false`.                                                              |
 | `extend`                | `ex`       | `bool[:gravity]`                                            | Pads to target dimensions after resize. Defaults to `false:ce:0:0`.                                          |
@@ -43,7 +43,7 @@ Unrecognised directive *names* are ignored rather than rejected, so a typo silen
 | `max_bytes`             | `mb`       | `bytes`                                                     | Re-encodes lossy formats at lower quality until the byte target is reached or quality reaches `1`.           |
 | `strip_metadata`        | `sm`       | `bool`                                                      | Drops encoder metadata when supported by the output format.                                                  |
 | `strip_color_profile`   | `scp`      | `bool`                                                      | Drops the embedded colour profile, leaving other metadata alone.                                             |
-| `keep_copyright`        | `kcr`      | `bool`                                                      | Retains the EXIF copyright and artist tags across a metadata strip. JPEG output only.                        |
+| `keep_copyright`        | `kcr`      | `bool`                                                      | Retains the EXIF copyright and artist tags across a metadata strip. JPEG, PNG, and WebP output.              |
 | `preserve_hdr`          | `ph`       | `bool`                                                      | Keeps a high bit-depth image high bit-depth and carries its gain map through. Gain maps need libvips 8.16+; older builds keep the depth and drop the map. |
 | `enforce_thumbnail`     | `eth`      | `bool`                                                      | Uses the source's embedded EXIF thumbnail instead of the full image when one is present.                     |
 | `jpeg_options`          | `jpgo`     | `progressive:no_subsample:trellis:dering:scans:quant_table` | Advanced JPEG encoder switches.                                                                              |
@@ -151,11 +151,23 @@ Pick on appearance rather than speed: the kernel is rarely where the processing 
 - Canvas alignment for `extend` and `extend_aspect_ratio`, each of which can also carry its own.
 - Watermark positioning, via the `watermark` option's own position argument.
 
-imgforge accepts imgproxy's gravity anchors: `ce`, `no`, `so`, `ea`, `we`, `noea`, `nowe`, `soea`, `sowe`, and `fp`.
+imgforge accepts imgproxy's gravity anchors: `ce`, `no`, `so`, `ea`, `we`, `noea`, `nowe`, `soea`, `sowe`, `fp`, and `sm`. The last two are scoped, exactly as in imgproxy, because they do not mean anything everywhere:
+
+| Where | `fp` | `sm` |
+| ----- | ---- | ---- |
+| `crop`, `fill`, `fill-down`, `gravity` | yes | yes |
+| `extend`, `extend_aspect_ratio` | yes | **no** — nothing to examine |
+| `watermark` position | **no** | **no** — a watermark is placed, not found |
+
+A gravity used where it does not apply is rejected with `400 Bad Request` rather than quietly falling back to `ce`.
 
 **Offsets** nudge the window away from its anchor. A magnitude of 1 or more is a pixel count; anything smaller is a fraction of the axis being positioned. `gravity:no:0:20` takes the window from 20px below the top edge; `gravity:no:0:0.1` takes it from a tenth of the way down. The window is still clamped to the image, so an offset cannot push it off the edge.
 
 **Focus point** — `gravity:fp:x:y` — reads the two arguments as coordinates between 0 and 1 and centres the result on that point. `gravity:fp:0.5:0.25` keeps the middle of the upper quarter in view, which is the usual answer for portraits where a centre crop cuts off the head.
+
+**Smart** — `gravity:sm` — hands the choice to libvips, which scores the image for the region a viewer's eye would settle on and puts the window there. It is the answer when no fixed anchor is right for every image: a catalogue of mixed portraits and landscapes has no single correct crop, and a focus point has to be supplied per image. imgproxy charges for this one.
+
+Two costs. It has to examine real pixels, so it forces the decode rather than composing into libvips' lazy pipeline — though in a `fill` it runs *after* the resize, so it examines the small image rather than the source. And it takes no offsets: the window is chosen, not positioned. It applies only where there is content to choose from, which is why the table above rules it out for watermark placement and for the two extends: both position the image on a canvas larger than itself rather than selecting a window inside it.
 
 ### Minimum dimensions & zoom
 
@@ -235,7 +247,7 @@ Defaults to `85` for lossy codecs (JPEG, WebP, AVIF). `quality` is ignored for l
 - `strip_metadata` and `strip_color_profile` map to libvips metadata retention controls for formats that expose them.
 - `jpeg_options` maps to progressive JPEG, chroma subsampling, trellis quantization, overshoot deringing, optimized scans, and quant table controls.
 - `png_options` maps to interlacing and palette quantization controls.
-- `webp_options` maps to lossless, smart chroma subsampling, and encoder preset controls. Preset names outside libvips' own set (`default`, `picture`, `photo`, `drawing`, `icon`, `text`) are accepted in URLs but ignored by the encoder.
+- `webp_options` maps to lossless, smart chroma subsampling, and encoder preset controls. The preset must be one of libvips' own — `default`, `picture`, `photo`, `drawing`, `icon`, `text` — and anything else is refused with `400`. It used to be accepted and then dropped on the way to the encoder, so a typo silently produced a different image.
 - `avif_options` maps to AVIF/HEIF chroma subsampling.
 
 Every format is encoded through the libvips save suffix (`.webp[Q=80,keep=all]` and friends) rather than the crate's generated save bindings. Those bindings name encoder properties that only exist in libvips 8.16 and later — `exact` on webpsave, `tune` on heifsave, `keep-duplicate-frames` on gifsave — and an older libvips rejects the whole call with `no property named ...`, so nothing encodes at all. The suffix parser sets only the options named, which keeps one code path working across libvips versions, and it is also the only form that can express a *combination* of metadata `keep` flags.
@@ -249,7 +261,7 @@ A result too large for its output container is scaled down to fit rather than ha
 ### Metadata
 
 - **`strip_metadata`** drops the descriptive tags (EXIF, XMP, IPTC) and leaves the colour profile alone. **`strip_color_profile`** does the reverse. Set both to drop everything.
-- **`keep_copyright`** carries the EXIF `Copyright` and `Artist` tags across a `strip_metadata`. libvips has no copyright granularity in its `keep` flags — they are `none|exif|xmp|iptc|icc|other|gainmap|all` — so imgforge reads the two fields from the source and splices a minimal EXIF segment back into the encoded result. That mechanism is JPEG-only; other output formats strip as normal, and the option is a no-op for them.
+- **`keep_copyright`** carries the EXIF `Copyright` and `Artist` tags across a `strip_metadata`. libvips has no copyright granularity in its `keep` flags — they are `none|exif|xmp|iptc|icc|other|gainmap|all` — so imgforge reads the two fields from the source and writes a minimal EXIF block back into the encoded result: an APP1 segment for JPEG, an `eXIf` chunk for PNG, and an `EXIF` chunk for WebP, synthesising the extended header WebP needs to carry one. Every other output format strips as normal and the option is a no-op for it — including TIFF, AVIF and HEIF, which *can* hold EXIF but have no writer here yet.
 - **`preserve_hdr`** keeps a high bit-depth source at its own depth when the output format can carry it (PNG, TIFF, AVIF, HEIF) and retains the gain map that makes the image HDR, even while other metadata is being stripped. The gain-map half needs libvips 8.16 or later, where the `gainmap` keep flag was added. On an older build imgforge detects the runtime version and drops that flag rather than failing: the request succeeds, keeps its bit depth, and loses only the gain map. A successful response on such a build is therefore not proof that the gain map survived — the drop is logged when it happens.
 - **`enforce_thumbnail`** uses the source's embedded EXIF thumbnail in place of the full image whenever one is present, which turns a large JPEG into a very cheap request. The thumbnail is usually a few hundred pixels wide, so the result is only as good as that; a thumbnail that will not decode falls back to the full image rather than failing.
 

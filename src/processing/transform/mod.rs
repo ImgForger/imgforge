@@ -17,7 +17,7 @@ use thiserror::Error;
 pub use effects::{
     apply_adjust, apply_background_color, apply_blur, apply_pixelate, apply_sharpen, flatten_onto_background,
 };
-pub use geometry::{apply_padding, calc_position, crop_image, extend_image, extend_to_aspect_ratio};
+pub use geometry::{apply_padding, calc_position, crop_image, extend_image, extend_to_aspect_ratio, smart_crop};
 pub use orientation::{apply_exif_orientation, apply_exif_rotation, apply_flip, apply_rotation};
 pub use resize::{apply_min_dimensions, apply_resize, apply_zoom, resolve_resize_dimensions};
 pub use trim::apply_trim;

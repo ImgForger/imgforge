@@ -171,8 +171,16 @@ pub fn format_max_dimension(format: &str) -> Option<u32> {
 
 /// Saves an image to bytes in the specified format.
 pub fn save_image(img: VipsImage, format: &str, quality: u8) -> Result<Vec<u8>, SaveError> {
-    save_image_with_options(img, format, quality, &SaveOptions::default(), None)
+    save_image_with_options(img, format, quality, &SaveOptions::default(), None, None)
 }
+
+/// A caller-supplied rewrite of the encoded bytes.
+///
+/// Whatever it produces is what the client receives, so the `max_bytes` search
+/// has to measure its output rather than the encoder's — otherwise a step that
+/// grows the file, such as splicing a copyright block back in, can push a
+/// response over a limit that a lower quality would have met.
+pub type Finalize<'a> = &'a dyn Fn(Vec<u8>) -> Vec<u8>;
 
 /// Saves an image to bytes using imgproxy-compatible encoder controls.
 ///
@@ -185,6 +193,7 @@ pub fn save_image_with_options(
     quality: u8,
     options: &SaveOptions,
     page_height: Option<i32>,
+    finalize: Option<Finalize<'_>>,
 ) -> Result<Vec<u8>, SaveError> {
     let Some(spec) = canonical_format(format) else {
         return Err(SaveError::UnsupportedFormat {
@@ -198,7 +207,7 @@ pub fn save_image_with_options(
         });
     }
 
-    encode_with_max_bytes(&img, spec, quality, options, page_height)
+    encode_with_max_bytes(&img, spec, quality, options, page_height, finalize)
 }
 
 fn encode_with_max_bytes(
@@ -207,14 +216,21 @@ fn encode_with_max_bytes(
     quality: u8,
     options: &SaveOptions,
     page_height: Option<i32>,
+    finalize: Option<Finalize<'_>>,
 ) -> Result<Vec<u8>, SaveError> {
+    let finish = |bytes: Vec<u8>| match finalize {
+        Some(finalize) => finalize(bytes),
+        None => bytes,
+    };
+
     let Some(max_bytes) = options.max_bytes else {
-        return encode_once(img, spec, quality, options, page_height);
+        return Ok(finish(encode_once(img, spec, quality, options, page_height)?));
     };
 
     let mut quality = quality.clamp(1, 100);
     loop {
-        let bytes = encode_once(img, spec, quality, options, page_height)?;
+        // Measured after finalizing, so the budget covers what is actually sent.
+        let bytes = finish(encode_once(img, spec, quality, options, page_height)?);
         if bytes.len() <= max_bytes || quality <= 1 {
             return Ok(bytes);
         }
@@ -318,21 +334,18 @@ impl Suffix {
     }
 }
 
-/// Maps a requested WebP preset to the matching vips nickname.
+/// Maps a requested WebP preset to the vips nickname of the same name.
 ///
-/// `preset` reaches us as free text from the URL, so only names vips actually
-/// defines may be interpolated into the option string; anything else is
-/// dropped and the encoder default applies.
+/// The parser has already refused anything outside this set, but the value
+/// still reaches an option string that vips parses, so it is matched against
+/// the known names once more rather than interpolated on trust. A `preset`
+/// carrying `],lossless` would otherwise close the bracket and set an option
+/// the request never asked for.
 fn webp_preset_nickname(preset: &str) -> Option<&'static str> {
-    match preset {
-        "default" => Some("default"),
-        "picture" => Some("picture"),
-        "photo" => Some("photo"),
-        "drawing" => Some("drawing"),
-        "icon" => Some("icon"),
-        "text" => Some("text"),
-        _ => None,
-    }
+    crate::processing::options::WEBP_PRESETS
+        .iter()
+        .find(|known| **known == preset)
+        .copied()
 }
 
 /// Builds the encoder suffix for one format.

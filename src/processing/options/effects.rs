@@ -93,8 +93,10 @@ impl WatermarkPosition {
     pub fn parse(value: &str) -> Option<Self> {
         match value {
             "re" => Some(Self::Replicate),
+            // A watermark is placed, not discovered, so the two content-aware
+            // gravities have no meaning here.
             other => GravityType::parse(other)
-                .filter(|kind| *kind != GravityType::FocusPoint)
+                .filter(|kind| *kind != GravityType::FocusPoint && !kind.is_content_aware())
                 .map(Self::Anchor),
         }
     }

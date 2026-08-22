@@ -10,31 +10,38 @@ Measurements below were taken on libvips 8.16.1 (the version the published image
 
 imgproxy gates a number of options behind its Pro tier that imgforge implements for free: `resizing_algorithm`,
 `background_alpha`, `watermark_url`, all four `*_options` encoder groups, the `adjust`/`brightness`/`contrast`/
-`saturation` family, and `page`/`pages`/`disable_animation`.
+`saturation` family, `page`/`pages`/`disable_animation`, and smart gravity (`gravity:sm`).
 
-0.18.0 closed the free-tier gap that remained. Every option in imgproxy's free tier is now implemented rather than
-merely parsed, with the exceptions listed under **Known gaps** below.
+0.18.0 closed the free-tier gap that remained. Every option in imgproxy's free tier is implemented rather than
+merely parsed, and every option imgforge parses is applied.
 
 ## Known gaps in what imgforge accepts
 
-- **`keep_copyright` on non-JPEG output** — libvips' `keep` flags have no copyright granularity, so imgforge reads
-  the EXIF `Copyright` and `Artist` fields from the source and splices a minimal EXIF segment into the encoded
-  result. That mechanism only exists for JPEG. PNG and WebP can carry EXIF too, and the same approach would work
-  for them; nobody has needed it yet.
-- **`preserve_hdr` on libvips below 8.16** — the `gainmap` keep flag does not exist there. imgforge checks the
-  runtime version once and drops the flag rather than naming it, so the request succeeds and loses only the gain
-  map; the high bit-depth half still works. The drop is logged. The published image ships 8.16.1 and is
-  unaffected.
-- **`webp_options` preset** — only libvips' own preset names reach the encoder. Others are ignored rather than
-  failing, because an unknown name makes libvips reject the whole encode.
+Every option imgforge parses is applied, with three conditionals — each of which degrades rather than failing the
+request, and each logged when it takes effect:
+
+- **`preserve_hdr` on libvips below 8.16.** The `gainmap` keep flag does not exist there, so imgforge checks the
+  runtime version once and drops the flag rather than failing the encode. The request loses the gain map and keeps
+  the high bit depth. The published image ships 8.16.1 and is unaffected.
+- **`keep_copyright` on TIFF, AVIF or HEIF output.** All three containers can hold EXIF, but imgforge only writes
+  it into JPEG, PNG and WebP. The others strip as normal and the option is a no-op for them.
+- **`trim` on an animated source.** Trim measures one image's borders and each frame has its own, which no animated
+  container can represent — the frames share a canvas. The option is dropped for animations, as it is in imgproxy.
 
 ## imgproxy Pro options imgforge does not implement
 
 Listed so the comparison is honest rather than because they are planned: `autoquality`, `crop_aspect_ratio`,
 `objects_position` and the object-detection family, `monochrome`, `duotone`, `colorize`, `gradient`,
 `unsharp_masking`, `blur_areas`, `style`, `dpi`, `color_profile`, `hashsum`, `watermark_text`/`_size`/`_rotate`/
-`_shadow`, `fallback_image_url`, and the `video_thumbnail_*` family. Smart gravity (`gravity:sm`) is Pro as well;
-libvips does expose `smartcrop`, so it is the one entry here that would be cheap.
+`_shadow`, `fallback_image_url`, and the `video_thumbnail_*` family.
+
+Most of these need something libvips does not provide on its own — an object detector, a quality search loop, a CSS
+parser. The ones that do not are `crop_aspect_ratio` (pure arithmetic on the crop extents), `monochrome`, `duotone`,
+and `colorize` (each a recombination matrix or a blend), and `watermark_size`/`watermark_rotate`. None is hard;
+none has been asked for either, which is why they sit here rather than in the code.
+
+Smart gravity used to be on this list with a note that it would be cheap. It was, and it shipped: `gravity:sm`
+hands the window choice to libvips' `smartcrop`, which is the one thing a geometric anchor cannot do.
 
 ## Performance
 
@@ -103,6 +110,9 @@ and they are the only form that can express a *combination* of metadata `keep` f
   in the repository and generating a correct one by hand is not obviously cheaper than checking in a file.
 - **`enforce_thumbnail`** is covered for the "no thumbnail" and "malformed thumbnail" paths but not for a JPEG that
   actually carries one, for the same reason.
+- **`keep_copyright`** round-trips through a real encode of each container imgforge writes EXIF into — JPEG, PNG
+  and WebP, including a WebP that already has an extended header. Not covered: a container whose existing EXIF
+  block is malformed. TIFF, AVIF and HEIF can carry EXIF but have no writer, so there is nothing to cover yet.
 
 ## How to extend this list
 

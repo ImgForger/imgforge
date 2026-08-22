@@ -58,7 +58,7 @@ fn test_webp_save_lossless_applies() {
     options.webp.lossless = Some(true);
 
     let img = VipsImage::new_from_buffer(&base, "").unwrap();
-    let lossless = save::save_image_with_options(img, "webp", 80, &options, None).unwrap();
+    let lossless = save::save_image_with_options(img, "webp", 80, &options, None, None).unwrap();
     let img = VipsImage::new_from_buffer(&base, "").unwrap();
     let lossy = save::save_image(img, "webp", 80).unwrap();
 
@@ -87,7 +87,7 @@ fn test_webp_save_honors_max_bytes() {
         ..Default::default()
     };
     let img = VipsImage::new_from_buffer(&base, "").unwrap();
-    let bounded = save::save_image_with_options(img, "webp", 95, &options, None).unwrap();
+    let bounded = save::save_image_with_options(img, "webp", 95, &options, None, None).unwrap();
 
     assert!(
         bounded.len() <= budget && bounded.len() < unbounded.len(),
@@ -145,11 +145,17 @@ fn test_webp_save_suffix_clamps_quality() {
 }
 
 #[test]
-fn test_webp_save_suffix_drops_unknown_preset() {
-    // `preset` arrives as free text from the URL, so anything vips does not
-    // define must never reach the option string.
-    let mut options = SaveOptions::default();
-    options.webp.preset = Some("photo],lossless".to_string());
+fn test_webp_save_suffix_never_interpolates_an_unknown_preset() {
+    // The parser refuses these, but the suffix goes through vips' own option
+    // parser, so a value that could close the bracket and set an option the
+    // request never asked for must not reach it even if it arrives another way.
+    let options = SaveOptions {
+        webp: crate::processing::options::WebpOptions {
+            preset: Some("photo],lossless".to_string()),
+            ..Default::default()
+        },
+        ..SaveOptions::default()
+    };
     assert_eq!(
         save::save_suffix("webp", 75, &options, None).unwrap(),
         ".webp[Q=75,keep=all]"
@@ -335,4 +341,52 @@ fn format_ceilings_match_the_encoders_own_limits() {
     // PNG and TIFF address far more than any request will produce.
     assert_eq!(format_max_dimension("png"), None);
     assert_eq!(format_max_dimension("tiff"), None);
+}
+
+/// `max_bytes` has to measure what the client receives. The copyright block is
+/// spliced into the encoded bytes afterwards, so measuring the bare encode let
+/// a response exceed the budget when a lower quality would have fitted.
+#[test]
+fn test_max_bytes_measures_the_finalized_bytes() {
+    init_vips();
+    let base = create_textured_image(200, 200);
+
+    // A finalizer that appends a fixed block, standing in for the metadata
+    // splice. Large relative to the gap between quality steps, so that ignoring
+    // it would demonstrably stop the search a step early.
+    let padding = vec![0u8; 4096];
+    let finalize = |mut bytes: Vec<u8>| {
+        bytes.extend_from_slice(&padding);
+        bytes
+    };
+
+    // A budget that a low-quality encode plus the padding just fits.
+    let img = VipsImage::new_from_buffer(&base, "").unwrap();
+    let budget = save::save_image(img, "webp", 20).unwrap().len() + padding.len();
+
+    let options = SaveOptions {
+        max_bytes: Some(budget),
+        ..SaveOptions::default()
+    };
+    let img = VipsImage::new_from_buffer(&base, "").unwrap();
+    let bounded = save::save_image_with_options(img, "webp", 95, &options, None, Some(&finalize)).unwrap();
+
+    assert!(
+        bounded.len() <= budget,
+        "the budget must cover the finalized bytes: {} > {budget}",
+        bounded.len()
+    );
+    assert!(
+        bounded.ends_with(&padding),
+        "the finalizer's output is what should have been returned"
+    );
+
+    // Without counting the padding the loop would have stopped a step early,
+    // so the same budget on the bare encode alone leaves room to spare.
+    let img = VipsImage::new_from_buffer(&base, "").unwrap();
+    let unfinalized = save::save_image_with_options(img, "webp", 95, &options, None, None).unwrap();
+    assert!(
+        unfinalized.len() + padding.len() > budget,
+        "the test is only meaningful if the padding is what forces the extra step"
+    );
 }
