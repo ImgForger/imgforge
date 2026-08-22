@@ -168,14 +168,14 @@ fn negotiated_formats_get_their_own_cache_entries() {
     assert_ne!(plain, webp);
     assert_ne!(webp, avif);
 
-    // An explicit format in the URL is not negotiable, so it keeps the bare
-    // path and stays shared across clients.
+    // An explicit format in the URL is not negotiable, so it stays shared
+    // across clients — the only namespace it carries is the output version.
     let explicit = processed_cache_key(CacheKeyParts {
         has_explicit_format: true,
         negotiated_format: Some("webp"),
         ..key_parts("/unsafe/format:png/example")
     });
-    assert_eq!(explicit, "/unsafe/format:png/example");
+    assert_eq!(explicit, "v2:/unsafe/format:png/example");
 }
 
 /// A real JPEG with an APP1/Exif segment carrying just the Orientation tag,
@@ -442,6 +442,25 @@ fn thumbnail_substitution_is_gated_and_keeps_the_source_in_view() {
     assert!(opened.original.is_none(), "the stored axes no longer pass the gate");
 }
 
+/// A release that changes what a URL renders has to retire the entries the
+/// previous one left behind. imgforge has no cache TTL, so a frequently
+/// requested URL would otherwise serve its pre-upgrade bytes indefinitely.
+#[test]
+fn processed_cache_keys_are_namespaced_by_the_output_version() {
+    let key = processed_cache_key(key_parts("/unsafe/rs:fit:10:10/example"));
+    assert!(
+        key.starts_with("v2:"),
+        "processed keys should carry the output version, got: {key}"
+    );
+
+    // Except for raw, whose bytes are the origin's and did not change.
+    let raw = processed_cache_key(CacheKeyParts {
+        is_raw: true,
+        ..key_parts("/unsafe/raw/example")
+    });
+    assert_eq!(raw, "/unsafe/raw/example");
+}
+
 #[test]
 fn raw_cache_keys_ignore_the_result_limit() {
     // The raw path inserts under the bare path, so the lookup key has to match
@@ -611,7 +630,10 @@ fn configured_option_defaults_seed_the_parse() {
     assert!(!parsed.auto_rotate);
     assert_eq!(parsed.save.strip_metadata, Some(true));
     assert!(parsed.enforce_thumbnail);
-    assert_eq!(parsed.quality, Some(60));
+    // The configured quality is kept apart from the URL's own so that a
+    // `format_quality` in the URL still outranks it.
+    assert_eq!(parsed.quality, None);
+    assert_eq!(parsed.quality_for("webp"), 60);
 
     // The URL always wins, because it is applied on top of the defaults.
     let overridden = parse_all_options_with_defaults(
@@ -634,7 +656,7 @@ fn configured_option_defaults_seed_the_parse() {
     .expect("overrides parse");
     assert!(overridden.auto_rotate);
     assert_eq!(overridden.save.strip_metadata, Some(false));
-    assert_eq!(overridden.quality, Some(90));
+    assert_eq!(overridden.quality_for("webp"), 90);
 }
 
 #[test]
@@ -787,7 +809,7 @@ fn implicit_format_cache_keys_include_the_configured_default() {
     });
 
     assert_ne!(source_key, jpeg_key);
-    assert_eq!(explicit_key, "/unsafe/format:png/example");
+    assert_eq!(explicit_key, "v2:/unsafe/format:png/example");
 }
 
 /// A crop's position is measured in the same pixels as its size, so a reduced

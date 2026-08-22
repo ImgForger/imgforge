@@ -166,10 +166,12 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
     }
     let vary = vary_headers(config);
 
-    // Resolved before the cache lookup: a source the deployment no longer
-    // permits must stop being served, and a persistent cache would otherwise
-    // keep answering for it long after `IMGFORGE_ALLOWED_SOURCES` was tightened
-    // — the request never reaches the check because it never reaches the fetch.
+    // Resolved before the cache lookup for two reasons. A source the deployment
+    // no longer permits must stop being served, and a persistent cache would
+    // otherwise keep answering for it long after `IMGFORGE_ALLOWED_SOURCES` was
+    // tightened — the request never reaches the check because it never reaches
+    // the fetch. And the canonical header has to name the same URL on a hit as
+    // on a miss.
     let decoded_url = resolve_source_url(config, &url_parts)?;
 
     // The watermark's URL is part of the request too, so it is checked where
@@ -234,18 +236,17 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
     if let Some(cached_image) = cached_image {
         debug!("Image found in cache for path={}", path);
 
-        // A cache hit has no source response to draw on, so the origin's own
-        // caching headers are not available; the configured policy still is,
-        // and the entity tag comes from the bytes either way.
-        // The origin's delivery metadata was stored with the entry, so a hit
-        // keeps saying what the origin said — a passthrough `no-store` must
-        // not vanish the moment the cache starts answering.
+        // The origin's delivery metadata was stored with the entry and the
+        // source URL is resolved either way, so a hit keeps saying what the
+        // origin said — a passthrough `no-store` must not vanish the moment
+        // the cache starts answering — and keeps naming the same canonical
+        // address a miss would.
         let cached_source = SourceMetadata {
             cache_control: (!cached_image.origin_cache_control.is_empty())
                 .then(|| cached_image.origin_cache_control.clone()),
             last_modified: (!cached_image.origin_last_modified.is_empty())
                 .then(|| cached_image.origin_last_modified.clone()),
-            url: None,
+            url: Some(decoded_url.clone()),
         };
         let headers = DeliveryHeaders::for_cache_hit(config, &cached_source, &cached_image.etag, &vary);
 

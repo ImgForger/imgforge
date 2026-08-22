@@ -151,14 +151,10 @@ pub fn process_image(
         }
     }
 
-    let quality = parsed_options
-        .quality
-        .or_else(|| parsed_options.save.format_quality.get(&output_format).copied())
-        .unwrap_or(85);
     let mut output_vec = save::save_image_with_options(
         img,
         &output_format,
-        quality,
+        parsed_options.quality_for(&output_format),
         &parsed_options.save,
         page_height.filter(|_| save::format_supports_animation(&output_format)),
     )?;
