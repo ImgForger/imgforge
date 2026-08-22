@@ -11,7 +11,7 @@ use imgforge::caching::cache::ImgforgeCache;
 use imgforge::caching::config::CacheConfig;
 use imgforge::config::Config;
 use imgforge::config::{SourcePattern, SourceRules};
-use imgforge::handlers::image_forge_handler;
+use imgforge::handlers::{image_forge_handler, preflight_handler};
 use imgforge::middleware::request_id_middleware;
 use imgforge::MaxSourceFileSize;
 use lazy_static::lazy_static;
@@ -859,6 +859,82 @@ async fn cache_control_comes_from_the_ttl_or_the_origin() {
         delivery_header(&response, "cache-control").as_deref(),
         Some("public, max-age=99")
     );
+}
+
+/// A bearer-protected deployment must not mark responses shared-cacheable:
+/// `public` invites a CDN to replay the authorised answer to a request that
+/// carries no token. Neither the TTL default nor the origin's own policy gets
+/// a say — the origin cannot know a token now guards it.
+#[tokio::test]
+async fn bearer_protected_responses_are_never_publicly_cacheable() {
+    let server = MockServer::start().await;
+    let encoded = delivery_source(&server, &[("Cache-Control", "public, max-age=99")]).await;
+    let uri = format!("/unsafe/rs:fit:20:20/{encoded}");
+    let auth = [("authorization", "Bearer token")];
+
+    let mut config = delivery_config();
+    config.secret = Some("token".to_string());
+    config.ttl = Some(600);
+    config.cache_control_passthrough = true;
+    let response = delivery_request(delivery_state(config).await, &uri, &auth).await;
+    assert_eq!(response.status, StatusCode::OK);
+    assert_eq!(
+        delivery_header(&response, "cache-control").as_deref(),
+        Some("max-age=600, private"),
+        "passthrough must not forward the origin's public policy"
+    );
+
+    // With no TTL the refusal still has to be said out loud, or a heuristic
+    // cache decides for itself.
+    let mut config = delivery_config();
+    config.secret = Some("token".to_string());
+    let response = delivery_request(delivery_state(config).await, &uri, &auth).await;
+    assert_eq!(delivery_header(&response, "cache-control").as_deref(), Some("private"));
+}
+
+/// `Authorization` is not a safelisted request header, so a browser holding a
+/// bearer token sends OPTIONS before the real request. A router answering only
+/// GET turned that preflight into a 405, and no header on the eventual GET
+/// could repair it.
+#[tokio::test]
+async fn a_cors_preflight_is_answered_when_an_origin_is_allowed() {
+    let preflight = |state: Arc<AppState>| async {
+        let app = axum::Router::new()
+            .route(
+                "/{*path}",
+                axum::routing::get(image_forge_handler).options(preflight_handler),
+            )
+            .with_state(state);
+        app.oneshot(
+            Request::builder()
+                .method("OPTIONS")
+                .uri("/unsafe/rs:fit:20:20/whatever")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+    };
+
+    let mut config = delivery_config();
+    config.allow_origin = Some("https://app.example.test".to_string());
+    let response = preflight(delivery_state(config).await).await;
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    assert_eq!(
+        response.headers().get("access-control-allow-origin").unwrap(),
+        "https://app.example.test"
+    );
+    let allowed_headers = response
+        .headers()
+        .get("access-control-allow-headers")
+        .expect("the preflight names the headers it permits")
+        .to_str()
+        .unwrap();
+    assert!(allowed_headers.contains("Authorization"), "got: {allowed_headers}");
+
+    // Without a configured origin there is nothing to grant.
+    let response = preflight(delivery_state(delivery_config()).await).await;
+    assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
 }
 
 #[tokio::test]

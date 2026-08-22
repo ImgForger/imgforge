@@ -16,6 +16,26 @@ pub async fn status_handler() -> impl IntoResponse {
     (StatusCode::OK, Json(json!({"status": "ok"})))
 }
 
+/// Answers CORS preflights for the image and info routes.
+///
+/// `Authorization` is not a safelisted request header, so a browser holding a
+/// bearer token asks with `OPTIONS` before it will send the real request.
+/// Putting `Access-Control-Allow-Origin` on the eventual GET could never make
+/// that work: the preflight hit a router with only GET handlers and was told
+/// 405 before any CORS header existed.
+pub async fn preflight_handler(State(state): State<Arc<AppState>>) -> Response {
+    let Some(origin) = state.config.allow_origin.as_deref() else {
+        return StatusCode::METHOD_NOT_ALLOWED.into_response();
+    };
+
+    let mut headers = HeaderMap::new();
+    insert_header(&mut headers, header::ACCESS_CONTROL_ALLOW_ORIGIN, origin);
+    insert_header(&mut headers, header::ACCESS_CONTROL_ALLOW_METHODS, "GET, OPTIONS");
+    insert_header(&mut headers, header::ACCESS_CONTROL_ALLOW_HEADERS, "Authorization");
+    insert_header(&mut headers, header::ACCESS_CONTROL_MAX_AGE, "86400");
+    (StatusCode::NO_CONTENT, headers).into_response()
+}
+
 /// Handles the /info/{*path} endpoint, returning metadata about the source image.
 pub async fn info_handler(
     State(state): State<Arc<AppState>>,

@@ -3,7 +3,7 @@ use crate::caching::config::CacheConfig;
 use crate::caching::error::CacheError;
 use crate::config::{Config, ConfigError};
 use crate::constants::*;
-use crate::handlers::{image_forge_handler, info_handler, status_handler};
+use crate::handlers::{image_forge_handler, info_handler, preflight_handler, status_handler};
 use crate::middleware;
 use crate::monitoring;
 use axum::http::StatusCode;
@@ -97,7 +97,7 @@ pub async fn start() -> Result<(), ServerError> {
     // its orchestration; IMGFORGE_HEALTH_CHECK_PATH renames the latter.
     let mut app = Router::new()
         .route(&route("/status"), get(status_handler))
-        .route(&route("/info/{*path}"), get(info_handler));
+        .route(&route("/info/{*path}"), get(info_handler).options(preflight_handler));
 
     if health_path != "/status" {
         app = app.route(&route(&health_path), get(status_handler));
@@ -107,6 +107,7 @@ pub async fn start() -> Result<(), ServerError> {
         .route(
             &route("/{*path}"),
             get(image_forge_handler)
+                .options(preflight_handler)
                 .layer(axum::middleware::from_fn_with_state(
                     state.clone(),
                     middleware::rate_limit_middleware,
