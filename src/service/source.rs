@@ -137,11 +137,19 @@ pub fn can_skip_processing(
 
 /// Whether EXIF orientation will transpose the image during processing.
 pub fn swaps_axes(parsed_options: &ParsedOptions, image_bytes: &Bytes) -> bool {
-    parsed_options.auto_rotate
+    let exif_transposes = parsed_options.auto_rotate
         && matches!(
             crate::utils::read_exif_orientation(image_bytes),
             Some(5) | Some(6) | Some(7) | Some(8)
-        )
+        );
+    let rotate_transposes = parsed_options.rotation.unwrap_or(0) % 180 == 90;
+
+    // Two right-angle turns cancel, so this is an exclusive or rather than an
+    // either. Counting only the EXIF one left a `rotate:90` request planning its
+    // decode against the untransposed shape: an 8000x4000 JPEG asked for
+    // `fill:2000:1000` with the rotation would shrink 4x instead of 2x, and the
+    // enlargement cap could not make the missing width back up.
+    exif_transposes != rotate_transposes
 }
 
 /// Rewrites an absolute crop region to match a source decoded at a reduced size.

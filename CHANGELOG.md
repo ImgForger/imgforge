@@ -81,6 +81,24 @@ listed under **Changed** and are the reason this is a minor bump rather than a p
 
 ### Changed
 
+- **The pipeline runs in imgproxy's stage order.** The stages were each correct, but composed in an order that had
+  been inferred rather than checked against imgproxy's `mainPipeline`. Three positions moved, and the first two
+  change what existing URLs return:
+
+  - **Rotation now sits between the scale and the result crop.** The requested size and the crop gravity describe
+    the image the caller receives, so they are applied in the final orientation. `resize:fill:800:600/rotate:90`
+    returned 600×800 and now returns 800×600; `crop:300:200:nowe/rotate:90` selected the top-left region of the
+    *stored* image and now selects the one that ends up at the top left. Flips are compensated the same way.
+    `extend` and `padding` also moved after the rotation, so `padding:10:0:0:0` pads the top of the result.
+  - **Filters run before `extend` and `padding`.** A blur applied afterwards convolved across the boundary,
+    bleeding the pad colour into the image and the image into the pad.
+  - **Flattening happens before the watermark.** This one changes no pixels — "over" compositing is associative —
+    but it means the encoder is handed an image with no alpha band rather than one that regained a fourth band
+    from the watermark.
+
+  EXIF auto-rotation is unaffected: it is applied before the frame enters the pipeline, so a gravity has always
+  referred to the upright image.
+
 - **`brightness` and `contrast` are applied.** They were parsed and validated but never used, on the basis that the
   libvips crate did not expose the `linear` operation they need. It does — the watermark code had been calling it
   all along. Requests that set them will now produce different images.

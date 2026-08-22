@@ -230,8 +230,8 @@ Reach for it when you need it, not by default, and be wary of it on large source
 ### `auto_rotate` and `rotate`
 
 - `auto_rotate` defaults to `true`, applying EXIF orientation automatically. Disable (`auto_rotate:false`) when you need the raw sensor orientation.
-- `rotate` applies an explicit 90° multiple after auto-rotation and resizing. Non-right-angle values are ignored.
-- `flip` runs after rotation and flips horizontally, vertically, or both depending on boolean arguments.
+- `rotate` applies an explicit 90° multiple. It runs between the scale and the result crop, so the size and gravity a request names describe the image that comes back: `resize:fill:800:600/rotate:90` returns 800×600, and `crop:300:200:nowe/rotate:90` takes the region that ends up at the top left. Non-right-angle values are rejected.
+- `flip` runs after rotation and flips horizontally, vertically, or both. Crop gravity is compensated for it in the same way.
 
 ## Output control
 
