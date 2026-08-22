@@ -78,7 +78,14 @@ pub fn validate_signature_of_size(key: &[u8], salt: &[u8], signature: &str, path
         return false;
     };
 
-    let signature_size = signature_size.clamp(1, FULL_SIGNATURE_SIZE);
+    // An out-of-range size is a misconfiguration, and authorization fails
+    // closed on it. The environment path validates the range at startup, but a
+    // library caller sets `Config.signature_size` directly — and clamping a 0
+    // to 1 handed that caller a one-byte HMAC, brute-forceable in about 256
+    // requests, in place of the misconfiguration error they should have seen.
+    if signature_size == 0 || signature_size > FULL_SIGNATURE_SIZE {
+        return false;
+    }
 
     // A signature of the wrong length is rejected outright. Without this a
     // single correct byte would pass whenever the configuration allowed a
@@ -272,6 +279,20 @@ mod tests {
         // a valid signature, however many of its bytes happen to be right.
         assert!(!validate_signature_of_size(key, salt, &short, path, 16));
         assert!(!validate_signature_of_size(key, salt, &short, path, 32));
+
+        // An out-of-range size fails closed rather than being clamped: 0 used
+        // to silently become a one-byte HMAC for library callers who set the
+        // field directly.
+        let full_encoded = URL_SAFE_NO_PAD.encode(&full[..]);
+        assert!(!validate_signature_of_size(key, salt, &full_encoded, path, 0));
+        assert!(!validate_signature_of_size(key, salt, &full_encoded, path, 33));
+        assert!(!validate_signature_of_size(
+            key,
+            salt,
+            &URL_SAFE_NO_PAD.encode(&full[..1]),
+            path,
+            0
+        ));
 
         // And a wrong prefix still fails at the shortened length.
         let mut wrong = full[..8].to_vec();

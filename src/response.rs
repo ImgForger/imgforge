@@ -25,11 +25,21 @@ impl DeliveryHeaders {
 
     /// Builds the headers for a cache hit, whose entity tag was computed when
     /// the entry was stored.
-    ///
-    /// Hashing belongs on the miss, where the body was just produced anyway.
-    /// Doing it again per hit put a whole-body SHA-256 on the async worker for
-    /// exactly the requests that were supposed to be cheap.
     pub fn for_cache_hit(config: &Config, source: &SourceMetadata, stored_etag: &str, vary: &[&'static str]) -> Self {
+        Self::with_stored_etag(config, source, stored_etag, vary)
+    }
+
+    /// Builds the headers around an entity tag that was computed elsewhere.
+    ///
+    /// Hashing belongs where the body was produced — inside the blocking task
+    /// on a miss, at store time for a cache entry. Hashing here put a
+    /// whole-body SHA-256 on the async worker, twice on an ETag-enabled miss.
+    pub fn with_stored_etag(
+        config: &Config,
+        source: &SourceMetadata,
+        stored_etag: &str,
+        vary: &[&'static str],
+    ) -> Self {
         let etag = (config.use_etag && !stored_etag.is_empty()).then(|| stored_etag.to_string());
         Self::assemble(config, source, etag, vary)
     }

@@ -58,6 +58,15 @@ pub struct CacheKeyParts<'a> {
     /// every watermarked response while leaving every URL identical, so without
     /// this the old logo is served until the entries age out.
     pub watermark_path: Option<&'a str>,
+    /// The resolved URL of a `watermark_url` watermark, when the request
+    /// carries one.
+    ///
+    /// A relative watermark reference resolves through `IMGFORGE_BASE_URL`
+    /// exactly as the main source does, so the same URL composites a different
+    /// overlay the moment that setting changes — while the path and the main
+    /// source stay identical. Keying by the resolved form retires those
+    /// entries the same way `source_url` does for the image itself.
+    pub watermark_url: Option<&'a str>,
     /// Configured option defaults, when the deployment changes any of them.
     ///
     /// These seed the parse, so `IMGFORGE_QUALITY` and its neighbours change the
@@ -165,6 +174,11 @@ fn source_limits<'a>(parts: CacheKeyParts<'a>, base: Cow<'a, str>) -> Cow<'a, st
 
     let base = match parts.watermark_path {
         Some(path) => Cow::Owned(format!("wm={}:{}", digest(&[path.as_bytes()]), base)),
+        None => base,
+    };
+
+    let base = match parts.watermark_url {
+        Some(url) => Cow::Owned(format!("wmu={}:{}", digest(&[url.as_bytes()]), base)),
         None => base,
     };
 

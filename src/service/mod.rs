@@ -175,10 +175,12 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
     // The watermark's URL is part of the request too, so it is checked where
     // the main URL is checked — before the cache can answer. Validating it
     // only on the miss path let a cached composite keep serving pixels from a
-    // host the allow list no longer names.
-    if let Some(url) = parsed_options.watermark_url.as_deref() {
-        permitted_url(config, url)?;
-    }
+    // host the allow list no longer names. The resolved form is kept: it is
+    // part of the entry's identity for the same reason the main source's is.
+    let watermark_url = match parsed_options.watermark_url.as_deref() {
+        Some(url) => Some(permitted_url(config, url)?),
+        None => None,
+    };
 
     let cache_key = cache_key::processed_cache_key(CacheKeyParts {
         path,
@@ -202,6 +204,7 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
             .watermark_path
             .as_deref()
             .filter(|_| parsed_options.watermark.is_some() && parsed_options.watermark_url.is_none()),
+        watermark_url: watermark_url.as_deref(),
         // Only when the deployment changes them, so a default configuration
         // keeps the keys it already had.
         option_defaults: Some(config.option_defaults()).filter(|defaults| *defaults != OptionDefaults::default()),
@@ -338,7 +341,7 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
     let span = tracing::Span::current();
     let blocking_queue = ImageOperationTimer::start(ImageOperation::Process, ImageOperationPhase::BlockingQueue);
     let want_debug = config.enable_debug_headers;
-    let (processed_image_bytes, output_format, debug) = tokio::task::spawn_blocking(move || {
+    let (processed_image_bytes, output_format, debug, etag) = tokio::task::spawn_blocking(move || {
         drop(blocking_queue);
         drop(waiting);
         let _active = ImageOperationActivityGuard::active(ImageOperation::Process);
@@ -425,7 +428,13 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
             }
         }
 
-        Ok::<_, ServiceError>((processed_image_bytes, output_format, debug))
+        // Hashed here, inside the blocking task that just produced the bytes,
+        // and regardless of the current ETag setting — the cache entry
+        // outlives the configuration, and neither a hit nor the async worker
+        // should ever have to hash a body.
+        let etag = crate::response::entity_tag(&processed_image_bytes);
+
+        Ok::<_, ServiceError>((processed_image_bytes, output_format, debug, etag))
     })
     .await
     .map_err(|source| ServiceError::BlockingTask {
@@ -434,7 +443,7 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
     })??;
 
     let content_type = format_to_content_type(&output_format);
-    let headers = DeliveryHeaders::build(config, &source_metadata, &processed_image_bytes, &vary);
+    let headers = DeliveryHeaders::with_stored_etag(config, &source_metadata, &etag, &vary);
 
     if content_disposition.is_none() && !matches!(state.cache, ImgforgeCache::None) {
         if let Err(err) = state.cache.insert(
@@ -444,10 +453,7 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
                 content_type,
                 source_url: fetched_from.clone(),
                 watermark_source_url: watermark_fetched_from.clone(),
-                // Hashed here, on the miss that already produced the bytes,
-                // regardless of the current ETag setting — the entry outlives
-                // the configuration, and a hit must not have to hash.
-                etag: crate::response::entity_tag(&processed_image_bytes),
+                etag,
             },
         ) {
             error!("Failed to cache image: {}", err);
@@ -906,6 +912,11 @@ async fn serve_source_response(
         .map(format_to_content_type)
         .unwrap_or("image/jpeg");
 
+    // Hashed once and shared by the header and the cache entry — a
+    // passthrough has no blocking task to hide the cost in, but it does not
+    // have to pay it twice.
+    let etag = crate::response::entity_tag(&image_bytes);
+
     if content_disposition.is_none() && !matches!(state.cache, ImgforgeCache::None) {
         if let Err(err) = state.cache.insert(
             cache_key.to_string(),
@@ -915,7 +926,7 @@ async fn serve_source_response(
                 source_url: fetched_from.to_string(),
                 // A passthrough composites nothing.
                 watermark_source_url: String::new(),
-                etag: crate::response::entity_tag(&image_bytes),
+                etag: etag.clone(),
             },
         ) {
             error!("Failed to cache raw image: {}", err);
@@ -924,7 +935,7 @@ async fn serve_source_response(
 
     info!("Imgforge served source path={} bytes={}", path, image_bytes.len());
 
-    let headers = DeliveryHeaders::build(&state.config, source_metadata, &image_bytes, vary);
+    let headers = DeliveryHeaders::with_stored_etag(&state.config, source_metadata, &etag, vary);
 
     // A passthrough returns the source as the result, so both halves of the
     // diagnostics describe the same bytes. Leaving the whole struct out

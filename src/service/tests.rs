@@ -28,6 +28,7 @@ fn key_parts(path: &str) -> CacheKeyParts<'_> {
         max_src_file_size: None,
         allowed_mime_types: None,
         watermark_path: None,
+        watermark_url: None,
         option_defaults: None,
         negotiated_format: None,
         client_hints: None,
@@ -123,6 +124,28 @@ fn client_hint_dimensions_get_their_own_cache_entries() {
         processed_cache_key(key_parts(path)),
         processed_cache_key(key_parts(path))
     );
+}
+
+/// A watermark fetched by URL is part of what the response shows, so its
+/// resolved address is part of the entry's identity: a relative reference
+/// resolves elsewhere the moment `IMGFORGE_BASE_URL` changes, while the path
+/// and the main source stay exactly as they were.
+#[test]
+fn watermark_urls_get_their_own_cache_entries() {
+    let path = "/unsafe/resize:fit:100:100/example";
+
+    let plain = processed_cache_key(key_parts(path));
+    let old_base = processed_cache_key(CacheKeyParts {
+        watermark_url: Some("https://a.example.test/mark.png"),
+        ..key_parts(path)
+    });
+    let new_base = processed_cache_key(CacheKeyParts {
+        watermark_url: Some("https://b.example.test/mark.png"),
+        ..key_parts(path)
+    });
+
+    assert_ne!(plain, old_base);
+    assert_ne!(old_base, new_base);
 }
 
 #[test]
