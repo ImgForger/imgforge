@@ -237,7 +237,17 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
         // A cache hit has no source response to draw on, so the origin's own
         // caching headers are not available; the configured policy still is,
         // and the entity tag comes from the bytes either way.
-        let headers = DeliveryHeaders::for_cache_hit(config, &SourceMetadata::default(), &cached_image.etag, &vary);
+        // The origin's delivery metadata was stored with the entry, so a hit
+        // keeps saying what the origin said — a passthrough `no-store` must
+        // not vanish the moment the cache starts answering.
+        let cached_source = SourceMetadata {
+            cache_control: (!cached_image.origin_cache_control.is_empty())
+                .then(|| cached_image.origin_cache_control.clone()),
+            last_modified: (!cached_image.origin_last_modified.is_empty())
+                .then(|| cached_image.origin_last_modified.clone()),
+            url: None,
+        };
+        let headers = DeliveryHeaders::for_cache_hit(config, &cached_source, &cached_image.etag, &vary);
 
         // Enabling the debug headers should not make them appear and disappear
         // with the cache. A hit never made the source request, so nothing about
@@ -454,6 +464,8 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
                 source_url: fetched_from.clone(),
                 watermark_source_url: watermark_fetched_from.clone(),
                 etag,
+                origin_cache_control: source_metadata.cache_control.clone().unwrap_or_default(),
+                origin_last_modified: source_metadata.last_modified.clone().unwrap_or_default(),
             },
         ) {
             error!("Failed to cache image: {}", err);
@@ -927,6 +939,8 @@ async fn serve_source_response(
                 // A passthrough composites nothing.
                 watermark_source_url: String::new(),
                 etag: etag.clone(),
+                origin_cache_control: source_metadata.cache_control.clone().unwrap_or_default(),
+                origin_last_modified: source_metadata.last_modified.clone().unwrap_or_default(),
             },
         ) {
             error!("Failed to cache raw image: {}", err);

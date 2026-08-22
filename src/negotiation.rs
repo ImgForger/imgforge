@@ -186,6 +186,18 @@ pub fn apply_client_hints(options: &mut ParsedOptions, hints: &RequestHints) {
         return;
     };
 
+    // The hint is attacker-adjacent input: a signature covers the path, not
+    // the headers, so a reusable signed URL that leaves its width to hints
+    // must not let `Width: 1000000` size the pipeline. Bounded by the result
+    // ceiling when one is in force, and by a hard cap no real screen exceeds
+    // when none is.
+    const MAX_HINTED_WIDTH: u32 = 16_384;
+    let cap = options
+        .max_result_dimension
+        .map(|limit| limit.get().min(MAX_HINTED_WIDTH))
+        .unwrap_or(MAX_HINTED_WIDTH);
+    let width = width.min(cap);
+
     // `Width` is already in physical pixels — that is what the client hint
     // means — while `dpr` is multiplied back onto the resize target later in
     // the pipeline. Taking the hint at face value therefore applied the ratio
@@ -440,6 +452,36 @@ mod tests {
             },
         );
         assert_eq!(options.dpr, Some(1.0), "an explicit dpr:1 refuses the hint");
+
+        // The hint is attacker-adjacent input on a signed URL — the signature
+        // covers the path, not the headers — so it is bounded before it can
+        // size the pipeline.
+        let mut options = ParsedOptions::default();
+        apply_client_hints(
+            &mut options,
+            &RequestHints {
+                width: Some(1_000_000),
+                ..RequestHints::default()
+            },
+        );
+        assert_eq!(options.resize.unwrap().width, 16_384, "the hard cap bounds the hint");
+
+        let mut options = ParsedOptions {
+            max_result_dimension: Some("2000".parse().unwrap()),
+            ..ParsedOptions::default()
+        };
+        apply_client_hints(
+            &mut options,
+            &RequestHints {
+                width: Some(1_000_000),
+                ..RequestHints::default()
+            },
+        );
+        assert_eq!(
+            options.resize.unwrap().width,
+            2000,
+            "a configured result ceiling bounds it tighter still"
+        );
 
         // The same division applies when the hint fills a zero-width resize the
         // URL already named.

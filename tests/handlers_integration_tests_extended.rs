@@ -884,6 +884,29 @@ async fn cache_hits_serve_the_stored_entity_tag() {
     assert_eq!(delivery_header(&hit, "etag").as_deref(), Some(miss_etag.as_str()));
 }
 
+/// A passthrough `no-store` must survive the cache: the origin's policy is
+/// stored with the entry, because losing it on the hit invited shared caches
+/// to store exactly what the origin forbade.
+#[tokio::test]
+async fn passthrough_cache_control_survives_a_cache_hit() {
+    let server = MockServer::start().await;
+    let encoded = delivery_source(&server, &[("Cache-Control", "no-store")]).await;
+    let uri = format!("/unsafe/rs:fit:20:20/{encoded}");
+
+    let cache = ImgforgeCache::new(Some(CacheConfig::Memory { capacity: 1024 * 1024 }))
+        .await
+        .unwrap();
+    let mut config = delivery_config();
+    config.cache_control_passthrough = true;
+
+    let miss = delivery_request_with_cache(config.clone(), cache.clone(), &uri, &[]).await;
+    assert_eq!(delivery_header(&miss, "cache-control").as_deref(), Some("no-store"));
+
+    let hit = delivery_request_with_cache(config, cache, &uri, &[]).await;
+    assert_eq!(delivery_header(&hit, "cache-status").as_deref(), Some("HIT"));
+    assert_eq!(delivery_header(&hit, "cache-control").as_deref(), Some("no-store"));
+}
+
 /// A bearer-protected deployment must not mark responses shared-cacheable:
 /// `public` invites a CDN to replay the authorised answer to a request that
 /// carries no token. Neither the TTL default nor the origin's own policy gets

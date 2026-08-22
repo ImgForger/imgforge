@@ -49,6 +49,14 @@ pub struct CachedImage {
     /// The entity tag of `bytes`, computed when the entry was stored so a hit
     /// does not hash the whole body again on the async worker.
     pub etag: String,
+    /// The origin's own `Cache-Control`, empty when it sent none.
+    ///
+    /// Kept so a hit under passthrough keeps saying what the origin said —
+    /// losing a `no-store` the moment the cache answered invited shared caches
+    /// to store exactly what the origin forbade.
+    pub origin_cache_control: String,
+    /// The origin's `Last-Modified`, for the same reason. Empty when absent.
+    pub origin_last_modified: String,
 }
 
 impl Code for CachedImage {
@@ -72,6 +80,14 @@ impl Code for CachedImage {
         let etag_bytes = self.etag.as_bytes();
         etag_bytes.len().encode(writer)?;
         writer.write_all(etag_bytes).map_err(FoyerError::io_error)?;
+
+        let cache_control_bytes = self.origin_cache_control.as_bytes();
+        cache_control_bytes.len().encode(writer)?;
+        writer.write_all(cache_control_bytes).map_err(FoyerError::io_error)?;
+
+        let last_modified_bytes = self.origin_last_modified.as_bytes();
+        last_modified_bytes.len().encode(writer)?;
+        writer.write_all(last_modified_bytes).map_err(FoyerError::io_error)?;
         Ok(())
     }
 
@@ -105,12 +121,30 @@ impl Code for CachedImage {
         let etag =
             String::from_utf8(etag_buf).map_err(|_| FoyerError::new(ErrorKind::Parse, "invalid utf8 in etag"))?;
 
+        let cache_control_len = usize::decode(reader)?;
+        let mut cache_control_buf = vec![0u8; cache_control_len];
+        reader
+            .read_exact(&mut cache_control_buf)
+            .map_err(FoyerError::io_error)?;
+        let origin_cache_control = String::from_utf8(cache_control_buf)
+            .map_err(|_| FoyerError::new(ErrorKind::Parse, "invalid utf8 in origin cache control"))?;
+
+        let last_modified_len = usize::decode(reader)?;
+        let mut last_modified_buf = vec![0u8; last_modified_len];
+        reader
+            .read_exact(&mut last_modified_buf)
+            .map_err(FoyerError::io_error)?;
+        let origin_last_modified = String::from_utf8(last_modified_buf)
+            .map_err(|_| FoyerError::new(ErrorKind::Parse, "invalid utf8 in origin last modified"))?;
+
         Ok(CachedImage {
             bytes: Bytes::from(data),
             content_type,
             source_url,
             watermark_source_url,
             etag,
+            origin_cache_control,
+            origin_last_modified,
         })
     }
 
@@ -120,7 +154,9 @@ impl Code for CachedImage {
             + self.source_url.len()
             + self.watermark_source_url.len()
             + self.etag.len()
-            + std::mem::size_of::<usize>() * 5
+            + self.origin_cache_control.len()
+            + self.origin_last_modified.len()
+            + std::mem::size_of::<usize>() * 7
     }
 }
 
@@ -465,6 +501,8 @@ mod tests {
             source_url: "https://example.test/cached.png".to_string(),
             watermark_source_url: "https://cdn.example.test/mark.png".to_string(),
             etag: "\"abc123\"".to_string(),
+            origin_cache_control: "no-store".to_string(),
+            origin_last_modified: "Wed, 21 Oct 2015 07:28:00 GMT".to_string(),
         };
 
         cache.insert(key.clone(), value.clone()).unwrap();
@@ -486,6 +524,8 @@ mod tests {
             source_url: "https://example.test/cached.png".to_string(),
             watermark_source_url: "https://cdn.example.test/mark.png".to_string(),
             etag: "\"abc123\"".to_string(),
+            origin_cache_control: "no-store".to_string(),
+            origin_last_modified: "Wed, 21 Oct 2015 07:28:00 GMT".to_string(),
         };
         cache.insert(key.clone(), value.clone()).unwrap();
         let retrieved = cache.get(&key).await.unwrap();
@@ -496,6 +536,8 @@ mod tests {
         assert_eq!(retrieved.source_url, value.source_url);
         assert_eq!(retrieved.watermark_source_url, value.watermark_source_url);
         assert_eq!(retrieved.etag, value.etag);
+        assert_eq!(retrieved.origin_cache_control, value.origin_cache_control);
+        assert_eq!(retrieved.origin_last_modified, value.origin_last_modified);
     }
 
     #[test]
