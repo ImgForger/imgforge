@@ -42,23 +42,19 @@ enum HostMatch {
     Exact(String),
     /// The host must end with this after exactly one further label.
     Suffix(String),
-    /// The entry could not be parsed as a URL prefix at all, so it is compared
-    /// as literal text. imgproxy documents entries with a scheme; this only
-    /// keeps a malformed one behaving as it did rather than silently matching
-    /// nothing, and it can never be more permissive than the string it names.
-    Unstructured,
 }
 
 impl SourcePattern {
-    pub fn parse(pattern: &str) -> Self {
-        let unstructured = || Self {
-            scheme: pattern.to_string(),
-            host: HostMatch::Unstructured,
-            port: None,
-            path_prefix: String::new(),
-            query_prefix: None,
-        };
-
+    /// Parses one entry, or says why it cannot be one.
+    ///
+    /// A malformed entry is refused rather than matched as text. The fallback
+    /// used to compare raw prefixes, and raw prefixes are the bug class this
+    /// type exists to end: `https://trusted.example:bad` failed to parse, so
+    /// it text-matched `https://trusted.example:bad@evil.test/x` — a URL whose
+    /// real host hides behind userinfo. An entry that cannot be parsed cannot
+    /// be enforced, and a security boundary that cannot be enforced is a
+    /// startup error, not a matching strategy.
+    pub fn parse(pattern: &str) -> Result<Self, String> {
         // The wildcard is not a legal host, so the entry cannot be parsed as a
         // URL directly. Substituting a placeholder label lets the same parser
         // handle both forms, and keeps the port and path handling identical.
@@ -67,17 +63,15 @@ impl SourcePattern {
             None => (pattern.to_string(), false),
         };
 
-        let Ok(parsed) = Url::parse(&probe) else {
-            return unstructured();
-        };
+        let parsed = Url::parse(&probe).map_err(|err| format!("not a valid URL prefix: {err}"))?;
         let Some(host) = parsed.host_str() else {
-            return unstructured();
+            return Err("the entry names no host".to_string());
         };
 
         let host = if wildcard {
             match host.split_once('.') {
-                Some((_, suffix)) => HostMatch::Suffix(format!(".{suffix}")),
-                None => return unstructured(),
+                Some((_, suffix)) if !suffix.is_empty() => HostMatch::Suffix(format!(".{suffix}")),
+                _ => return Err("the wildcard needs a domain after it".to_string()),
             }
         } else {
             HostMatch::Exact(host.to_string())
@@ -94,20 +88,16 @@ impl SourcePattern {
             None => (normalise_prefix(parsed.path(), pattern), None),
         };
 
-        Self {
+        Ok(Self {
             scheme: parsed.scheme().to_string(),
             host,
             port: parsed.port(),
             path_prefix,
             query_prefix,
-        }
+        })
     }
 
     pub fn matches(&self, url: &str) -> bool {
-        if matches!(self.host, HostMatch::Unstructured) {
-            return url.starts_with(&self.scheme);
-        }
-
         let Ok(parsed) = Url::parse(url) else {
             return false;
         };
@@ -129,7 +119,6 @@ impl SourcePattern {
                     None => false,
                 }
             }
-            HostMatch::Unstructured => unreachable!("handled above"),
         };
 
         // `Url::path()` is normalised, so `/public/../private/x` arrives here as
@@ -209,7 +198,7 @@ mod tests {
 
     #[test]
     fn a_wildcard_stands_for_exactly_one_label() {
-        let pattern = SourcePattern::parse("https://*.example.com/");
+        let pattern = SourcePattern::parse("https://*.example.com/").expect("pattern parses");
 
         assert!(pattern.matches("https://images.example.com/cat.jpg"));
         // Bare domain and multi-label subdomains are both outside the pattern,
@@ -232,7 +221,7 @@ mod tests {
         // Both spellings of the pattern have to hold: only the trailing slash
         // was ever incidentally anchored.
         for spelling in ["https://*.example.com", "https://*.example.com/"] {
-            let pattern = SourcePattern::parse(spelling);
+            let pattern = SourcePattern::parse(spelling).expect("pattern parses");
 
             assert!(pattern.matches("https://img.example.com/cat.jpg"), "{spelling}");
             assert!(
@@ -257,12 +246,26 @@ mod tests {
         }
     }
 
+    /// A malformed entry is a startup error, not a matching strategy. The old
+    /// text fallback compared raw prefixes, so `https://trusted.example:bad`
+    /// matched `https://trusted.example:bad@evil.test/x` — a URL whose real
+    /// host hides behind userinfo, which is the bug class parsing exists to
+    /// end.
+    #[test]
+    fn a_malformed_entry_is_refused_rather_than_text_matched() {
+        assert!(SourcePattern::parse("https://trusted.example:bad").is_err());
+        // No scheme is no URL prefix.
+        assert!(SourcePattern::parse("*.example.com").is_err());
+        // A wildcard with nothing after it stands for no domain at all.
+        assert!(SourcePattern::parse("https://*.").is_err());
+    }
+
     /// An entry with a query is a prefix of the whole URL, query included.
     /// Discarding it read `?tenant=public` as "any query or none", which
     /// widened the boundary the operator wrote down.
     #[test]
     fn a_query_in_the_entry_restricts_the_match() {
-        let pattern = SourcePattern::parse("https://api.example.test/render?tenant=public");
+        let pattern = SourcePattern::parse("https://api.example.test/render?tenant=public").expect("pattern parses");
 
         assert!(pattern.matches("https://api.example.test/render?tenant=public"));
         // More query after the prefix is more URL after the prefix, which a
@@ -277,7 +280,7 @@ mod tests {
 
         // An entry without a query keeps its prefix-of-the-path reading and
         // says nothing about the candidate's query.
-        let open = SourcePattern::parse("https://api.example.test/render");
+        let open = SourcePattern::parse("https://api.example.test/render").expect("pattern parses");
         assert!(open.matches("https://api.example.test/render?tenant=private"));
     }
 
@@ -288,7 +291,7 @@ mod tests {
     #[test]
     fn a_literal_entry_cannot_be_extended_into_another_domain() {
         for spelling in ["https://cdn.example.com", "https://cdn.example.com/"] {
-            let pattern = SourcePattern::parse(spelling);
+            let pattern = SourcePattern::parse(spelling).expect("pattern parses");
 
             assert!(pattern.matches("https://cdn.example.com/cat.jpg"), "{spelling}");
             assert!(
@@ -311,7 +314,7 @@ mod tests {
         }
 
         // An entry that names a port matches that port.
-        let ported = SourcePattern::parse("https://cdn.example.com:8443/");
+        let ported = SourcePattern::parse("https://cdn.example.com:8443/").expect("pattern parses");
         assert!(ported.matches("https://cdn.example.com:8443/cat.jpg"));
         assert!(!ported.matches("https://cdn.example.com/cat.jpg"));
     }
@@ -323,7 +326,7 @@ mod tests {
     #[test]
     fn a_path_prefix_cannot_be_escaped_by_traversal() {
         for spelling in ["https://cdn.example.com/public/", "https://*.example.com/public/"] {
-            let pattern = SourcePattern::parse(spelling);
+            let pattern = SourcePattern::parse(spelling).expect("pattern parses");
             let host = if spelling.contains('*') {
                 "img.example.com"
             } else {
@@ -356,14 +359,18 @@ mod tests {
     /// Hosts are compared case-insensitively, as DNS does.
     #[test]
     fn host_matching_ignores_case() {
-        assert!(SourcePattern::parse("https://cdn.example.com/").matches("https://CDN.Example.COM/cat.jpg"));
-        assert!(SourcePattern::parse("https://*.example.com/").matches("https://IMG.Example.com/cat.jpg"));
+        assert!(SourcePattern::parse("https://cdn.example.com/")
+            .expect("pattern parses")
+            .matches("https://CDN.Example.COM/cat.jpg"));
+        assert!(SourcePattern::parse("https://*.example.com/")
+            .expect("pattern parses")
+            .matches("https://IMG.Example.com/cat.jpg"));
     }
 
     /// A wildcard may also constrain the path, and that half stays a prefix.
     #[test]
     fn a_wildcard_can_carry_a_path_prefix() {
-        let pattern = SourcePattern::parse("https://*.example.com/assets/");
+        let pattern = SourcePattern::parse("https://*.example.com/assets/").expect("pattern parses");
 
         assert!(pattern.matches("https://img.example.com/assets/cat.jpg"));
         assert!(!pattern.matches("https://img.example.com/private/cat.jpg"));
@@ -372,7 +379,7 @@ mod tests {
 
     #[test]
     fn a_plain_pattern_matches_by_prefix() {
-        let pattern = SourcePattern::parse("https://cdn.example.com/assets/");
+        let pattern = SourcePattern::parse("https://cdn.example.com/assets/").expect("pattern parses");
         assert!(pattern.matches("https://cdn.example.com/assets/cat.jpg"));
         assert!(!pattern.matches("https://cdn.example.com/private/cat.jpg"));
     }

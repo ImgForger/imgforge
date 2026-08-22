@@ -58,6 +58,8 @@ pub enum ConfigError {
     },
     #[error("image-processing worker count must be greater than zero")]
     ZeroWorkers,
+    #[error("invalid IMGFORGE_ALLOWED_SOURCES entry {entry:?}: {reason}")]
+    InvalidSourcePattern { entry: String, reason: String },
     #[error("image-processing worker count {value} exceeds the supported maximum of {max}")]
     WorkerCountTooLarge { value: usize, max: usize },
     #[error("invalid value for {name} ({value:?}): {reason}")]
@@ -444,11 +446,18 @@ impl Config {
 
         config.source_rules = SourceRules {
             base_url: optional_var(ENV_BASE_URL)?.filter(|value| !value.trim().is_empty()),
+            // A malformed entry is a startup error: an allow list that cannot
+            // be enforced as written must not quietly enforce something else.
             allowed: list_var(ENV_ALLOWED_SOURCES)?
                 .unwrap_or_default()
                 .iter()
-                .map(|pattern| SourcePattern::parse(pattern))
-                .collect(),
+                .map(|pattern| {
+                    SourcePattern::parse(pattern).map_err(|reason| ConfigError::InvalidSourcePattern {
+                        entry: pattern.clone(),
+                        reason,
+                    })
+                })
+                .collect::<Result<Vec<_>, _>>()?,
         };
         config.user_agent = optional_var(ENV_USER_AGENT)?
             .filter(|value| !value.trim().is_empty())

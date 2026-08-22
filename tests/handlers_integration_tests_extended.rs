@@ -991,7 +991,7 @@ async fn a_source_outside_the_allow_list_is_refused() {
     let mut config = delivery_config();
     config.source_rules = SourceRules {
         base_url: None,
-        allowed: vec![SourcePattern::parse("https://images.example.com/")],
+        allowed: vec![SourcePattern::parse("https://images.example.com/").expect("pattern parses")],
     };
 
     let response = delivery_request(delivery_state(config).await, &uri, &[]).await;
@@ -1160,7 +1160,7 @@ async fn a_redirect_out_of_the_allow_list_is_refused() {
     // Only the first server is permitted; the redirect points at the second.
     config.source_rules = SourceRules {
         base_url: None,
-        allowed: vec![SourcePattern::parse(&origin.uri())],
+        allowed: vec![SourcePattern::parse(&origin.uri()).expect("pattern parses")],
     };
 
     let encoded = URL_SAFE_NO_PAD.encode(format!("{}/image.png", origin.uri()));
@@ -1332,7 +1332,7 @@ async fn a_watermark_url_outside_the_allow_list_is_refused() {
     let mut permissive = delivery_config();
     permissive.source_rules = SourceRules {
         base_url: None,
-        allowed: vec![SourcePattern::parse(&format!("{}/", server.uri()))],
+        allowed: vec![SourcePattern::parse(&format!("{}/", server.uri())).expect("pattern parses")],
     };
     let allowed = delivery_request(delivery_state(permissive).await, &uri, &[]).await;
     assert_eq!(
@@ -1346,7 +1346,7 @@ async fn a_watermark_url_outside_the_allow_list_is_refused() {
     let mut restrictive = delivery_config();
     restrictive.source_rules = SourceRules {
         base_url: None,
-        allowed: vec![SourcePattern::parse("https://images.example.com/")],
+        allowed: vec![SourcePattern::parse("https://images.example.com/").expect("pattern parses")],
     };
     let refused = delivery_request(delivery_state(restrictive).await, &uri, &[]).await;
     assert_eq!(refused.status, StatusCode::BAD_REQUEST);
@@ -1358,7 +1358,7 @@ async fn a_watermark_url_outside_the_allow_list_is_refused() {
     let mut image_only = delivery_config();
     image_only.source_rules = SourceRules {
         base_url: None,
-        allowed: vec![SourcePattern::parse(&format!("{}/image.png", server.uri()))],
+        allowed: vec![SourcePattern::parse(&format!("{}/image.png", server.uri())).expect("pattern parses")],
     };
     let watermark_elsewhere = URL_SAFE_NO_PAD.encode(b"http://169.254.169.254/latest/meta-data/");
     let smuggled = format!("/unsafe/rs:fit:20:20/wm:0.5/wmu:{watermark_elsewhere}/{encoded}");
@@ -1390,7 +1390,7 @@ async fn a_cache_hit_does_not_outlive_the_source_allow_list() {
     let mut permissive = delivery_config();
     permissive.source_rules = SourceRules {
         base_url: None,
-        allowed: vec![SourcePattern::parse(&format!("{}/", server.uri()))],
+        allowed: vec![SourcePattern::parse(&format!("{}/", server.uri())).expect("pattern parses")],
     };
     let warm = delivery_request_with_cache(permissive, cache.clone(), &uri, &[]).await;
     assert_eq!(warm.status, StatusCode::OK);
@@ -1400,7 +1400,7 @@ async fn a_cache_hit_does_not_outlive_the_source_allow_list() {
     let mut restrictive = delivery_config();
     restrictive.source_rules = SourceRules {
         base_url: None,
-        allowed: vec![SourcePattern::parse("https://images.example.com/")],
+        allowed: vec![SourcePattern::parse("https://images.example.com/").expect("pattern parses")],
     };
     let response = delivery_request_with_cache(restrictive, cache, &uri, &[]).await;
     assert_eq!(
@@ -1520,7 +1520,7 @@ async fn info_does_not_describe_a_source_the_allow_list_now_forbids() {
     let mut permissive = create_test_config(vec![], vec![], true);
     permissive.source_rules = SourceRules {
         base_url: None,
-        allowed: vec![SourcePattern::parse(&format!("{}/", server.uri()))],
+        allowed: vec![SourcePattern::parse(&format!("{}/", server.uri())).expect("pattern parses")],
     };
     assert_eq!(
         respond(permissive, metadata_cache.clone(), uri.clone()).await,
@@ -1532,7 +1532,7 @@ async fn info_does_not_describe_a_source_the_allow_list_now_forbids() {
     let mut restrictive = create_test_config(vec![], vec![], true);
     restrictive.source_rules = SourceRules {
         base_url: None,
-        allowed: vec![SourcePattern::parse("https://images.example.com/")],
+        allowed: vec![SourcePattern::parse("https://images.example.com/").expect("pattern parses")],
     };
     assert_eq!(
         respond(restrictive, metadata_cache, uri).await,
@@ -1601,7 +1601,7 @@ async fn a_cached_redirect_destination_is_revalidated_on_a_hit() {
     let mut permissive = create_test_config(vec![], vec![], true);
     permissive.source_rules = SourceRules {
         base_url: None,
-        allowed: vec![SourcePattern::parse(&format!("{}/", origin.uri()))],
+        allowed: vec![SourcePattern::parse(&format!("{}/", origin.uri())).expect("pattern parses")],
     };
     assert_eq!(
         respond(permissive, cache.clone(), uri.clone()).await,
@@ -1615,7 +1615,7 @@ async fn a_cached_redirect_destination_is_revalidated_on_a_hit() {
     let mut entry_only = create_test_config(vec![], vec![], true);
     entry_only.source_rules = SourceRules {
         base_url: None,
-        allowed: vec![SourcePattern::parse(&format!("{}/entry.png", origin.uri()))],
+        allowed: vec![SourcePattern::parse(&format!("{}/entry.png", origin.uri())).expect("pattern parses")],
     };
     assert_eq!(
         respond(entry_only, cache, uri).await,
