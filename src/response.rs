@@ -20,9 +20,24 @@ pub struct DeliveryHeaders {
 impl DeliveryHeaders {
     /// Builds the headers for a response produced from `source`.
     pub fn build(config: &Config, source: &SourceMetadata, body: &[u8], vary: &[&'static str]) -> Self {
+        Self::assemble(config, source, config.use_etag.then(|| entity_tag(body)), vary)
+    }
+
+    /// Builds the headers for a cache hit, whose entity tag was computed when
+    /// the entry was stored.
+    ///
+    /// Hashing belongs on the miss, where the body was just produced anyway.
+    /// Doing it again per hit put a whole-body SHA-256 on the async worker for
+    /// exactly the requests that were supposed to be cheap.
+    pub fn for_cache_hit(config: &Config, source: &SourceMetadata, stored_etag: &str, vary: &[&'static str]) -> Self {
+        let etag = (config.use_etag && !stored_etag.is_empty()).then(|| stored_etag.to_string());
+        Self::assemble(config, source, etag, vary)
+    }
+
+    fn assemble(config: &Config, source: &SourceMetadata, etag: Option<String>, vary: &[&'static str]) -> Self {
         Self {
             cache_control: cache_control(config, source.cache_control.as_deref()),
-            etag: config.use_etag.then(|| entity_tag(body)),
+            etag,
             last_modified: config
                 .last_modified_enabled
                 .then(|| source.last_modified.clone())
@@ -91,7 +106,7 @@ fn cache_control(config: &Config, source_cache_control: Option<&str>) -> Option<
 /// processing options: the same URL against the same source can still produce
 /// different bytes once content negotiation is in play, and hashing the result
 /// is the only derivation that cannot disagree with what was actually sent.
-fn entity_tag(body: &[u8]) -> String {
+pub fn entity_tag(body: &[u8]) -> String {
     let digest = Sha256::digest(body);
     let mut tag = String::with_capacity(2 + 32);
     tag.push('"');

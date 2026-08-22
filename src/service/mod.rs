@@ -234,7 +234,7 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
         // A cache hit has no source response to draw on, so the origin's own
         // caching headers are not available; the configured policy still is,
         // and the entity tag comes from the bytes either way.
-        let headers = DeliveryHeaders::build(config, &SourceMetadata::default(), &cached_image.bytes, &vary);
+        let headers = DeliveryHeaders::for_cache_hit(config, &SourceMetadata::default(), &cached_image.etag, &vary);
 
         // Enabling the debug headers should not make them appear and disappear
         // with the cache. A hit never made the source request, so nothing about
@@ -444,6 +444,10 @@ pub async fn process_path(state: Arc<AppState>, request: ProcessRequest<'_>) -> 
                 content_type,
                 source_url: fetched_from.clone(),
                 watermark_source_url: watermark_fetched_from.clone(),
+                // Hashed here, on the miss that already produced the bytes,
+                // regardless of the current ETag setting — the entry outlives
+                // the configuration, and a hit must not have to hash.
+                etag: crate::response::entity_tag(&processed_image_bytes),
             },
         ) {
             error!("Failed to cache image: {}", err);
@@ -911,6 +915,7 @@ async fn serve_source_response(
                 source_url: fetched_from.to_string(),
                 // A passthrough composites nothing.
                 watermark_source_url: String::new(),
+                etag: crate::response::entity_tag(&image_bytes),
             },
         ) {
             error!("Failed to cache raw image: {}", err);

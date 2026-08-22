@@ -31,7 +31,14 @@ pub async fn preflight_handler(State(state): State<Arc<AppState>>) -> Response {
     let mut headers = HeaderMap::new();
     insert_header(&mut headers, header::ACCESS_CONTROL_ALLOW_ORIGIN, origin);
     insert_header(&mut headers, header::ACCESS_CONTROL_ALLOW_METHODS, "GET, OPTIONS");
-    insert_header(&mut headers, header::ACCESS_CONTROL_ALLOW_HEADERS, "Authorization");
+    // The conditional validators are not safelisted either, and this change is
+    // what added 304 support — a preflight that only granted Authorization
+    // blocked exactly the revalidation it shipped.
+    insert_header(
+        &mut headers,
+        header::ACCESS_CONTROL_ALLOW_HEADERS,
+        "Authorization, If-None-Match, If-Modified-Since",
+    );
     insert_header(&mut headers, header::ACCESS_CONTROL_MAX_AGE, "86400");
     (StatusCode::NO_CONTENT, headers).into_response()
 }

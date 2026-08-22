@@ -46,6 +46,9 @@ pub struct CachedImage {
     /// or empty when the entry composites none. Its pixels are in the bytes
     /// above, so its source is rechecked on a hit exactly as the image's own.
     pub watermark_source_url: String,
+    /// The entity tag of `bytes`, computed when the entry was stored so a hit
+    /// does not hash the whole body again on the async worker.
+    pub etag: String,
 }
 
 impl Code for CachedImage {
@@ -65,6 +68,10 @@ impl Code for CachedImage {
         let watermark_bytes = self.watermark_source_url.as_bytes();
         watermark_bytes.len().encode(writer)?;
         writer.write_all(watermark_bytes).map_err(FoyerError::io_error)?;
+
+        let etag_bytes = self.etag.as_bytes();
+        etag_bytes.len().encode(writer)?;
+        writer.write_all(etag_bytes).map_err(FoyerError::io_error)?;
         Ok(())
     }
 
@@ -92,11 +99,18 @@ impl Code for CachedImage {
         let watermark_source_url = String::from_utf8(watermark_buf)
             .map_err(|_| FoyerError::new(ErrorKind::Parse, "invalid utf8 in watermark source url"))?;
 
+        let etag_len = usize::decode(reader)?;
+        let mut etag_buf = vec![0u8; etag_len];
+        reader.read_exact(&mut etag_buf).map_err(FoyerError::io_error)?;
+        let etag =
+            String::from_utf8(etag_buf).map_err(|_| FoyerError::new(ErrorKind::Parse, "invalid utf8 in etag"))?;
+
         Ok(CachedImage {
             bytes: Bytes::from(data),
             content_type,
             source_url,
             watermark_source_url,
+            etag,
         })
     }
 
@@ -105,7 +119,8 @@ impl Code for CachedImage {
             + self.content_type.len()
             + self.source_url.len()
             + self.watermark_source_url.len()
-            + std::mem::size_of::<usize>() * 4
+            + self.etag.len()
+            + std::mem::size_of::<usize>() * 5
     }
 }
 
@@ -449,6 +464,7 @@ mod tests {
             content_type: "image/jpeg",
             source_url: "https://example.test/cached.png".to_string(),
             watermark_source_url: "https://cdn.example.test/mark.png".to_string(),
+            etag: "\"abc123\"".to_string(),
         };
 
         cache.insert(key.clone(), value.clone()).unwrap();
@@ -469,6 +485,7 @@ mod tests {
             content_type: "image/jpeg",
             source_url: "https://example.test/cached.png".to_string(),
             watermark_source_url: "https://cdn.example.test/mark.png".to_string(),
+            etag: "\"abc123\"".to_string(),
         };
         cache.insert(key.clone(), value.clone()).unwrap();
         let retrieved = cache.get(&key).await.unwrap();
@@ -478,6 +495,7 @@ mod tests {
         // hit-time allow-list check silently checks nothing.
         assert_eq!(retrieved.source_url, value.source_url);
         assert_eq!(retrieved.watermark_source_url, value.watermark_source_url);
+        assert_eq!(retrieved.etag, value.etag);
     }
 
     #[test]

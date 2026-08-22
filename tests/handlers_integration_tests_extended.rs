@@ -861,6 +861,29 @@ async fn cache_control_comes_from_the_ttl_or_the_origin() {
     );
 }
 
+/// A hit's ETag comes from the entry rather than from rehashing the body, so
+/// it has to be identical to the one the miss sent — or revalidation breaks
+/// the moment the cache starts answering.
+#[tokio::test]
+async fn cache_hits_serve_the_stored_entity_tag() {
+    let server = MockServer::start().await;
+    let encoded = delivery_source(&server, &[]).await;
+    let uri = format!("/unsafe/rs:fit:20:20/{encoded}");
+
+    let cache = ImgforgeCache::new(Some(CacheConfig::Memory { capacity: 1024 * 1024 }))
+        .await
+        .unwrap();
+    let mut config = delivery_config();
+    config.use_etag = true;
+
+    let miss = delivery_request_with_cache(config.clone(), cache.clone(), &uri, &[]).await;
+    let miss_etag = delivery_header(&miss, "etag").expect("the miss carries a tag");
+
+    let hit = delivery_request_with_cache(config, cache, &uri, &[]).await;
+    assert_eq!(delivery_header(&hit, "cache-status").as_deref(), Some("HIT"));
+    assert_eq!(delivery_header(&hit, "etag").as_deref(), Some(miss_etag.as_str()));
+}
+
 /// A bearer-protected deployment must not mark responses shared-cacheable:
 /// `public` invites a CDN to replay the authorised answer to a request that
 /// carries no token. Neither the TTL default nor the origin's own policy gets
