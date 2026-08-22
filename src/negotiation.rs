@@ -284,6 +284,12 @@ mod tests {
     #[test]
     fn avif_is_preferred_when_the_client_takes_both() {
         init_vips();
+        // Negotiation only offers what this libvips build can encode, so the
+        // AVIF expectations hold only where an AVIF encoder exists — the same
+        // guard the save tests use.
+        if !is_format_supported("avif") {
+            return;
+        }
         let config = config_with((true, true), (false, false));
         let hints = accepting("image/avif,image/webp,*/*");
 
@@ -330,6 +336,11 @@ mod tests {
     #[test]
     fn the_clients_quality_weights_decide_between_two_offers() {
         init_vips();
+        // The ranking under test needs both offers on the table, and AVIF is
+        // only offered where this libvips build can encode it.
+        if !is_format_supported("avif") {
+            return;
+        }
         let config = config_with((true, true), (false, false));
 
         assert_eq!(
