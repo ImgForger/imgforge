@@ -165,7 +165,10 @@ pub fn vary_headers(config: &Config) -> Vec<&'static str> {
 /// open.
 pub fn apply_client_hints(options: &mut ParsedOptions, hints: &RequestHints) {
     if let Some(dpr) = hints.dpr {
-        if options.dpr.is_none_or(|configured| configured <= 1.0) {
+        // Only when the URL left the choice open. `dpr:1` names a ratio just
+        // as `dpr:2` does, but the explicit form and the default both arrive
+        // here as 1.0 — so presence is the signal, not the value.
+        if options.dpr.is_none() {
             debug!("Applying client DPR hint: {}", dpr);
             options.dpr = Some(dpr.clamp(1.0, 5.0));
         }
@@ -406,6 +409,23 @@ mod tests {
             "the URL's own dpr must not become the divisor for the client's hint"
         );
         assert_eq!(options.dpr, Some(3.0), "and the URL's dpr still wins for scaling");
+
+        // `dpr:1` in the URL is a choice, not an absence: it says "do not
+        // scale", and a larger hint must not overrule it. It used to, because
+        // the default was also stored as 1.0 and the two were told apart by
+        // value rather than by presence.
+        let mut options = ParsedOptions {
+            dpr: Some(1.0),
+            ..ParsedOptions::default()
+        };
+        apply_client_hints(
+            &mut options,
+            &RequestHints {
+                dpr: Some(2.0),
+                ..RequestHints::default()
+            },
+        );
+        assert_eq!(options.dpr, Some(1.0), "an explicit dpr:1 refuses the hint");
 
         // The same division applies when the hint fills a zero-width resize the
         // URL already named.

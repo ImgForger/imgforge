@@ -199,7 +199,11 @@ impl ParsedOptions {
             expires: None,
             filename: None,
             return_attachment: defaults.return_attachment,
-            dpr: Some(1.0),
+            // `None` until the URL names one — presence is how "the URL said
+            // `dpr:1`" stays distinguishable from "the URL said nothing", which
+            // is what lets an explicit `dpr:1` refuse a larger client hint.
+            // `dpr_factor()` reads the absence as 1.0.
+            dpr: None,
             min_width: None,
             min_height: None,
             zoom: None,
