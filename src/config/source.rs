@@ -26,6 +26,13 @@ pub struct SourcePattern {
     port: Option<u16>,
     /// The path the entry restricts to, already normalised.
     path_prefix: String,
+    /// The query the entry restricts to, when it named one.
+    ///
+    /// As a prefix of the raw URL, an entry with a query pins everything up to
+    /// it: `?tenant=public` permits `?tenant=public&x=1` but not
+    /// `?tenant=private`, and not a URL with no query at all. Dropping it
+    /// widened the boundary the operator wrote down.
+    query_prefix: Option<String>,
 }
 
 /// How an entry's host half is compared against a URL's host.
@@ -49,6 +56,7 @@ impl SourcePattern {
             host: HostMatch::Unstructured,
             port: None,
             path_prefix: String::new(),
+            query_prefix: None,
         };
 
         // The wildcard is not a legal host, so the entry cannot be parsed as a
@@ -75,13 +83,23 @@ impl SourcePattern {
             HostMatch::Exact(host.to_string())
         };
 
+        // A query pins the path with it: as a prefix of the raw URL, anything
+        // more path would have to come before the `?`, and nothing can. So the
+        // path is kept exactly as parsed for equality rather than run through
+        // the prefix normalisation.
+        let (path_prefix, query_prefix) = match parsed.query() {
+            Some(query) => (parsed.path().to_string(), Some(query.to_string())),
+            // `Url` has already resolved any dot segments here, so an entry and
+            // a candidate are compared in the same normalised terms.
+            None => (normalise_prefix(parsed.path(), pattern), None),
+        };
+
         Self {
             scheme: parsed.scheme().to_string(),
             host,
             port: parsed.port(),
-            // `Url` has already resolved any dot segments here, so an entry and
-            // a candidate are compared in the same normalised terms.
-            path_prefix: normalise_prefix(parsed.path(), pattern),
+            path_prefix,
+            query_prefix,
         }
     }
 
@@ -116,7 +134,13 @@ impl SourcePattern {
 
         // `Url::path()` is normalised, so `/public/../private/x` arrives here as
         // `/private/x` — the path reqwest will actually request.
-        host_ok && parsed.path().starts_with(&self.path_prefix)
+        let path_ok = match &self.query_prefix {
+            Some(query) => {
+                parsed.path() == self.path_prefix && parsed.query().unwrap_or("").starts_with(query.as_str())
+            }
+            None => parsed.path().starts_with(&self.path_prefix),
+        };
+        host_ok && path_ok
     }
 }
 
@@ -231,6 +255,30 @@ mod tests {
                 "{spelling} must not be satisfied from the query string"
             );
         }
+    }
+
+    /// An entry with a query is a prefix of the whole URL, query included.
+    /// Discarding it read `?tenant=public` as "any query or none", which
+    /// widened the boundary the operator wrote down.
+    #[test]
+    fn a_query_in_the_entry_restricts_the_match() {
+        let pattern = SourcePattern::parse("https://api.example.test/render?tenant=public");
+
+        assert!(pattern.matches("https://api.example.test/render?tenant=public"));
+        // More query after the prefix is more URL after the prefix, which a
+        // prefix permits.
+        assert!(pattern.matches("https://api.example.test/render?tenant=public&size=2"));
+        assert!(!pattern.matches("https://api.example.test/render?tenant=private"));
+        assert!(!pattern.matches("https://api.example.test/render"));
+        // A query pins the path with it: as a prefix of the raw URL, anything
+        // more path would have to come before the `?`, and nothing can.
+        assert!(!pattern.matches("https://api.example.test/render/extra?tenant=public"));
+        assert!(!pattern.matches("https://api.example.test/other?tenant=public"));
+
+        // An entry without a query keeps its prefix-of-the-path reading and
+        // says nothing about the candidate's query.
+        let open = SourcePattern::parse("https://api.example.test/render");
+        assert!(open.matches("https://api.example.test/render?tenant=private"));
     }
 
     /// The literal form needs the same anchoring as the wildcard. Fixing only
